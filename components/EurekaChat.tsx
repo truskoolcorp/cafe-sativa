@@ -14,9 +14,9 @@ export default function EurekaChat() {
       content: "Hi! I'm Eureka Andersson, Nordic wellness chef at Virtual Café Sativa. How can I help you today?"
     }
   ]);
-  const [input, setInput] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [input, setInput] = useState<string>('');
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -33,7 +33,8 @@ export default function EurekaChat() {
     const userMessage = input.trim();
     setInput('');
     
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    const newUserMessage: Message = { role: 'user', content: userMessage };
+    setMessages((prev) => [...prev, newUserMessage]);
     setIsLoading(true);
 
     try {
@@ -51,19 +52,19 @@ export default function EurekaChat() {
 
       const data = await response.json();
       
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: data.response }
-      ]);
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: data.response
+      };
+      
+      setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Error:', error);
-      setMessages(prev => [
-        ...prev,
-        { 
-          role: 'assistant', 
-          content: "I'm having trouble connecting right now. Please try again in a moment." 
-        }
-      ]);
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: "I'm having trouble connecting right now. Please try again in a moment."
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }

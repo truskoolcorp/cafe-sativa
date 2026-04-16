@@ -2,14 +2,15 @@ import './globals.css'
 import type { Metadata } from 'next'
 import { Playfair_Display, Inter } from 'next/font/google'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
+import LogoutButton from './components/LogoutButton'   // we'll create this next
 
-const playfair = Playfair_Display({ 
+const playfair = Playfair_Display({
   subsets: ['latin'],
   variable: '--font-playfair',
   display: 'swap',
 })
-
-const inter = Inter({ 
+const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
   display: 'swap',
@@ -21,11 +22,14 @@ export const metadata: Metadata = {
   keywords: ['Virtual Café Sativa', 'online lounge', 'virtual events', 'art gallery', 'cooking classes', 'cigar lounge', 'cultural community', 'Tenerife 2026'],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const supabase = createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+
   return (
     <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
       <body className="font-sans">
@@ -37,8 +41,8 @@ export default function RootLayout({
                 <span className="text-2xl">☕</span>
                 <span>CAFÉ SATIVA®</span>
               </Link>
-              
-              <div className="hidden md:flex space-x-8">
+
+              <div className="hidden md:flex space-x-8 items-center">
                 <Link href="/" className="text-[#F5E6D3] hover:text-[#C9A961] transition-colors">
                   Home
                 </Link>
@@ -57,12 +61,29 @@ export default function RootLayout({
                 <Link href="/lounge" className="text-[#F5E6D3] hover:text-[#C9A961] transition-colors">
                   Community
                 </Link>
-                <Link href="/membership" className="bg-[#C9A961] text-[#2B1810] px-4 py-2 rounded-sm hover:bg-[#F5E6D3] transition-colors font-semibold">
-                  Join
-                </Link>
+
+                {/* Auth Section */}
+                {session ? (
+                  <div className="flex items-center gap-4">
+                    <Link
+                      href="/membership"
+                      className="text-[#C9A961] hover:text-[#F5E6D3] font-medium"
+                    >
+                      {session.user.email?.split('@')[0]}
+                    </Link>
+                    <LogoutButton />
+                  </div>
+                ) : (
+                  <Link
+                    href="/auth/signin"
+                    className="bg-[#C9A961] text-[#2B1810] px-6 py-2 rounded-sm hover:bg-[#F5E6D3] transition-colors font-semibold"
+                  >
+                    Sign In
+                  </Link>
+                )}
               </div>
 
-              {/* Mobile menu button */}
+              {/* Mobile menu button (unchanged) */}
               <button className="md:hidden text-[#C9A961]">
                 <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -77,7 +98,7 @@ export default function RootLayout({
           {children}
         </div>
 
-        {/* Footer */}
+        {/* Footer (unchanged) */}
         <footer className="bg-[#2B1810] border-t border-[#5C4033] py-12 px-4">
           <div className="max-w-6xl mx-auto">
             <div className="grid md:grid-cols-4 gap-8 mb-8">
@@ -94,8 +115,7 @@ export default function RootLayout({
                   Virtual Venue • Physical Location Coming 2026
                 </p>
               </div>
-
-              {/* Quick Links */}
+              {/* Quick Links & Connect (same as before) */}
               <div>
                 <h4 className="text-[#C9A961] font-semibold mb-4 uppercase tracking-wider">Explore</h4>
                 <ul className="space-y-2">
@@ -106,8 +126,6 @@ export default function RootLayout({
                   <li><Link href="/lounge" className="text-[#F5E6D3] hover:text-[#C9A961] transition-colors">Community</Link></li>
                 </ul>
               </div>
-
-              {/* Connect */}
               <div>
                 <h4 className="text-[#C9A961] font-semibold mb-4 uppercase tracking-wider">Connect</h4>
                 <ul className="space-y-2">
@@ -118,8 +136,6 @@ export default function RootLayout({
                 </ul>
               </div>
             </div>
-
-            {/* Bottom bar */}
             <div className="border-t border-[#5C4033] pt-8 flex flex-col md:flex-row justify-between items-center">
               <p className="text-[#F5E6D3] text-sm mb-4 md:mb-0">
                 © 2026 Café Sativa®. All rights reserved. A registered U.S. LLC.

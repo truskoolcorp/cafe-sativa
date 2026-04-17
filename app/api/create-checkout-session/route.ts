@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 
+type Plan = 'insider' | 'founder'
+
 export async function POST(req: Request) {
   try {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY
@@ -8,22 +10,27 @@ export async function POST(req: Request) {
 
     if (!stripeSecretKey) {
       return NextResponse.json(
-        { error: 'Stripe secret key is not configured.' },
+        { error: 'STRIPE_SECRET_KEY is not configured.' },
         { status: 500 }
       )
     }
 
     if (!siteUrl) {
       return NextResponse.json(
-        { error: 'Site URL is not configured.' },
+        { error: 'NEXT_PUBLIC_SITE_URL is not configured.' },
         { status: 500 }
       )
     }
 
-    const stripe = new Stripe(stripeSecretKey)
+    const body = await req.json().catch(() => null)
+    const plan = body?.plan as Plan | undefined
 
-    const body = await req.json()
-    const plan = body?.plan
+    if (plan !== 'insider' && plan !== 'founder') {
+      return NextResponse.json(
+        { error: 'Invalid plan selected.' },
+        { status: 400 }
+      )
+    }
 
     const priceId =
       plan === 'founder'
@@ -32,22 +39,31 @@ export async function POST(req: Request) {
 
     if (!priceId) {
       return NextResponse.json(
-        { error: 'Stripe price ID is not configured.' },
+        { error: `Stripe price ID missing for ${plan}.` },
         { status: 500 }
       )
     }
+
+    const stripe = new Stripe(stripeSecretKey)
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${siteUrl}/?success=true`,
-      cancel_url: `${siteUrl}/?canceled=true`,
+      success_url: `${siteUrl}/membership?success=true`,
+      cancel_url: `${siteUrl}/membership?canceled=true`,
     })
+
+    if (!session.url) {
+      return NextResponse.json(
+        { error: 'Stripe did not return a checkout URL.' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({ url: session.url })
   } catch (error) {
-    console.error('Stripe checkout error:', error)
+    console.error('create-checkout-session error:', error)
     return NextResponse.json(
       { error: 'Checkout failed.' },
       { status: 500 }

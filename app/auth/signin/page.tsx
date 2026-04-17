@@ -16,18 +16,20 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const supabaseEnabled =
-    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
-    Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-
   useEffect(() => {
     setMounted(true)
   }, [])
 
   const supabase = useMemo(() => {
-    if (!mounted || !supabaseEnabled) return null
-    return createClient()
-  }, [mounted, supabaseEnabled])
+    if (!mounted) return null
+
+    try {
+      return createClient()
+    } catch (err) {
+      console.error(err)
+      return null
+    }
+  }, [mounted])
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -36,7 +38,7 @@ export default function SignInPage() {
 
     if (!supabase) {
       setError(
-        'Sign-in is not configured yet. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.'
+        'Supabase is not configured for this deployment yet. Verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel, then redeploy.'
       )
       setLoading(false)
       return
@@ -70,10 +72,11 @@ export default function SignInPage() {
           </h1>
         </div>
 
-        {!supabaseEnabled && (
+        {!supabase && (
           <div className="bg-yellow-900 text-white p-3 rounded mb-6 text-sm">
-            Supabase is not configured yet. Add NEXT_PUBLIC_SUPABASE_URL and
-            NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.
+            Supabase is not configured for this deployment yet. Check
+            NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in
+            Vercel, then redeploy.
           </div>
         )}
 
@@ -114,7 +117,7 @@ export default function SignInPage() {
 
           <button
             type="submit"
-            disabled={loading || !supabaseEnabled}
+            disabled={loading || !supabase}
             className="w-full bg-[#C9A961] text-[#2B1810] py-4 rounded font-semibold hover:bg-[#F5E6D3] transition-colors disabled:opacity-50"
           >
             {loading ? 'Signing in...' : 'Sign In'}

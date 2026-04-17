@@ -47,7 +47,42 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[#1a0904] text-[#f5e6d3]">
-      <section className="mx-auto flex min-h-screen max-w-7xl flex-col justify-center px-6 py-20 lg:px-10">
+      <header className="sticky top-0 z-20 border-b border-[#c9a961]/15 bg-[#1a0904]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
+          <Link href="/" className="text-xl font-semibold text-[#c9a961]">
+            Café Sativa
+          </Link>
+
+          <nav className="flex flex-wrap items-center gap-3 text-sm">
+            <Link
+              href="/"
+              className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5"
+            >
+              Home
+            </Link>
+            <Link
+              href="/membership"
+              className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5"
+            >
+              Membership
+            </Link>
+            <Link
+              href="/auth/signin"
+              className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5"
+            >
+              Sign In
+            </Link>
+            <Link
+              href="/auth/signup"
+              className="rounded-md bg-[#c9a961] px-4 py-2 font-medium text-[#2b1810] transition hover:bg-[#e2c27a]"
+            >
+              Sign Up
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <section className="mx-auto flex min-h-[calc(100vh-73px)] max-w-7xl flex-col justify-center px-6 py-20 lg:px-10">
         <div className="mx-auto max-w-4xl text-center">
           <p className="mb-4 text-sm uppercase tracking-[0.35em] text-[#c9a961]">
             Café Sativa
@@ -78,12 +113,12 @@ export default function HomePage() {
               Sign In
             </Link>
 
-            <a
-              href="#guest-list"
+            <Link
+              href="/auth/signup"
               className="rounded-md border border-[#f5e6d3]/25 px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-white/5"
             >
-              Join Guest List
-            </a>
+              Create Account
+            </Link>
           </div>
         </div>
 
@@ -173,11 +208,7 @@ export default function HomePage() {
               {submitting ? 'Submitting...' : 'Join the Guest List'}
             </button>
 
-            {message && (
-              <p className="text-sm text-[#f5e6d3]">
-                {message}
-              </p>
-            )}
+            {message && <p className="text-sm text-[#f5e6d3]">{message}</p>}
           </form>
         </div>
       </section>

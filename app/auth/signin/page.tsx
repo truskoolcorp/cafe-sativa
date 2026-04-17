@@ -44,27 +44,46 @@ export default function SignInPage() {
       return
     }
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (signInError) {
-      setError(signInError.message)
-      setLoading(false)
-      return
+      if (signInError) {
+        setError(signInError.message)
+        setLoading(false)
+        return
+      }
+
+      router.push('/')
+      router.refresh()
+    } catch (err: any) {
+      setError(err?.message || 'Sign-in failed.')
     }
 
-    router.push('/')
-    router.refresh()
     setLoading(false)
   }
 
   if (!mounted) return null
 
   return (
-    <main className="min-h-screen bg-[#2B1810] flex items-center justify-center px-4">
+    <main className="min-h-screen bg-[#2B1810] flex items-center justify-center px-4 py-10">
       <div className="max-w-md w-full bg-[#5C4033] rounded-lg p-8 border border-[#C9A961]">
+        <div className="mb-6 flex flex-wrap gap-2 text-sm">
+          <Link href="/" className="text-[#F5E6D3] hover:underline">
+            ← Home
+          </Link>
+          <span className="text-[#c9a961]/50">•</span>
+          <Link href="/membership" className="text-[#F5E6D3] hover:underline">
+            Membership
+          </Link>
+          <span className="text-[#c9a961]/50">•</span>
+          <Link href="/auth/signup" className="text-[#C9A961] hover:underline">
+            Sign Up
+          </Link>
+        </div>
+
         <div className="text-center mb-8">
           <span className="text-4xl">☕</span>
           <h1 className="text-[#C9A961] text-3xl font-serif mt-4">

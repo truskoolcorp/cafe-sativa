@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
 type Plan = 'insider' | 'founder'
@@ -8,6 +8,16 @@ type Plan = 'insider' | 'founder'
 export default function MembershipPage() {
   const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('success') === 'true') {
+      setNotice('Checkout started successfully.')
+    } else if (url.searchParams.get('canceled') === 'true') {
+      setNotice('Checkout was canceled.')
+    }
+  }, [])
 
   async function handleCheckout(plan: Plan) {
     setLoadingPlan(plan)
@@ -29,8 +39,8 @@ export default function MembershipPage() {
       }
 
       window.location.href = data.url
-    } catch {
-      setError('Checkout failed.')
+    } catch (err: any) {
+      setError(err?.message || 'Checkout failed.')
       setLoadingPlan(null)
     }
   }
@@ -39,10 +49,7 @@ export default function MembershipPage() {
     <main className="min-h-screen bg-[#1a0904] px-6 py-20 text-[#f5e6d3] lg:px-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8 flex flex-wrap items-center gap-3">
-          <Link
-            href="/"
-            className="rounded-md px-4 py-2 text-[#f5e6d3] hover:bg-white/5"
-          >
+          <Link href="/" className="rounded-md px-4 py-2 text-[#f5e6d3] hover:bg-white/5">
             ← Back Home
           </Link>
           <Link
@@ -71,6 +78,9 @@ export default function MembershipPage() {
           Start with Insider or secure Founding Guest status for priority access,
           premium drops, and future real-world reservation advantages.
         </p>
+
+        {notice && <p className="mt-6 text-sm text-green-300">{notice}</p>}
+        {error && <p className="mt-6 text-sm text-red-300">{error}</p>}
 
         <div className="mt-12 grid gap-6 md:grid-cols-2">
           <div className="rounded-2xl border border-[#c9a961]/20 bg-black/20 p-8">
@@ -113,8 +123,6 @@ export default function MembershipPage() {
             </button>
           </div>
         </div>
-
-        {error && <p className="mt-6 text-sm text-red-300">{error}</p>}
       </div>
     </main>
   )

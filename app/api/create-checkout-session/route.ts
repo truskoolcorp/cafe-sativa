@@ -62,10 +62,10 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ url: session.url })
-  } catch (error) {
+  } catch (error: any) {
     console.error('create-checkout-session error:', error)
     return NextResponse.json(
-      { error: 'Checkout failed.' },
+      { error: error?.message || 'Checkout failed.' },
       { status: 500 }
     )
   }

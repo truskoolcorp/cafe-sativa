@@ -22,7 +22,6 @@ export default function SignInPage() {
 
   const supabase = useMemo(() => {
     if (!mounted) return null
-
     try {
       return createClient()
     } catch (err) {
@@ -90,14 +89,6 @@ export default function SignInPage() {
             Sign in to Café Sativa
           </h1>
         </div>
-
-        {!supabase && (
-          <div className="bg-yellow-900 text-white p-3 rounded mb-6 text-sm">
-            Supabase is not configured for this deployment yet. Check
-            NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in
-            Vercel, then redeploy.
-          </div>
-        )}
 
         {error && (
           <div className="bg-red-900 text-white p-3 rounded mb-6 text-sm">

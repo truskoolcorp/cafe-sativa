@@ -13,7 +13,6 @@ export default function HomePage() {
     setMessage(null)
 
     const formData = new FormData(e.currentTarget)
-
     const payload = {
       name: formData.get('name'),
       email: formData.get('email'),
@@ -54,28 +53,16 @@ export default function HomePage() {
           </Link>
 
           <nav className="flex flex-wrap items-center gap-3 text-sm">
-            <Link
-              href="/"
-              className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5"
-            >
+            <Link href="/" className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5">
               Home
             </Link>
-            <Link
-              href="/membership"
-              className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5"
-            >
+            <Link href="/membership" className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5">
               Membership
             </Link>
-            <Link
-              href="/auth/signin"
-              className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5"
-            >
+            <Link href="/auth/signin" className="rounded-md px-3 py-2 text-[#f5e6d3] transition hover:bg-white/5">
               Sign In
             </Link>
-            <Link
-              href="/auth/signup"
-              className="rounded-md bg-[#c9a961] px-4 py-2 font-medium text-[#2b1810] transition hover:bg-[#e2c27a]"
-            >
+            <Link href="/auth/signup" className="rounded-md bg-[#c9a961] px-4 py-2 font-medium text-[#2b1810] transition hover:bg-[#e2c27a]">
               Sign Up
             </Link>
           </nav>

@@ -7,25 +7,42 @@ export async function POST(req: Request) {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
     if (!stripeSecretKey || !webhookSecret) {
-      return NextResponse.json({ received: true })
+      return NextResponse.json(
+        { error: 'Stripe webhook is not configured.' },
+        { status: 500 }
+      )
     }
 
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: '2024-06-20',
-    })
+    const stripe = new Stripe(stripeSecretKey)
+
+    const signature = req.headers.get('stripe-signature')
+
+    if (!signature) {
+      return NextResponse.json(
+        { error: 'Missing Stripe signature.' },
+        { status: 400 }
+      )
+    }
 
     const body = await req.text()
-    const sig = req.headers.get('stripe-signature')
 
-    if (!sig) {
-      return NextResponse.json({ error: 'Missing signature' }, { status: 400 })
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      webhookSecret
+    )
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object
+      console.log('NEW SUBSCRIPTION:', session)
     }
 
-    stripe.webhooks.constructEvent(body, sig, webhookSecret)
-
     return NextResponse.json({ received: true })
-  } catch (err) {
-    console.error(err)
-    return NextResponse.json({ received: true })
+  } catch (error) {
+    console.error('Stripe webhook error:', error)
+    return NextResponse.json(
+      { error: 'Webhook error.' },
+      { status: 400 }
+    )
   }
 }

@@ -7,13 +7,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-export default function SignInPage() {
+export default function SignUpPage() {
   const router = useRouter()
 
   const [mounted, setMounted] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -31,10 +33,11 @@ export default function SignInPage() {
     }
   }, [mounted])
 
-  const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setMessage(null)
 
     if (!supabase) {
       setError(
@@ -44,22 +47,33 @@ export default function SignInPage() {
       return
     }
 
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.')
+      setLoading(false)
+      return
+    }
+
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
       })
 
-      if (signInError) {
-        setError(signInError.message)
+      if (signUpError) {
+        setError(signUpError.message)
         setLoading(false)
         return
       }
 
-      router.push('/')
-      router.refresh()
+      setMessage(
+        'Account created. Check your email for a confirmation link if email verification is enabled.'
+      )
+
+      setTimeout(() => {
+        router.push('/auth/signin')
+      }, 1500)
     } catch (err: any) {
-      setError(err?.message || 'Sign-in failed.')
+      setError(err?.message || 'Sign-up failed.')
     }
 
     setLoading(false)
@@ -79,15 +93,15 @@ export default function SignInPage() {
             Membership
           </Link>
           <span className="text-[#c9a961]/50">•</span>
-          <Link href="/auth/signup" className="text-[#C9A961] hover:underline">
-            Sign Up
+          <Link href="/auth/signin" className="text-[#C9A961] hover:underline">
+            Sign In
           </Link>
         </div>
 
         <div className="text-center mb-8">
           <span className="text-4xl">☕</span>
           <h1 className="text-[#C9A961] text-3xl font-serif mt-4">
-            Sign in to Café Sativa
+            Create your Café Sativa account
           </h1>
         </div>
 
@@ -105,7 +119,13 @@ export default function SignInPage() {
           </div>
         )}
 
-        <form onSubmit={handleSignIn} className="space-y-6">
+        {message && (
+          <div className="bg-green-900 text-white p-3 rounded mb-6 text-sm">
+            {message}
+          </div>
+        )}
+
+        <form onSubmit={handleSignUp} className="space-y-6">
           <div>
             <label className="block text-[#F5E6D3] text-sm mb-2">
               Email address
@@ -130,7 +150,21 @@ export default function SignInPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
               className="w-full px-4 py-3 bg-[#2B1810] border border-[#C9A961] text-[#F5E6D3] rounded focus:outline-none focus:ring-2 focus:ring-[#C9A961]"
-              placeholder="••••••••"
+              placeholder="Create password"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[#F5E6D3] text-sm mb-2">
+              Confirm password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 bg-[#2B1810] border border-[#C9A961] text-[#F5E6D3] rounded focus:outline-none focus:ring-2 focus:ring-[#C9A961]"
+              placeholder="Confirm password"
             />
           </div>
 
@@ -139,15 +173,15 @@ export default function SignInPage() {
             disabled={loading || !supabase}
             className="w-full bg-[#C9A961] text-[#2B1810] py-4 rounded font-semibold hover:bg-[#F5E6D3] transition-colors disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating account...' : 'Sign Up'}
           </button>
         </form>
 
         <div className="mt-8 text-center">
           <p className="text-[#F5E6D3] text-sm">
-            Don’t have an account?{' '}
-            <Link href="/auth/signup" className="text-[#C9A961] hover:underline">
-              Sign up free
+            Already have an account?{' '}
+            <Link href="/auth/signin" className="text-[#C9A961] hover:underline">
+              Sign in
             </Link>
           </p>
         </div>

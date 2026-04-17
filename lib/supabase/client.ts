@@ -1,20 +1,18 @@
 import { createBrowserClient } from '@supabase/ssr'
 
-let browserClient: ReturnType<typeof createBrowserClient> | null = null
+let client: any = null
 
 export function createClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (client) return client
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error(
-      'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY'
-    )
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!url || !key) {
+    console.warn('Supabase env missing — client disabled')
+    return null
   }
 
-  if (!browserClient) {
-    browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey)
-  }
-
-  return browserClient
+  client = createBrowserClient(url, key)
+  return client
 }

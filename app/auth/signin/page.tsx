@@ -4,11 +4,12 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 export default function SignInPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [mounted, setMounted] = useState(false)
   const [email, setEmail] = useState('')
@@ -22,7 +23,6 @@ export default function SignInPage() {
 
   const supabase = useMemo(() => {
     if (!mounted) return null
-
     try {
       return createClient()
     } catch (err) {
@@ -56,7 +56,8 @@ export default function SignInPage() {
         return
       }
 
-      router.push('/')
+      const redirectTo = searchParams.get('redirect') || '/account'
+      router.push(redirectTo)
       router.refresh()
     } catch (err: any) {
       setError(err?.message || 'Sign-in failed.')
@@ -90,14 +91,6 @@ export default function SignInPage() {
             Sign in to Café Sativa
           </h1>
         </div>
-
-        {!supabase && (
-          <div className="bg-yellow-900 text-white p-3 rounded mb-6 text-sm">
-            Supabase is not configured for this deployment yet. Check
-            NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in
-            Vercel, then redeploy.
-          </div>
-        )}
 
         {error && (
           <div className="bg-red-900 text-white p-3 rounded mb-6 text-sm">

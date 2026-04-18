@@ -1,12 +1,53 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import AuthNav from '@/components/AuthNav'
+import { createClient } from '@/lib/supabase/client'
 
 export default function HomePage() {
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [authLoaded, setAuthLoaded] = useState(false)
+  const [isSignedIn, setIsSignedIn] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+
+    async function loadAuth() {
+      try {
+        const supabase = createClient()
+        const { data } = await supabase.auth.getUser()
+
+        if (!mounted) return
+        setIsSignedIn(Boolean(data.user))
+
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, session) => {
+          setIsSignedIn(Boolean(session?.user))
+        })
+
+        setAuthLoaded(true)
+
+        return () => subscription.unsubscribe()
+      } catch {
+        if (mounted) {
+          setIsSignedIn(false)
+          setAuthLoaded(true)
+        }
+      }
+    }
+
+    const cleanupPromise = loadAuth()
+
+    return () => {
+      mounted = false
+      Promise.resolve(cleanupPromise).then((cleanup) => {
+        if (typeof cleanup === 'function') cleanup()
+      })
+    }
+  }, [])
 
   async function handleWaitlistSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -81,19 +122,43 @@ export default function HomePage() {
               View Membership
             </Link>
 
-            <Link
-              href="/auth/signin"
-              className="rounded-md border border-[#c9a961] px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-[#c9a961]/10"
-            >
-              Sign In
-            </Link>
+            {!authLoaded ? (
+              <div className="rounded-md border border-[#c9a961]/30 px-8 py-4 text-base font-semibold text-[#f5e6d3]/70">
+                Loading...
+              </div>
+            ) : isSignedIn ? (
+              <>
+                <Link
+                  href="/account"
+                  className="rounded-md border border-[#c9a961] px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-[#c9a961]/10"
+                >
+                  Go to Account
+                </Link>
 
-            <Link
-              href="/auth/signup"
-              className="rounded-md border border-[#f5e6d3]/25 px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-white/5"
-            >
-              Create Account
-            </Link>
+                <a
+                  href="#guest-list"
+                  className="rounded-md border border-[#f5e6d3]/25 px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-white/5"
+                >
+                  Join the Guest List
+                </a>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/auth/signin"
+                  className="rounded-md border border-[#c9a961] px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-[#c9a961]/10"
+                >
+                  Sign In
+                </Link>
+
+                <Link
+                  href="/auth/signup"
+                  className="rounded-md border border-[#f5e6d3]/25 px-8 py-4 text-base font-semibold text-[#f5e6d3] transition hover:bg-white/5"
+                >
+                  Create Account
+                </Link>
+              </>
+            )}
           </div>
         </div>
 

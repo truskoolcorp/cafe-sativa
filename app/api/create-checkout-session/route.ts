@@ -10,14 +10,14 @@ export async function POST(req: Request) {
 
     if (!stripeSecretKey) {
       return NextResponse.json(
-        { error: 'STRIPE_SECRET_KEY is not configured.' },
+        { error: 'Missing STRIPE_SECRET_KEY' },
         { status: 500 }
       )
     }
 
     if (!siteUrl) {
       return NextResponse.json(
-        { error: 'NEXT_PUBLIC_SITE_URL is not configured.' },
+        { error: 'Missing NEXT_PUBLIC_SITE_URL' },
         { status: 500 }
       )
     }
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
     if (plan !== 'insider' && plan !== 'founder') {
       return NextResponse.json(
-        { error: 'Invalid plan selected.' },
+        { error: 'Invalid plan selected' },
         { status: 400 }
       )
     }
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
     if (!priceId) {
       return NextResponse.json(
-        { error: `Stripe price ID missing for ${plan}.` },
+        { error: `Missing Stripe price for ${plan}` },
         { status: 500 }
       )
     }
@@ -48,24 +48,32 @@ export async function POST(req: Request) {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${siteUrl}/membership?success=true`,
       cancel_url: `${siteUrl}/membership?canceled=true`,
     })
 
-    if (!session.url) {
-      return NextResponse.json(
-        { error: 'Stripe did not return a checkout URL.' },
-        { status: 500 }
-      )
-    }
+    return NextResponse.json({
+      url: session.url,
+      sessionId: session.id,
+    })
+  } catch (error: any) {
+    console.error('STRIPE CHECKOUT ERROR:', {
+      message: error?.message,
+      type: error?.type,
+      code: error?.code,
+      param: error?.param,
+      raw: error,
+    })
 
-    return NextResponse.json({ url: session.url })
-  } catch (error) {
-    console.error('create-checkout-session error:', error)
     return NextResponse.json(
-      { error: 'Checkout failed.' },
+      {
+        error:
+          error?.message ||
+          error?.raw?.message ||
+          error?.code ||
+          'Checkout failed',
+      },
       { status: 500 }
     )
   }

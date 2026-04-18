@@ -80,7 +80,11 @@ export default function MembershipPage() {
         </p>
 
         {notice && <p className="mt-6 text-sm text-green-300">{notice}</p>}
-        {error && <p className="mt-6 text-sm text-red-300">{error}</p>}
+        {error && (
+          <div className="mt-6 rounded-md border border-red-500/30 bg-red-900/30 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
 
         <div className="mt-12 grid gap-6 md:grid-cols-2">
           <div className="rounded-2xl border border-[#c9a961]/20 bg-black/20 p-8">
@@ -103,9 +107,7 @@ export default function MembershipPage() {
           </div>
 
           <div className="rounded-2xl border border-[#c9a961]/20 bg-black/20 p-8">
-            <h2 className="text-3xl font-semibold text-[#c9a961]">
-              Founding Guest
-            </h2>
+            <h2 className="text-3xl font-semibold text-[#c9a961]">Founding Guest</h2>
             <p className="mt-3 text-4xl font-semibold">$24.99/mo</p>
             <ul className="mt-6 space-y-3 text-[#f5e6d3]/85">
               <li>Everything in Insider</li>

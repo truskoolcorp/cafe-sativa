@@ -1,15 +1,12 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 export default function SignInPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   const [mounted, setMounted] = useState(false)
   const [email, setEmail] = useState('')
@@ -56,11 +53,11 @@ export default function SignInPage() {
         return
       }
 
-      const redirectTo = searchParams.get('redirect') || '/account'
-      router.push(redirectTo)
+      router.push('/account')
       router.refresh()
-    } catch (err: any) {
-      setError(err?.message || 'Sign-in failed.')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Sign-in failed.'
+      setError(message)
     }
 
     setLoading(false)

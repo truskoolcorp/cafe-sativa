@@ -11,38 +11,38 @@ export default function AuthNav() {
   const [email, setEmail] = useState<string | null>(null)
 
   useEffect(() => {
+    const supabase = createClient()
     let mounted = true
 
-    async function loadSession() {
+    async function loadUser() {
       try {
-        const supabase = createClient()
         const { data } = await supabase.auth.getUser()
-
-        if (!mounted) return
-        setEmail(data.user?.email ?? null)
-
-        const {
-          data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-          setEmail(session?.user?.email ?? null)
-          router.refresh()
-        })
-
-        return () => subscription.unsubscribe()
+        if (mounted) {
+          setEmail(data.user?.email ?? null)
+        }
       } catch {
-        if (mounted) setEmail(null)
+        if (mounted) {
+          setEmail(null)
+        }
       } finally {
-        if (mounted) setLoading(false)
+        if (mounted) {
+          setLoading(false)
+        }
       }
     }
 
-    const cleanupPromise = loadSession()
+    loadUser()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null)
+      router.refresh()
+    })
 
     return () => {
       mounted = false
-      Promise.resolve(cleanupPromise).then((cleanup) => {
-        if (typeof cleanup === 'function') cleanup()
-      })
+      subscription.unsubscribe()
     }
   }, [router])
 
@@ -50,6 +50,7 @@ export default function AuthNav() {
     try {
       const supabase = createClient()
       await supabase.auth.signOut()
+      setEmail(null)
       router.push('/')
       router.refresh()
     } catch (err) {

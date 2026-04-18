@@ -12,25 +12,34 @@ export default function AccountPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let mounted = true
+
     async function loadUser() {
       try {
         const supabase = createClient()
         const { data, error } = await supabase.auth.getUser()
 
+        if (!mounted) return
+
         if (error || !data.user) {
-          router.push('/auth/signin?redirect=/account')
+          router.push('/auth/signin')
           return
         }
 
         setEmail(data.user.email ?? null)
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load account.')
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to load account.'
+        if (mounted) setError(message)
       } finally {
-        setLoading(false)
+        if (mounted) setLoading(false)
       }
     }
 
     loadUser()
+
+    return () => {
+      mounted = false
+    }
   }, [router])
 
   async function handleSignOut() {
@@ -39,8 +48,9 @@ export default function AccountPage() {
       await supabase.auth.signOut()
       router.push('/')
       router.refresh()
-    } catch (err: any) {
-      setError(err?.message || 'Sign out failed.')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Sign out failed.'
+      setError(message)
     }
   }
 

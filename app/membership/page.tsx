@@ -1,18 +1,31 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-type PlanType = 'insider' | 'founding'
+type Tier = 'regular' | 'vip'
 
-export default function MembershipPage() {
+type MembershipState = {
+  tier: 'explorer' | 'regular' | 'vip'
+  status: 'active' | 'canceled' | 'past_due' | 'incomplete'
+  currentPeriodEnd: string | null
+}
+
+function MembershipInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const successTier = searchParams.get('success') === '1' ? searchParams.get('tier') : null
+  const wasCanceled = searchParams.get('canceled') === '1'
+
   const [authLoaded, setAuthLoaded] = useState(false)
   const [isSignedIn, setIsSignedIn] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
-  const [loadingPlan, setLoadingPlan] = useState<PlanType | null>(null)
+  const [membership, setMembership] = useState<MembershipState | null>(null)
+  const [loadingTier, setLoadingTier] = useState<Tier | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -25,8 +38,26 @@ export default function MembershipPage() {
         const { data } = await supabase.auth.getUser()
 
         if (!mounted) return
-        setIsSignedIn(Boolean(data.user))
-        setEmail(data.user?.email ?? null)
+        const user = data.user
+        setIsSignedIn(Boolean(user))
+        setEmail(user?.email ?? null)
+
+        if (user) {
+          // Fetch from the members_v view which joins profiles + memberships
+          const { data: memberRow } = await supabase
+            .from('members_v')
+            .select('tier, status, current_period_end')
+            .eq('id', user.id)
+            .maybeSingle()
+
+          if (mounted && memberRow) {
+            setMembership({
+              tier: memberRow.tier,
+              status: memberRow.status,
+              currentPeriodEnd: memberRow.current_period_end,
+            })
+          }
+        }
 
         const {
           data: { subscription },
@@ -37,10 +68,12 @@ export default function MembershipPage() {
         })
 
         unsub = () => subscription.unsubscribe()
-      } catch {
+      } catch (err) {
+        console.error('Failed to load auth/membership', err)
         if (mounted) {
           setIsSignedIn(false)
           setEmail(null)
+          setMembership(null)
         }
       } finally {
         if (mounted) setAuthLoaded(true)
@@ -53,7 +86,7 @@ export default function MembershipPage() {
       mounted = false
       if (unsub) unsub()
     }
-  }, [])
+  }, [successTier]) // re-run after Stripe redirect so membership row refreshes
 
   async function handleSignOut() {
     try {
@@ -66,28 +99,40 @@ export default function MembershipPage() {
     }
   }
 
-  async function startCheckout(plan: PlanType) {
-    setLoadingPlan(plan)
+  async function startCheckout(tier: Tier) {
     setError(null)
+
+    // If not signed in, bounce through signin and come back here.
+    if (!isSignedIn) {
+      router.push(`/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`)
+      return
+    }
+
+    setLoadingTier(tier)
 
     try {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ tier }),
       })
 
       const data = await res.json().catch(() => ({}))
 
+      if (res.status === 401 || data?.code === 'not_authenticated') {
+        router.push(`/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`)
+        return
+      }
+
       if (!res.ok) {
         setError(data?.error || 'Checkout failed.')
-        setLoadingPlan(null)
+        setLoadingTier(null)
         return
       }
 
       if (!data?.url) {
         setError('Stripe did not return a checkout link.')
-        setLoadingPlan(null)
+        setLoadingTier(null)
         return
       }
 
@@ -95,9 +140,42 @@ export default function MembershipPage() {
     } catch (err) {
       console.error(err)
       setError('Checkout failed.')
-      setLoadingPlan(null)
+      setLoadingTier(null)
     }
   }
+
+  // Auto-trigger checkout if we bounced through signin with ?intent=vip etc.
+  useEffect(() => {
+    const intent = searchParams.get('intent') as Tier | null
+    if (authLoaded && isSignedIn && (intent === 'regular' || intent === 'vip')) {
+      // Drop the intent param so refresh doesn't re-trigger
+      router.replace('/membership')
+      startCheckout(intent)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoaded, isSignedIn])
+
+  const currentTierLabel =
+    membership?.tier === 'vip'
+      ? 'VIP'
+      : membership?.tier === 'regular'
+        ? 'Regular'
+        : membership?.tier === 'explorer'
+          ? 'Explorer (free)'
+          : null
+
+  const isActiveMember =
+    membership &&
+    (membership.tier === 'regular' || membership.tier === 'vip') &&
+    membership.status === 'active'
+
+  const renewalDate = membership?.currentPeriodEnd
+    ? new Date(membership.currentPeriodEnd).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : null
 
   return (
     <main className="min-h-screen bg-[#2a0802] text-[#f7e7cf]">
@@ -154,14 +232,50 @@ export default function MembershipPage() {
             Choose how close you want to get.
           </h1>
           <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-[#eadbc7]">
-            Café Sativa memberships are designed to reward early believers with access,
-            prestige, and first-in-line positioning before the physical venue opens.
+            Café Sativa memberships reward early believers with access, prestige, and
+            first-in-line positioning before the physical venue opens.
           </p>
 
-          {authLoaded && isSignedIn && (
+          {/* Post-Stripe-redirect banners */}
+          {successTier && (
+            <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-emerald-400/30 bg-emerald-900/40 px-6 py-4 text-left">
+              <p className="text-sm uppercase tracking-[0.25em] text-emerald-300">
+                Welcome in.
+              </p>
+              <p className="mt-2 text-base text-[#f7e7cf]">
+                Your {successTier === 'vip' ? 'VIP' : 'Regular'} membership is active.
+                Head to your <Link href="/account" className="underline">account</Link> to see the details.
+              </p>
+            </div>
+          )}
+
+          {wasCanceled && !successTier && (
+            <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-[#c9a961]/30 bg-[#1f0703] px-6 py-4 text-left">
+              <p className="text-sm text-[#c9a961]">Checkout canceled.</p>
+              <p className="mt-1 text-base text-[#f7e7cf]">
+                No charge was made. You can still join below whenever you're ready.
+              </p>
+            </div>
+          )}
+
+          {authLoaded && isSignedIn && !successTier && (
             <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-[#8a5a2b]/35 bg-[#1f0703] px-6 py-4 text-left">
               <p className="text-sm text-[#c9a961]">Signed in as</p>
               <p className="mt-1 text-base text-[#f7e7cf]">{email || 'Authenticated user'}</p>
+              {currentTierLabel && (
+                <p className="mt-2 text-sm text-[#eadbc7]">
+                  Current tier: <span className="font-semibold text-[#d2a24c]">{currentTierLabel}</span>
+                  {membership?.status === 'past_due' && (
+                    <span className="ml-2 text-amber-300">• payment past due</span>
+                  )}
+                  {membership?.status === 'canceled' && renewalDate && (
+                    <span className="ml-2 text-[#f7e7cf]/70">• access through {renewalDate}</span>
+                  )}
+                  {membership?.status === 'active' && renewalDate && (
+                    <span className="ml-2 text-[#f7e7cf]/70">• renews {renewalDate}</span>
+                  )}
+                </p>
+              )}
             </div>
           )}
 
@@ -173,69 +287,121 @@ export default function MembershipPage() {
         </div>
 
         <div className="mx-auto mt-14 grid max-w-6xl gap-8 lg:grid-cols-3">
+          {/* Explorer — free */}
           <div className="rounded-3xl border border-[#8a5a2b]/35 bg-[#1f0703] p-8">
-            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Guest List</p>
+            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Explorer</p>
             <h2 className="mt-4 text-4xl font-semibold text-[#d2a24c]">Free</h2>
             <p className="mt-5 text-lg leading-8 text-[#eadbc7]">
-              Get updates on featured chef drops, runway nights, launch news, and future access opportunities.
+              Walk in, look around. Full access to the venue, chat with Laviche, browse events.
+              Pay per event at walk-up price.
             </p>
             <ul className="mt-6 space-y-3 text-[#eadbc7]">
-              <li>• Launch updates</li>
-              <li>• Public event announcements</li>
-              <li>• Featured chef news</li>
-              <li>• General community access</li>
+              <li>• Venue access (3D and web)</li>
+              <li>• Host chat with Laviche</li>
+              <li>• Event browsing</li>
+              <li>• Event tickets at walk-up price</li>
             </ul>
-            <a
-              href="/#guest-list"
-              className="mt-8 inline-block rounded-md border border-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf] transition hover:bg-white/5"
-            >
-              Join Free
-            </a>
+            {isSignedIn ? (
+              <span className="mt-8 inline-block rounded-md border border-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf]">
+                {membership?.tier === 'explorer' ? 'You are here' : 'Included with any tier'}
+              </span>
+            ) : (
+              <Link
+                href="/auth/signup"
+                className="mt-8 inline-block rounded-md border border-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf] transition hover:bg-white/5"
+              >
+                Sign Up Free
+              </Link>
+            )}
           </div>
 
+          {/* Regular — $9.99/mo */}
           <div className="rounded-3xl border border-[#d2a24c]/45 bg-[#241008] p-8 shadow-2xl shadow-black/30">
-            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Insider</p>
+            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Regular</p>
             <h2 className="mt-4 text-4xl font-semibold text-[#d2a24c]">$9.99/mo</h2>
             <p className="mt-5 text-lg leading-8 text-[#eadbc7]">
-              Early access to premium drops, curated experiences, and the strongest signal that you were here first.
+              Make it yours. All events free. 10% off merch. Recordings stay forever.
+              Laviche remembers you across visits.
             </p>
             <ul className="mt-6 space-y-3 text-[#eadbc7]">
-              <li>• Early chef drop access</li>
-              <li>• Premium event releases</li>
-              <li>• Members content</li>
-              <li>• Replay library access</li>
+              <li>• Everything in Explorer</li>
+              <li>• Free tickets to all events</li>
+              <li>• 10% off merch</li>
+              <li>• Event recordings kept forever</li>
+              <li>• Host memory: 90 days</li>
             </ul>
-            <button
-              onClick={() => startCheckout('insider')}
-              disabled={loadingPlan === 'insider'}
-              className="mt-8 inline-block rounded-md bg-[#d2a24c] px-6 py-3 font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
-            >
-              {loadingPlan === 'insider' ? 'Opening Checkout...' : 'Become an Insider'}
-            </button>
+            {isActiveMember && membership?.tier === 'regular' ? (
+              <span className="mt-8 inline-block rounded-md bg-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf]">
+                Current plan
+              </span>
+            ) : (
+              <button
+                onClick={() => startCheckout('regular')}
+                disabled={loadingTier === 'regular'}
+                className="mt-8 inline-block rounded-md bg-[#d2a24c] px-6 py-3 font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
+              >
+                {loadingTier === 'regular'
+                  ? 'Opening Checkout...'
+                  : membership?.tier === 'vip'
+                    ? 'Downgrade to Regular'
+                    : 'Become a Regular'}
+              </button>
+            )}
           </div>
 
+          {/* VIP — $24.99/mo */}
           <div className="rounded-3xl border border-[#8a5a2b]/35 bg-[#1f0703] p-8">
-            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Founding Guest</p>
+            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">VIP</p>
             <h2 className="mt-4 text-4xl font-semibold text-[#d2a24c]">$24.99/mo</h2>
             <p className="mt-5 text-lg leading-8 text-[#eadbc7]">
-              Priority status for the supporters getting in before the brand fully materializes in the real world.
+              The inner circle. Everything in Regular plus Cigar Lounge, 20% off merch,
+              priority ticketing, and first dibs on the Tenerife venue.
             </p>
             <ul className="mt-6 space-y-3 text-[#eadbc7]">
-              <li>• Everything in Insider</li>
-              <li>• VIP-only digital experiences</li>
-              <li>• Future reservation priority</li>
-              <li>• Exclusive invites and perks</li>
+              <li>• Everything in Regular</li>
+              <li>• Cigar Lounge access</li>
+              <li>• 20% off merch</li>
+              <li>• Priority ticketing</li>
+              <li>• Tenerife priority list</li>
+              <li>• Host memory: 365 days</li>
             </ul>
-            <button
-              onClick={() => startCheckout('founding')}
-              disabled={loadingPlan === 'founding'}
-              className="mt-8 inline-block rounded-md bg-[#d2a24c] px-6 py-3 font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
-            >
-              {loadingPlan === 'founding' ? 'Opening Checkout...' : 'Claim Founding Status'}
-            </button>
+            {isActiveMember && membership?.tier === 'vip' ? (
+              <span className="mt-8 inline-block rounded-md bg-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf]">
+                Current plan
+              </span>
+            ) : (
+              <button
+                onClick={() => startCheckout('vip')}
+                disabled={loadingTier === 'vip'}
+                className="mt-8 inline-block rounded-md bg-[#d2a24c] px-6 py-3 font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
+              >
+                {loadingTier === 'vip' ? 'Opening Checkout...' : 'Claim VIP'}
+              </button>
+            )}
           </div>
         </div>
       </section>
     </main>
+  )
+}
+
+function MembershipSkeleton() {
+  return (
+    <main className="min-h-screen bg-[#2a0802]">
+      <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="h-4 w-32 mx-auto bg-[#c9a961]/30 rounded animate-pulse" />
+          <div className="h-16 mt-6 bg-[#d2a24c]/20 rounded animate-pulse" />
+        </div>
+      </div>
+    </main>
+  )
+}
+
+export default function MembershipPage() {
+  return (
+    <Suspense fallback={<MembershipSkeleton />}>
+      <MembershipInner />
+    </Suspense>
   )
 }

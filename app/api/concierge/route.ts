@@ -229,7 +229,11 @@ export async function POST(req: Request) {
   let replyText: string
   try {
     const completion = await anthropic.messages.create({
-      model: 'claude-haiku-4-5',
+      // Use the dated, pinned model id. The short alias 'claude-haiku-4-5'
+      // can route to a model the current account doesn't have entitlement
+      // for, resulting in a 404 from the Anthropic API that surfaces as
+      // a 502 from this route.
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
       system: host.system_prompt,
       messages,
@@ -247,12 +251,28 @@ export async function POST(req: Request) {
       replyText = "Sorry, I didn't catch that — try me again?"
     }
   } catch (err: any) {
+    // Log every field we can get our hands on. When this fires in prod,
+    // the Vercel dashboard truncates the message preview but the full
+    // structured log is retrievable via the Logs tab. Include request
+    // shape too so we can reproduce without needing to inspect the
+    // route source.
     console.error('[concierge] Anthropic call failed', {
       status: err?.status,
       message: err?.message,
+      error_type: err?.error?.type,
+      error_message: err?.error?.message,
+      request_id: err?.headers?.['request-id'],
+      model_used: 'claude-haiku-4-5-20251001',
+      host: host.id,
+      message_count_in_request: messages.length,
     })
     return NextResponse.json(
-      { error: 'Concierge is having trouble right now. Try again in a bit.' },
+      {
+        error: 'Concierge is having trouble right now. Try again in a bit.',
+        // Expose the upstream error type ONLY — never the message, since
+        // upstream error messages can leak prompt content or keys.
+        upstream_error_type: err?.error?.type || null,
+      },
       { status: 502 }
     )
   }

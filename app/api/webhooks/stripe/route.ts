@@ -97,6 +97,72 @@ export async function POST(req: Request) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
 
+        // Route by kind. Ticket purchases are mode='payment' and carry
+        // metadata.kind='ticket'. Subscription purchases are
+        // mode='subscription' with metadata.tier. Older sessions without
+        // metadata.kind are assumed to be subscription (legacy behavior).
+        const kind = session.metadata?.kind
+
+        if (kind === 'ticket') {
+          const userId = session.metadata?.user_id
+          const eventId = session.metadata?.event_id
+
+          if (!userId || !eventId) {
+            console.warn(
+              '[stripe-webhook] ticket session missing metadata',
+              { sessionId: session.id, metadata: session.metadata }
+            )
+            break
+          }
+
+          const paymentIntentId =
+            typeof session.payment_intent === 'string'
+              ? session.payment_intent
+              : session.payment_intent?.id ?? null
+
+          // Guard against webhook replay — Stripe retries webhooks up to
+          // several days on 5xx, so a duplicate event must not create a
+          // second ticket row. The `unique (event_id, user_id)` constraint
+          // on tickets enforces this at the DB level; we check here so
+          // we can return 2xx cleanly instead of logging a constraint error.
+          const { data: existing } = await admin
+            .from('tickets')
+            .select('id, state')
+            .eq('event_id', eventId)
+            .eq('user_id', userId)
+            .maybeSingle()
+
+          if (existing && existing.state !== 'refunded') {
+            console.log(
+              `[stripe-webhook] ticket already exists for user=${userId} event=${eventId}, ack`
+            )
+            break
+          }
+
+          const { error: insertError } = await admin.from('tickets').insert({
+            event_id: eventId,
+            user_id: userId,
+            source: 'purchased',
+            state: 'valid',
+            stripe_payment_intent_id: paymentIntentId,
+            amount_paid_cents: session.amount_total ?? 0,
+          })
+
+          if (insertError) {
+            console.error('[stripe-webhook] Failed to insert ticket', insertError)
+            return NextResponse.json(
+              { error: 'Ticket write failed.' },
+              { status: 500 }
+            )
+          }
+
+          console.log(
+            `[stripe-webhook] Ticket issued: user=${userId} event=${eventId} pi=${paymentIntentId}`
+          )
+          break
+        }
+
+        // === Subscription path (default / legacy) ===
         // Metadata was attached when we created the session
         const userId = session.metadata?.user_id
         const tier = session.metadata?.tier as MembershipTier | undefined
@@ -244,6 +310,46 @@ export async function POST(req: Request) {
         console.log(
           `[stripe-webhook] ${event.type} synced: user=${userId} tier=${tier} status=${status}`
         )
+        break
+      }
+
+      case 'charge.refunded': {
+        // Handle ticket refunds — mark the ticket row as refunded so
+        // the user loses access. Doesn't apply to subscription refunds,
+        // which flow through customer.subscription.updated instead.
+        const charge = event.data.object as Stripe.Charge
+        const paymentIntentId =
+          typeof charge.payment_intent === 'string'
+            ? charge.payment_intent
+            : charge.payment_intent?.id ?? null
+
+        if (!paymentIntentId) {
+          // No payment_intent → probably a non-ticket charge. Ack.
+          break
+        }
+
+        const { data: ticket } = await admin
+          .from('tickets')
+          .select('id, state')
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .maybeSingle()
+
+        if (!ticket) {
+          // Not a ticket we issued. Ack (could be a subscription charge).
+          break
+        }
+
+        if (ticket.state === 'refunded') {
+          console.log(`[stripe-webhook] ticket ${ticket.id} already marked refunded, ack`)
+          break
+        }
+
+        await admin
+          .from('tickets')
+          .update({ state: 'refunded' })
+          .eq('id', ticket.id)
+
+        console.log(`[stripe-webhook] Ticket ${ticket.id} refunded (pi=${paymentIntentId})`)
         break
       }
 

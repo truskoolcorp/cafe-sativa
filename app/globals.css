@@ -2,91 +2,120 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --rich-brown: #5C4033;
-  --warm-cream: #F5E6D3;
-  --deep-espresso: #2B1810;
-  --soft-gold: #C9A961;
-  --sage-green: #8B9D83;
-  --terracotta: #C07855;
+/*
+  Café Sativa design tokens.
+
+  Everything here is HSL (hue saturation lightness) without the
+  hsl() wrapper, because Tailwind's theme() system wraps them for us.
+  That lets us write `bg-primary/10` and get the primary color at 10%
+  opacity without every component having to know about alpha.
+
+  The palette is intentionally dark-only. "Nordic wellness meets
+  Canary Island culture" at night, in an amber-lit lounge. A light
+  theme would undermine the brand identity, and we are not going to
+  confuse visitors with a toggle.
+*/
+
+@layer base {
+  :root {
+    /* Base surfaces */
+    --background: 16 45% 3%;          /* #0a0604 — deep warm-black */
+    --foreground: 36 35% 91%;          /* #f1e5d1 — warm cream */
+
+    --card: 18 30% 6%;                 /* #130c08 — slightly lifted card */
+    --card-foreground: 36 35% 91%;
+
+    --popover: 18 30% 6%;
+    --popover-foreground: 36 35% 91%;
+
+    /* Primary — the amber/old-gold accent that runs the entire
+       prototype (buttons, headlines, LIVE pills, "Enter The Lounge") */
+    --primary: 35 48% 54%;             /* #c29355 — warm amber */
+    --primary-foreground: 16 45% 5%;
+
+    /* Secondary — very muted surface for chips, quiet badges */
+    --secondary: 20 20% 12%;           /* #241c16 */
+    --secondary-foreground: 36 25% 80%;
+
+    /* Muted — for descriptions, meta text, inactive tabs */
+    --muted: 20 15% 10%;                /* #1d1714 */
+    --muted-foreground: 30 15% 62%;     /* #a89989 — still readable */
+
+    /* Accent — hover states, subtle highlights */
+    --accent: 20 20% 12%;
+    --accent-foreground: 36 25% 85%;
+
+    /* Destructive — LIVE NOW red, error states */
+    --destructive: 0 72% 51%;           /* #dc2626 */
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders + inputs */
+    --border: 20 20% 14%;               /* #2a221d — hairline, dark */
+    --input: 20 20% 14%;
+    --ring: 35 48% 54%;                 /* focus ring = primary */
+
+    --radius: 0.75rem;                  /* 12px — matches the prototype's rounded-xl */
+  }
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+@layer utilities {
+  /* Legacy aliases — the codebase has .font-serif and .font-sans
+     in a few places. Map them to the new heading/body tokens so
+     nothing breaks mid-migration. */
+  .font-serif {
+    @apply font-heading;
+  }
+
+  .font-sans {
+    @apply font-body;
+  }
 }
 
-body {
-  color: var(--warm-cream);
-  background: var(--deep-espresso);
-}
-
-.font-serif {
-  font-family: var(--font-playfair), serif;
-}
-
-.font-sans {
-  font-family: var(--font-inter), sans-serif;
-}
-
-/* Smooth scroll */
-html {
-  scroll-behavior: smooth;
-}
-
-/* Custom scrollbar */
+/* Scrollbar — amber/gold accent matching the rest of the palette */
 ::-webkit-scrollbar {
   width: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--deep-espresso);
+  background: hsl(var(--background));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--rich-brown);
+  background: hsl(var(--border));
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--soft-gold);
+  background: hsl(var(--primary) / 0.6);
 }
 
-/* Selection */
 ::selection {
-  background-color: var(--soft-gold);
-  color: var(--deep-espresso);
-}
-
-/* Animations */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.6s ease-out;
-}
-
-/* Product cards */
-.product-card {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.product-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(201, 169, 97, 0.2);
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }

@@ -1,10 +1,10 @@
-import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getHost, type HostId } from '@/lib/concierge/personas'
 import { checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
 import { getMemoryContext } from '@/lib/concierge/memory'
+import { jsonWithCors, preflight } from '@/lib/cors'
 
 /**
  * POST /api/concierge
@@ -62,37 +62,37 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as RequestBody | null
 
   if (!body || typeof body.message !== 'string' || body.message.trim().length === 0) {
-    return NextResponse.json({ error: 'Message is required.' }, { status: 400 })
+    return jsonWithCors({ error: 'Message is required.' }, { status: 400, request: req })
   }
   if (body.message.length > 2000) {
-    return NextResponse.json(
+    return jsonWithCors(
       { error: 'Message is too long. Keep it under 2000 characters.' },
-      { status: 400 }
+      { status: 400, request: req }
     )
   }
 
   const host = getHost(body.host ?? '')
   if (!host) {
-    return NextResponse.json(
+    return jsonWithCors(
       { error: `Unknown host. Expected one of: laviche, ginger, ahnika.` },
-      { status: 400 }
+      { status: 400, request: req }
     )
   }
 
   const surface = body.surface
   if (surface !== 'web-chat' && surface !== 'mall-3d' && surface !== 'email') {
-    return NextResponse.json(
+    return jsonWithCors(
       { error: 'surface must be one of: web-chat, mall-3d, email.' },
-      { status: 400 }
+      { status: 400, request: req }
     )
   }
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (!anthropicKey) {
     console.error('[concierge] Missing ANTHROPIC_API_KEY')
-    return NextResponse.json(
+    return jsonWithCors(
       { error: 'Concierge is offline.', code: 'not_configured' },
-      { status: 503 }
+      { status: 503, request: req }
     )
   }
 
@@ -103,9 +103,9 @@ export async function POST(req: Request) {
 
   const sessionId = body.session_id?.trim() || null
   if (!userId && !sessionId) {
-    return NextResponse.json(
+    return jsonWithCors(
       { error: 'Send a session_id for anonymous chats.', code: 'missing_session' },
-      { status: 400 }
+      { status: 400, request: req }
     )
   }
 
@@ -126,13 +126,13 @@ export async function POST(req: Request) {
   // Rate limit
   const rate = await checkRateLimit({ userId, sessionId, tier })
   if (!rate.allowed) {
-    return NextResponse.json(
+    return jsonWithCors(
       {
         error: rate.message,
         rate_limited: true,
         resets_in_seconds: rate.resetsInSeconds,
       },
-      { status: 429 }
+      { status: 429, request: req }
     )
   }
 
@@ -178,7 +178,7 @@ export async function POST(req: Request) {
 
     if (convError || !newConv) {
       console.error('[concierge] Failed to create conversation', convError)
-      return NextResponse.json({ error: 'Could not start conversation.' }, { status: 500 })
+      return jsonWithCors({ error: 'Could not start conversation.' }, { status: 500, request: req })
     }
     conversationId = newConv.id
   }
@@ -292,7 +292,7 @@ export async function POST(req: Request) {
           }
         : {}
 
-    return NextResponse.json(
+    return jsonWithCors(
       {
         error: 'Concierge is having trouble right now. Try again in a bit.',
         // Expose the upstream error type ONLY — never the message, since
@@ -300,7 +300,7 @@ export async function POST(req: Request) {
         upstream_error_type: err?.error?.type || null,
         ...debugPayload,
       },
-      { status: 502 }
+      { status: 502, request: req }
     )
   }
 
@@ -326,10 +326,23 @@ export async function POST(req: Request) {
     console.error('[concierge] Failed to persist messages', persistError)
   }
 
-  return NextResponse.json({
-    message: replyText,
-    conversation_id: conversationId,
-    host: host.id,
-    remaining: rate.allowed ? rate.remaining : 0,
-  })
+  return jsonWithCors(
+    {
+      message: replyText,
+      conversation_id: conversationId,
+      host: host.id,
+      remaining: rate.allowed ? rate.remaining : 0,
+    },
+    { status: 200, request: req }
+  )
+}
+
+/**
+ * OPTIONS preflight for CORS. Browsers send this before any
+ * cross-origin POST that has a custom Content-Type or header.
+ * Answers 204 with the allow-* headers if the origin is whitelisted
+ * in lib/cors.ts.
+ */
+export async function OPTIONS(req: Request) {
+  return preflight(req)
 }

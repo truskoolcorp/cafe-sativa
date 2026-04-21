@@ -265,13 +265,40 @@ export async function POST(req: Request) {
       model_used: 'claude-haiku-4-5-20251001',
       host: host.id,
       message_count_in_request: messages.length,
+      // Capture the whole thing too — the log preview truncates to the
+      // first property of an object, so list the suspects first.
+      raw: err?.toString?.() || String(err),
     })
+
+    // Diagnostic escape hatch: clients can include `X-Concierge-Debug:
+    // 1` to receive the full error details inline. Only effective when
+    // CONCIERGE_DEBUG=1 is also set on the server — belt + suspenders
+    // so a curious visitor can't probe production.
+    const debugRequested = req.headers.get('x-concierge-debug') === '1'
+    const debugEnabled = process.env.CONCIERGE_DEBUG === '1'
+    const debugPayload =
+      debugRequested && debugEnabled
+        ? {
+            debug: {
+              status: err?.status ?? null,
+              message: err?.message ?? null,
+              error_type: err?.error?.type ?? null,
+              error_message: err?.error?.message ?? null,
+              request_id: err?.headers?.['request-id'] ?? null,
+              model_used: 'claude-haiku-4-5-20251001',
+              message_count: messages.length,
+              raw: err?.toString?.() || String(err),
+            },
+          }
+        : {}
+
     return NextResponse.json(
       {
         error: 'Concierge is having trouble right now. Try again in a bit.',
         // Expose the upstream error type ONLY — never the message, since
         // upstream error messages can leak prompt content or keys.
         upstream_error_type: err?.error?.type || null,
+        ...debugPayload,
       },
       { status: 502 }
     )

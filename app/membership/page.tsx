@@ -5,7 +5,41 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Check, X, Sparkles, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+/**
+ * /membership — the full tier feature matrix and paid-tier checkout.
+ *
+ * This page inherits the Navbar and Footer from the root layout, so
+ * the prior duplicate <header> is gone. The three pricing cards
+ * match the home page's MembershipTeaser visually but add a feature
+ * comparison matrix below — this is where visitors go when the
+ * teaser on / wasn't enough to close them.
+ *
+ * Preserved logic from the previous version:
+ *
+ *  1. Auth state with live subscription — reflects sign-in/out
+ *     without reload
+ *  2. members_v lookup for current tier + renewal date
+ *  3. /auth/signin?redirect=...&intent=<tier> redirect dance —
+ *     unauth users clicking a tier bounce through signin and
+ *     auto-resume checkout on return
+ *  4. Stripe redirect banner via ?success=1&tier=<tier>
+ *  5. Cancel banner via ?canceled=1
+ *
+ * Visual changes:
+ *
+ *  - Semantic shadcn tokens (primary, card, muted, border) instead
+ *    of hardcoded hex
+ *  - Featured tier (Regular) marked with a "MOST POPULAR" ribbon
+ *    like the home teaser, for consistency
+ *  - Feature matrix below the cards — eight feature rows × three
+ *    tiers, showing exactly what each tier unlocks, with checkmarks
+ *    and × marks for clarity
+ */
 
 type Tier = 'regular' | 'vip'
 
@@ -14,6 +48,114 @@ type MembershipState = {
   status: 'active' | 'canceled' | 'past_due' | 'incomplete'
   currentPeriodEnd: string | null
 }
+
+// ─── Feature matrix data ─────────────────────────────────────────
+// The source of truth for what each tier includes. Used both by the
+// "highlights" bullets on each card AND by the comparison matrix at
+// the bottom. Keeping it in one place means when we add a benefit
+// we only edit once.
+const FEATURES = [
+  {
+    label: 'Walk the 3D venue',
+    explorer: true,
+    regular: true,
+    vip: true,
+  },
+  {
+    label: 'Talk to AI hosts (Laviche, Ginger, Ahnika)',
+    explorer: 'Single session',
+    regular: '90-day memory',
+    vip: '365-day memory',
+  },
+  {
+    label: 'Buy individual event tickets',
+    explorer: true,
+    regular: true,
+    vip: true,
+  },
+  {
+    label: 'Most events free',
+    explorer: false,
+    regular: true,
+    vip: true,
+  },
+  {
+    label: 'Every event free',
+    explorer: false,
+    regular: false,
+    vip: true,
+  },
+  {
+    label: 'Priority Q&A seating at guest events',
+    explorer: false,
+    regular: false,
+    vip: true,
+  },
+  {
+    label: 'Cigar Lounge master blender sessions',
+    explorer: false,
+    regular: false,
+    vip: true,
+  },
+  {
+    label: 'Tenerife opening-week priority list',
+    explorer: false,
+    regular: 'Waitlist',
+    vip: 'Reserved',
+  },
+] as const
+
+type TierKey = 'explorer' | 'regular' | 'vip'
+
+type TierCard = {
+  id: TierKey
+  name: string
+  price: string
+  cadence: string
+  description: string
+  highlights: string[]
+  featured?: boolean
+}
+
+const TIERS: TierCard[] = [
+  {
+    id: 'explorer',
+    name: 'Explorer',
+    price: '$0',
+    cadence: 'forever',
+    description: 'Browse the venue. Buy tickets à la carte.',
+    highlights: [
+      'Walk the 3D venue',
+      'Purchase tickets to any event',
+      'Chat with our AI hosts',
+    ],
+  },
+  {
+    id: 'regular',
+    name: 'Regular',
+    price: '$9.99',
+    cadence: 'per month',
+    description: 'Free events every week. Priority access to the rest.',
+    highlights: [
+      'Most events included free',
+      'Cooking classes at member rates',
+      '90-day conversation memory',
+    ],
+    featured: true,
+  },
+  {
+    id: 'vip',
+    name: 'VIP',
+    price: '$24.99',
+    cadence: 'per month',
+    description: 'Everything. Plus backstage.',
+    highlights: [
+      'Every event included free',
+      'Priority guest Q&A seating',
+      '365-day memory + VIP-only rooms',
+    ],
+  },
+]
 
 function MembershipInner() {
   const router = useRouter()
@@ -28,6 +170,8 @@ function MembershipInner() {
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Load auth + membership state, with live subscription so sign-in
+  // from another tab reflects here without a refresh.
   useEffect(() => {
     let mounted = true
     let unsub: (() => void) | null = null
@@ -43,7 +187,6 @@ function MembershipInner() {
         setEmail(user?.email ?? null)
 
         if (user) {
-          // Fetch from the members_v view which joins profiles + memberships
           const { data: memberRow } = await supabase
             .from('members_v')
             .select('tier, status, current_period_end')
@@ -86,25 +229,20 @@ function MembershipInner() {
       mounted = false
       if (unsub) unsub()
     }
-  }, [successTier]) // re-run after Stripe redirect so membership row refreshes
-
-  async function handleSignOut() {
-    try {
-      const supabase = createClient()
-      await supabase.auth.signOut()
-      router.push('/')
-      router.refresh()
-    } catch (err) {
-      console.error('Sign out failed:', err)
-    }
-  }
+    // Re-run after Stripe redirect so the membership row refreshes
+    // (successTier transitions from null → 'regular'/'vip' when we
+    // land back here from Stripe).
+  }, [successTier])
 
   async function startCheckout(tier: Tier) {
     setError(null)
 
-    // If not signed in, bounce through signin and come back here.
+    // Not signed in: bounce through signin and come back here.
+    // Intent carries the tier so we know what to auto-resume.
     if (!isSignedIn) {
-      router.push(`/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`)
+      router.push(
+        `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`
+      )
       return
     }
 
@@ -120,7 +258,9 @@ function MembershipInner() {
       const data = await res.json().catch(() => ({}))
 
       if (res.status === 401 || data?.code === 'not_authenticated') {
-        router.push(`/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`)
+        router.push(
+          `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`
+        )
         return
       }
 
@@ -144,7 +284,8 @@ function MembershipInner() {
     }
   }
 
-  // Auto-trigger checkout if we bounced through signin with ?intent=vip etc.
+  // Auto-resume checkout when we bounced through signin. The intent
+  // param persists through Supabase's auth flow via the redirect URL.
   useEffect(() => {
     const intent = searchParams.get('intent') as Tier | null
     if (authLoaded && isSignedIn && (intent === 'regular' || intent === 'vip')) {
@@ -177,224 +318,303 @@ function MembershipInner() {
       })
     : null
 
+  // Render a feature-matrix cell. Three shapes: boolean → ✓/×,
+  // string → small label, everything else → em-dash.
+  function featureCell(value: string | boolean) {
+    if (value === true) {
+      return <Check className="w-4 h-4 text-primary mx-auto" aria-label="Included" />
+    }
+    if (value === false) {
+      return <X className="w-4 h-4 text-muted-foreground/40 mx-auto" aria-label="Not included" />
+    }
+    return (
+      <span className="text-xs text-foreground font-body font-semibold">
+        {value}
+      </span>
+    )
+  }
+
+  // Button state + copy for a given tier card. Extracted because
+  // the conditional logic is getting knotty (current tier vs
+  // downgrade vs upgrade vs first purchase).
+  function tierCTA(tier: TierCard) {
+    if (tier.id === 'explorer') {
+      if (isSignedIn) {
+        return (
+          <Button variant="outline" className="w-full" disabled>
+            {membership?.tier === 'explorer' ? 'Your current tier' : 'Included'}
+          </Button>
+        )
+      }
+      return (
+        <Button variant="outline" className="w-full" asChild>
+          <Link href="/auth/signup">Sign up free</Link>
+        </Button>
+      )
+    }
+
+    const paidTier = tier.id as Tier
+
+    if (isActiveMember && membership?.tier === paidTier) {
+      return (
+        <Button variant="secondary" className="w-full" disabled>
+          Your current plan
+        </Button>
+      )
+    }
+
+    const label =
+      loadingTier === paidTier
+        ? 'Opening checkout…'
+        : membership?.tier === 'vip' && paidTier === 'regular'
+          ? 'Downgrade to Regular'
+          : membership?.tier === 'regular' && paidTier === 'vip'
+            ? 'Upgrade to VIP'
+            : paidTier === 'vip'
+              ? 'Go VIP'
+              : 'Start Regular'
+
+    return (
+      <Button
+        variant={tier.featured ? 'default' : 'outline'}
+        className="w-full"
+        onClick={() => startCheckout(paidTier)}
+        disabled={loadingTier !== null}
+      >
+        {label}
+      </Button>
+    )
+  }
+
   return (
-    <main className="min-h-screen bg-[#2a0802] text-[#f7e7cf]">
-      <header className="sticky top-0 z-30 border-b border-[#8a5a2b]/35 bg-[#2a0802]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-10">
-          <Link href="/" className="text-[2rem] font-semibold tracking-tight text-[#d2a24c]">
-            Café Sativa
-          </Link>
-
-          <nav className="flex flex-wrap items-center gap-3 text-sm">
-            <Link href="/" className="rounded-md px-3 py-2 text-[#f7e7cf] transition hover:bg-white/5">
-              Home
-            </Link>
-
-            {authLoaded && isSignedIn ? (
-              <>
-                <Link
-                  href="/account"
-                  className="rounded-md px-3 py-2 text-[#f7e7cf] transition hover:bg-white/5"
-                >
-                  Account
-                </Link>
-                <button
-                  onClick={handleSignOut}
-                  className="rounded-md bg-[#d2a24c] px-4 py-2 font-medium text-[#2a0802] transition hover:bg-[#e0b866]"
-                >
-                  Sign Out
-                </button>
-              </>
-            ) : (
-              <>
-                <Link
-                  href="/auth/signin"
-                  className="rounded-md px-3 py-2 text-[#f7e7cf] transition hover:bg-white/5"
-                >
-                  Sign In
-                </Link>
-                <Link
-                  href="/auth/signup"
-                  className="rounded-md bg-[#d2a24c] px-4 py-2 font-medium text-[#2a0802] transition hover:bg-[#e0b866]"
-                >
-                  Sign Up
-                </Link>
-              </>
-            )}
-          </nav>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="text-sm uppercase tracking-[0.35em] text-[#c9a961]">Membership</p>
-          <h1 className="mt-4 text-5xl font-semibold leading-tight text-[#d2a24c] md:text-7xl">
+    <div className="pt-24 pb-16 bg-background min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Section header */}
+        <div className="max-w-3xl mx-auto text-center">
+          <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold mb-3">
+            Membership
+          </p>
+          <h1 className="font-heading text-5xl md:text-6xl font-bold text-foreground leading-tight">
             Choose how close you want to get.
           </h1>
-          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-[#eadbc7]">
-            Café Sativa memberships reward early believers with access, prestige, and
-            first-in-line positioning before the physical venue opens.
+          <p className="text-base md:text-lg text-muted-foreground font-body mt-6 leading-relaxed">
+            Start free — upgrade when you find yourself coming back. All tiers
+            include the full venue walkthrough and the ability to talk to our
+            AI hosts.
           </p>
+        </div>
 
-          {/* Post-Stripe-redirect banners */}
+        {/* Status banners — post-Stripe redirect + signed-in context */}
+        <div className="max-w-2xl mx-auto mt-10 space-y-4">
           {successTier && (
-            <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-emerald-400/30 bg-emerald-900/40 px-6 py-4 text-left">
-              <p className="text-sm uppercase tracking-[0.25em] text-emerald-300">
-                Welcome in.
-              </p>
-              <p className="mt-2 text-base text-[#f7e7cf]">
-                Your {successTier === 'vip' ? 'VIP' : 'Regular'} membership is active.
-                Head to your <Link href="/account" className="underline">account</Link> to see the details.
-              </p>
+            <div className="rounded-xl border border-primary/40 bg-primary/5 px-6 py-4">
+              <div className="flex items-start gap-3">
+                <Sparkles className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
+                    Welcome in.
+                  </p>
+                  <p className="text-sm text-foreground font-body mt-1">
+                    Your {successTier === 'vip' ? 'VIP' : 'Regular'} membership
+                    is active. Head to your{' '}
+                    <Link
+                      href="/account"
+                      className="underline hover:text-primary transition-colors"
+                    >
+                      account
+                    </Link>{' '}
+                    to see the details.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
           {wasCanceled && !successTier && (
-            <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-[#c9a961]/30 bg-[#1f0703] px-6 py-4 text-left">
-              <p className="text-sm text-[#c9a961]">Checkout canceled.</p>
-              <p className="mt-1 text-base text-[#f7e7cf]">
-                No charge was made. You can still join below whenever you're ready.
+            <div className="rounded-xl border border-border bg-card px-6 py-4">
+              <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold">
+                Checkout canceled
+              </p>
+              <p className="text-sm text-foreground font-body mt-1">
+                No charge was made. You can still join below whenever
+                you&rsquo;re ready.
               </p>
             </div>
           )}
 
-          {authLoaded && isSignedIn && !successTier && (
-            <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-[#8a5a2b]/35 bg-[#1f0703] px-6 py-4 text-left">
-              <p className="text-sm text-[#c9a961]">Signed in as</p>
-              <p className="mt-1 text-base text-[#f7e7cf]">{email || 'Authenticated user'}</p>
-              {currentTierLabel && (
-                <p className="mt-2 text-sm text-[#eadbc7]">
-                  Current tier: <span className="font-semibold text-[#d2a24c]">{currentTierLabel}</span>
-                  {membership?.status === 'past_due' && (
-                    <span className="ml-2 text-amber-300">• payment past due</span>
-                  )}
-                  {membership?.status === 'canceled' && renewalDate && (
-                    <span className="ml-2 text-[#f7e7cf]/70">• access through {renewalDate}</span>
-                  )}
-                  {membership?.status === 'active' && renewalDate && (
-                    <span className="ml-2 text-[#f7e7cf]/70">• renews {renewalDate}</span>
-                  )}
-                </p>
-              )}
+          {authLoaded && isSignedIn && !successTier && currentTierLabel && (
+            <div className="rounded-xl border border-border bg-card px-6 py-4">
+              <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold">
+                Signed in as
+              </p>
+              <p className="text-sm text-foreground font-body mt-1">
+                {email || 'Authenticated user'}
+              </p>
+              <p className="text-sm text-muted-foreground font-body mt-2">
+                Current tier:{' '}
+                <span className="font-semibold text-primary">
+                  {currentTierLabel}
+                </span>
+                {membership?.status === 'past_due' && (
+                  <span className="ml-2 text-destructive">
+                    · payment past due
+                  </span>
+                )}
+                {membership?.status === 'canceled' && renewalDate && (
+                  <span className="ml-2">· access through {renewalDate}</span>
+                )}
+                {membership?.status === 'active' && renewalDate && (
+                  <span className="ml-2">· renews {renewalDate}</span>
+                )}
+              </p>
             </div>
           )}
 
           {error && (
-            <div className="mx-auto mt-8 max-w-2xl rounded-xl bg-red-900/70 px-5 py-4 text-left text-sm text-white">
-              {error}
+            <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-6 py-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                <p className="text-sm text-foreground font-body">{error}</p>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="mx-auto mt-14 grid max-w-6xl gap-8 lg:grid-cols-3">
-          {/* Explorer — free */}
-          <div className="rounded-3xl border border-[#8a5a2b]/35 bg-[#1f0703] p-8">
-            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Explorer</p>
-            <h2 className="mt-4 text-4xl font-semibold text-[#d2a24c]">Free</h2>
-            <p className="mt-5 text-lg leading-8 text-[#eadbc7]">
-              Walk in, look around. Full access to the venue, chat with Laviche, browse events.
-              Pay per event at walk-up price.
-            </p>
-            <ul className="mt-6 space-y-3 text-[#eadbc7]">
-              <li>• Venue access (3D and web)</li>
-              <li>• Host chat with Laviche</li>
-              <li>• Event browsing</li>
-              <li>• Event tickets at walk-up price</li>
-            </ul>
-            {isSignedIn ? (
-              <span className="mt-8 inline-block rounded-md border border-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf]">
-                {membership?.tier === 'explorer' ? 'You are here' : 'Included with any tier'}
-              </span>
-            ) : (
-              <Link
-                href="/auth/signup"
-                className="mt-8 inline-block rounded-md border border-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf] transition hover:bg-white/5"
-              >
-                Sign Up Free
-              </Link>
-            )}
-          </div>
+        {/* Tier cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+          {TIERS.map((tier) => (
+            <div
+              key={tier.id}
+              className={cn(
+                'relative flex flex-col rounded-xl border p-8 transition-colors',
+                tier.featured
+                  ? 'border-primary bg-card'
+                  : 'border-border bg-card/50'
+              )}
+            >
+              {tier.featured && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <span className="inline-block px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-body font-semibold tracking-widest uppercase">
+                    Most Popular
+                  </span>
+                </div>
+              )}
 
-          {/* Regular — $9.99/mo */}
-          <div className="rounded-3xl border border-[#d2a24c]/45 bg-[#241008] p-8 shadow-2xl shadow-black/30">
-            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">Regular</p>
-            <h2 className="mt-4 text-4xl font-semibold text-[#d2a24c]">$9.99/mo</h2>
-            <p className="mt-5 text-lg leading-8 text-[#eadbc7]">
-              Make it yours. All events free. 10% off merch. Recordings stay forever.
-              Laviche remembers you across visits.
-            </p>
-            <ul className="mt-6 space-y-3 text-[#eadbc7]">
-              <li>• Everything in Explorer</li>
-              <li>• Free tickets to all events</li>
-              <li>• 10% off merch</li>
-              <li>• Event recordings kept forever</li>
-              <li>• Host memory: 90 days</li>
-            </ul>
-            {isActiveMember && membership?.tier === 'regular' ? (
-              <span className="mt-8 inline-block rounded-md bg-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf]">
-                Current plan
-              </span>
-            ) : (
-              <button
-                onClick={() => startCheckout('regular')}
-                disabled={loadingTier === 'regular'}
-                className="mt-8 inline-block rounded-md bg-[#d2a24c] px-6 py-3 font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
-              >
-                {loadingTier === 'regular'
-                  ? 'Opening Checkout...'
-                  : membership?.tier === 'vip'
-                    ? 'Downgrade to Regular'
-                    : 'Become a Regular'}
-              </button>
-            )}
-          </div>
+              <div className="mb-6">
+                <h2 className="font-heading text-2xl font-bold text-foreground">
+                  {tier.name}
+                </h2>
+                <p className="text-sm text-muted-foreground font-body mt-1">
+                  {tier.description}
+                </p>
+              </div>
 
-          {/* VIP — $24.99/mo */}
-          <div className="rounded-3xl border border-[#8a5a2b]/35 bg-[#1f0703] p-8">
-            <p className="text-sm uppercase tracking-[0.25em] text-[#c9a961]">VIP</p>
-            <h2 className="mt-4 text-4xl font-semibold text-[#d2a24c]">$24.99/mo</h2>
-            <p className="mt-5 text-lg leading-8 text-[#eadbc7]">
-              The inner circle. Everything in Regular plus Cigar Lounge, 20% off merch,
-              priority ticketing, and first dibs on the Tenerife venue.
-            </p>
-            <ul className="mt-6 space-y-3 text-[#eadbc7]">
-              <li>• Everything in Regular</li>
-              <li>• Cigar Lounge access</li>
-              <li>• 20% off merch</li>
-              <li>• Priority ticketing</li>
-              <li>• Tenerife priority list</li>
-              <li>• Host memory: 365 days</li>
-            </ul>
-            {isActiveMember && membership?.tier === 'vip' ? (
-              <span className="mt-8 inline-block rounded-md bg-[#d2a24c]/40 px-6 py-3 font-semibold text-[#f7e7cf]">
-                Current plan
-              </span>
-            ) : (
-              <button
-                onClick={() => startCheckout('vip')}
-                disabled={loadingTier === 'vip'}
-                className="mt-8 inline-block rounded-md bg-[#d2a24c] px-6 py-3 font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
-              >
-                {loadingTier === 'vip' ? 'Opening Checkout...' : 'Claim VIP'}
-              </button>
-            )}
-          </div>
+              <div className="mb-8">
+                <span className="font-heading text-5xl font-bold text-foreground">
+                  {tier.price}
+                </span>
+                <span className="text-sm text-muted-foreground font-body ml-2">
+                  {tier.cadence}
+                </span>
+              </div>
+
+              <ul className="space-y-3 mb-8 flex-1">
+                {tier.highlights.map((h) => (
+                  <li key={h} className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <span className="text-sm text-foreground font-body">{h}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {authLoaded ? (
+                tierCTA(tier)
+              ) : (
+                <div className="h-10 rounded-md bg-muted animate-pulse" />
+              )}
+            </div>
+          ))}
         </div>
-      </section>
-    </main>
+
+        {/* Feature comparison matrix */}
+        <section className="mt-24">
+          <div className="max-w-2xl mb-10">
+            <h2 className="font-heading text-3xl md:text-4xl font-bold text-foreground">
+              What&rsquo;s in each tier.
+            </h2>
+            <p className="text-sm text-muted-foreground font-body mt-3">
+              Every detail, laid out. You can upgrade or downgrade any time.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-left">
+              <thead className="bg-card border-b border-border">
+                <tr>
+                  <th className="py-4 px-4 md:px-6 font-body font-semibold text-xs tracking-widest uppercase text-muted-foreground">
+                    Feature
+                  </th>
+                  <th className="py-4 px-4 md:px-6 text-center font-body font-semibold text-xs tracking-widest uppercase text-muted-foreground w-32">
+                    Explorer
+                  </th>
+                  <th className="py-4 px-4 md:px-6 text-center font-body font-semibold text-xs tracking-widest uppercase text-primary w-32">
+                    Regular
+                  </th>
+                  <th className="py-4 px-4 md:px-6 text-center font-body font-semibold text-xs tracking-widest uppercase text-muted-foreground w-32">
+                    VIP
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {FEATURES.map((feature) => (
+                  <tr key={feature.label} className="hover:bg-card/30 transition-colors">
+                    <td className="py-4 px-4 md:px-6 text-sm text-foreground font-body">
+                      {feature.label}
+                    </td>
+                    <td className="py-4 px-4 md:px-6 text-center">
+                      {featureCell(feature.explorer)}
+                    </td>
+                    <td className="py-4 px-4 md:px-6 text-center bg-primary/5">
+                      {featureCell(feature.regular)}
+                    </td>
+                    <td className="py-4 px-4 md:px-6 text-center">
+                      {featureCell(feature.vip)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-xs text-muted-foreground font-body text-center mt-6 max-w-2xl mx-auto">
+            Prices in USD. Billing via Stripe. Cancel any time from your
+            account — access continues through the end of the paid period.
+          </p>
+        </section>
+      </div>
+    </div>
   )
 }
 
 function MembershipSkeleton() {
   return (
-    <main className="min-h-screen bg-[#2a0802]">
-      <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
-        <div className="mx-auto max-w-3xl text-center">
-          <div className="h-4 w-32 mx-auto bg-[#c9a961]/30 rounded animate-pulse" />
-          <div className="h-16 mt-6 bg-[#d2a24c]/20 rounded animate-pulse" />
+    <div className="pt-24 pb-16 bg-background min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto text-center space-y-4">
+          <div className="h-4 w-32 mx-auto bg-muted rounded animate-pulse" />
+          <div className="h-14 bg-muted rounded animate-pulse" />
+          <div className="h-6 w-3/4 mx-auto bg-muted/50 rounded animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-96 rounded-xl border border-border bg-card/50 animate-pulse"
+            />
+          ))}
         </div>
       </div>
-    </main>
+    </div>
   )
 }
 

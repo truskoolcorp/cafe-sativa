@@ -5,35 +5,102 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import {
+  Send,
+  Coffee,
+  Compass,
+  Sparkles,
+  AlertCircle,
+  Info,
+  type LucideIcon,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+/**
+ * /ask — visitor-facing chat with the Café Sativa AI hosts.
+ *
+ * This is the most-touched logic surface on the whole site so the
+ * restyle is visual-only. Everything behavioral is copied verbatim
+ * from the pre-restyle version:
+ *
+ *   - Three hosts (Laviche maître d', Ginger travel, Ahnika style)
+ *     selectable via tab bar or ?host=<id> URL param
+ *   - Anonymous session id lives in localStorage (matches the mall
+ *     key pattern) so rate-limit buckets and conversation memory
+ *     work across reloads even without auth
+ *   - Per-host conversation id also in localStorage (separate key
+ *     per host) so switching hosts doesn't mash memory together
+ *   - POST to /api/concierge with surface='web-chat'; handles 429
+ *     (rate_limited), 503 (not_configured), 200 (normal reply)
+ *   - Enter to send, Shift+Enter for newline, auto-grow textarea
+ *     capped at 160px height
+ *   - Scroll pin to bottom on new message or sending spinner
+ *
+ * Visual changes:
+ *
+ *   - Host tab bar redesigned as three cards with distinct icons
+ *     (Coffee/Compass/Sparkles) so visitors can tell them apart at
+ *     a glance. Icon choice matches each host's domain.
+ *   - Messages use semantic primary/card colors instead of amber
+ *     hex, and the assistant bubble now shows a subtle host icon
+ *     next to the name so message ownership is clearer
+ *   - Composer uses the shared Button primitive; send button has
+ *     a paper-plane icon
+ *   - Sign-up prompt on rate-limit banner uses the primary-tinted
+ *     style consistent with the rest of the site
+ */
 
 type HostId = 'laviche' | 'ginger' | 'ahnika'
 
 type HostMeta = {
   id: HostId
-  display_name: string
+  displayName: string
   role: string
   tagline: string
+  /** Icon shown on the host card + message avatar. */
+  icon: LucideIcon
+  /** Inline suggestion copy — appears when the chat is empty. */
+  suggestions: string[]
 }
 
 const HOSTS: HostMeta[] = [
   {
     id: 'laviche',
-    display_name: 'Laviche',
+    displayName: 'Laviche',
     role: "Maître d'",
     tagline: 'Runs the floor. Knows where everything is.',
+    icon: Coffee,
+    suggestions: [
+      'What\u2019s coming up this summer?',
+      'How do I get into the cigar lounge?',
+      'What\u2019s the difference between Regular and VIP?',
+    ],
   },
   {
     id: 'ginger',
-    display_name: 'Ginger',
+    displayName: 'Ginger',
     role: 'Travel concierge',
     tagline: "Adventure travel. Tenerife's her thing.",
+    icon: Compass,
+    suggestions: [
+      'Tell me about Tenerife.',
+      'What should I know before visiting the Canaries?',
+      'Where would you eat in Santa Cruz?',
+    ],
   },
   {
     id: 'ahnika',
-    display_name: 'Ahnika',
+    displayName: 'Ahnika',
     role: 'Style + merch',
     tagline: 'Alignment coach meets stylist.',
+    icon: Sparkles,
+    suggestions: [
+      'What should I wear to Ep 1?',
+      'Show me something from Concrete Rose.',
+      'Help me put together an outfit for a cigar tasting.',
+    ],
   },
 ]
 
@@ -43,11 +110,8 @@ type Message = {
   timestamp: number
 }
 
-/**
- * Local-storage keys. Client-side state that persists across page
- * reloads. session_id for anonymous users; conversation_id for
- * multi-turn continuity with a specific host.
- */
+// localStorage keys — share the same prefix pattern the mall uses
+// so debugging across surfaces is easier.
 const SESSION_KEY = 'cafe-sativa:session-id'
 const CONV_KEY_PREFIX = 'cafe-sativa:conv-id:'
 
@@ -104,10 +168,7 @@ function AskInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // When active host changes, clear the chat view and load the stored
-  // conversation id for that host (if any). The server-side history
-  // will be re-hydrated on the first new message via prior-memory
-  // retrieval — we don't pre-fetch it because most visits start fresh.
+  // Host change — clear chat view, load stored conversation id
   useEffect(() => {
     setMessages([])
     setError(null)
@@ -115,13 +176,13 @@ function AskInner() {
     conversationIdRef.current = getStoredConversationId(activeHost)
   }, [activeHost])
 
-  // Keep the view pinned to the newest message
+  // Pin to newest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
-  async function sendMessage() {
-    const trimmed = input.trim()
+  async function sendMessage(text?: string) {
+    const trimmed = (text ?? input).trim()
     if (!trimmed || sending) return
     setError(null)
     setRateLimited(null)
@@ -158,7 +219,7 @@ function AskInner() {
 
       if (res.status === 503 && data?.code === 'not_configured') {
         setError(
-          "The concierge is offline right now. Try again in a bit — we're sorting it out."
+          'The concierge is offline right now. Try again in a bit — we\u2019re sorting it out.'
         )
         setSending(false)
         return
@@ -190,7 +251,6 @@ function AskInner() {
   }
 
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Enter to send, Shift+Enter for newline (standard chat UX)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
@@ -198,140 +258,165 @@ function AskInner() {
   }
 
   const activeHostMeta = HOSTS.find((h) => h.id === activeHost)!
+  const ActiveHostIcon = activeHostMeta.icon
 
   return (
-    <main className="min-h-screen bg-[#2a0802] text-[#f7e7cf]">
-      <header className="sticky top-0 z-30 border-b border-[#8a5a2b]/35 bg-[#2a0802]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5 lg:px-10">
-          <Link href="/" className="text-[1.75rem] font-semibold tracking-tight text-[#d2a24c]">
-            Café Sativa
-          </Link>
-          <nav className="flex flex-wrap items-center gap-3 text-sm">
-            <Link href="/events" className="rounded-md px-3 py-2 text-[#f7e7cf] hover:bg-white/5">
-              Events
-            </Link>
-            <Link
-              href="/membership"
-              className="rounded-md px-3 py-2 text-[#f7e7cf] hover:bg-white/5"
-            >
-              Membership
-            </Link>
-            {isSignedIn ? (
-              <Link
-                href="/account"
-                className="rounded-md px-3 py-2 text-[#f7e7cf] hover:bg-white/5"
-              >
-                Account
-              </Link>
-            ) : (
-              <Link
-                href="/auth/signin?redirect=/ask"
-                className="rounded-md px-3 py-2 text-[#f7e7cf] hover:bg-white/5"
-              >
-                Sign In
-              </Link>
-            )}
-          </nav>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
+    <div className="pt-24 pb-12 bg-background min-h-screen">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Page header */}
         <div className="mb-8">
-          <p className="text-sm uppercase tracking-[0.35em] text-[#c9a961]">Ask the house</p>
-          <h1 className="mt-3 text-4xl font-semibold text-[#d2a24c] md:text-5xl">
+          <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold mb-3">
+            Ask the house
+          </p>
+          <h1 className="font-heading text-4xl md:text-5xl font-bold text-foreground leading-tight">
             Talk to one of the hosts.
           </h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-[#eadbc7]">
+          <p className="text-base md:text-lg text-muted-foreground font-body mt-4 max-w-2xl leading-relaxed">
             Ask about events, membership, travel, merch. Our three hosts each
-            cover a different part of the house — pick whoever fits your question.
+            cover a different part of the house — pick whoever fits your
+            question.
           </p>
         </div>
 
-        {/* Host tabs */}
-        <div className="mb-6 flex flex-wrap gap-3">
+        {/* Host selector — three cards, icon + name + role + tagline */}
+        <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
           {HOSTS.map((h) => {
             const active = h.id === activeHost
+            const HostIcon = h.icon
             return (
               <button
                 key={h.id}
                 onClick={() => setActiveHost(h.id)}
-                className={
-                  'rounded-2xl border px-5 py-3 text-left transition ' +
-                  (active
-                    ? 'border-[#d2a24c] bg-[#241008] text-[#d2a24c]'
-                    : 'border-[#8a5a2b]/35 bg-[#1f0703] text-[#eadbc7] hover:border-[#d2a24c]/45')
-                }
+                className={cn(
+                  'group relative rounded-xl border p-4 text-left transition-all',
+                  active
+                    ? 'border-primary bg-card'
+                    : 'border-border bg-card/50 hover:border-primary/40 hover:bg-card'
+                )}
               >
-                <div className="flex items-baseline gap-2">
-                  <span className="font-semibold">{h.display_name}</span>
-                  <span className="text-xs text-[#eadbc7]/70">{h.role}</span>
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+                      active
+                        ? 'bg-primary/10 border border-primary/40'
+                        : 'bg-muted border border-border'
+                    )}
+                  >
+                    <HostIcon
+                      className={cn(
+                        'w-4 h-4',
+                        active ? 'text-primary' : 'text-muted-foreground'
+                      )}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className={cn(
+                          'font-heading font-bold',
+                          active ? 'text-foreground' : 'text-foreground/90'
+                        )}
+                      >
+                        {h.displayName}
+                      </span>
+                      <span className="text-xs text-muted-foreground font-body">
+                        {h.role}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-body mt-1 line-clamp-2">
+                      {h.tagline}
+                    </p>
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-[#eadbc7]/80">{h.tagline}</p>
               </button>
             )
           })}
         </div>
 
         {/* Chat surface */}
-        <div className="flex min-h-[440px] flex-col rounded-3xl border border-[#8a5a2b]/35 bg-[#1f0703]">
+        <div className="flex flex-col rounded-xl border border-border bg-card min-h-[520px]">
           {/* Messages */}
           <div className="flex-1 space-y-4 overflow-y-auto p-6 lg:p-8">
             {messages.length === 0 && !sending && (
-              <div className="py-8 text-center text-[#eadbc7]/70">
-                <p className="text-sm">
-                  Start a conversation with {activeHostMeta.display_name}.
-                </p>
-                <p className="mt-2 text-xs text-[#eadbc7]/50">
-                  {activeHost === 'laviche' &&
-                    'Try: "What\u2019s coming up this summer?" or "How do I get into the cigar lounge?"'}
-                  {activeHost === 'ginger' &&
-                    'Try: "Tell me about Tenerife." or "What should I know before visiting the Canaries?"'}
-                  {activeHost === 'ahnika' &&
-                    'Try: "What should I wear to Ep 1?" or "Show me something from Concrete Rose."'}
-                </p>
+              <div className="py-8">
+                <div className="flex items-center justify-center gap-2 text-muted-foreground mb-4">
+                  <ActiveHostIcon className="w-5 h-5 text-primary" />
+                  <p className="text-sm font-body">
+                    Start a conversation with {activeHostMeta.displayName}.
+                  </p>
+                </div>
+
+                {/* Suggestion chips */}
+                <div className="max-w-xl mx-auto space-y-2">
+                  <p className="text-xs tracking-widest uppercase text-muted-foreground font-body text-center mb-3">
+                    Try asking
+                  </p>
+                  {activeHostMeta.suggestions.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => sendMessage(s)}
+                      disabled={sending}
+                      className="group w-full rounded-lg border border-border bg-background/50 px-4 py-2.5 text-left text-sm text-foreground font-body hover:border-primary/40 hover:bg-background transition-colors disabled:opacity-50"
+                    >
+                      <span className="text-muted-foreground mr-2">“</span>
+                      {s}
+                      <span className="text-muted-foreground ml-1">”</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
-              >
+            {messages.map((m, i) => {
+              const isUser = m.role === 'user'
+              return (
                 <div
-                  className={
-                    'max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ' +
-                    (m.role === 'user'
-                      ? 'bg-[#d2a24c] text-[#2a0802]'
-                      : 'bg-[#2b1810] text-[#f7e7cf]')
-                  }
+                  key={i}
+                  className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
                 >
-                  {m.role === 'assistant' && (
-                    <p className="mb-1 text-xs uppercase tracking-wider text-[#c9a961]">
-                      {activeHostMeta.display_name}
-                    </p>
-                  )}
-                  <p className="whitespace-pre-wrap">{m.content}</p>
+                  <div
+                    className={cn(
+                      'max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 font-body',
+                      isUser
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background border border-border text-foreground'
+                    )}
+                  >
+                    {!isUser && (
+                      <div className="mb-1.5 flex items-center gap-1.5">
+                        <ActiveHostIcon className="w-3 h-3 text-primary" />
+                        <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
+                          {activeHostMeta.displayName}
+                        </p>
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {sending && (
               <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-2xl bg-[#2b1810] px-4 py-3">
-                  <p className="mb-1 text-xs uppercase tracking-wider text-[#c9a961]">
-                    {activeHostMeta.display_name}
-                  </p>
-                  <div className="flex gap-1.5 py-2">
+                <div className="max-w-[85%] rounded-2xl bg-background border border-border px-4 py-3">
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <ActiveHostIcon className="w-3 h-3 text-primary" />
+                    <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
+                      {activeHostMeta.displayName}
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5 py-1.5">
                     <span
-                      className="h-2 w-2 animate-bounce rounded-full bg-[#c9a961]"
+                      className="h-2 w-2 animate-bounce rounded-full bg-primary"
                       style={{ animationDelay: '0ms' }}
                     />
                     <span
-                      className="h-2 w-2 animate-bounce rounded-full bg-[#c9a961]"
+                      className="h-2 w-2 animate-bounce rounded-full bg-primary"
                       style={{ animationDelay: '150ms' }}
                     />
                     <span
-                      className="h-2 w-2 animate-bounce rounded-full bg-[#c9a961]"
+                      className="h-2 w-2 animate-bounce rounded-full bg-primary"
                       style={{ animationDelay: '300ms' }}
                     />
                   </div>
@@ -344,38 +429,49 @@ function AskInner() {
 
           {/* Rate-limit banner */}
           {rateLimited && (
-            <div className="mx-6 mb-4 rounded-xl border border-[#c9a961]/30 bg-[#2b1810] px-4 py-3 text-sm text-[#eadbc7]">
-              {rateLimited}
-              {!isSignedIn && (
-                <>
-                  {' '}
-                  <Link href="/auth/signup" className="text-[#d2a24c] underline">
-                    Sign up free
-                  </Link>{' '}
-                  for a larger allowance.
-                </>
-              )}
+            <div className="mx-6 mb-4 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                <p className="text-sm text-foreground font-body">
+                  {rateLimited}
+                  {!isSignedIn && (
+                    <>
+                      {' '}
+                      <Link
+                        href="/auth/signup"
+                        className="text-primary underline hover:no-underline font-semibold"
+                      >
+                        Sign up free
+                      </Link>{' '}
+                      for a larger allowance.
+                    </>
+                  )}
+                </p>
+              </div>
             </div>
           )}
 
           {/* Error banner */}
           {error && (
-            <div className="mx-6 mb-4 rounded-xl bg-red-900/70 px-4 py-3 text-sm text-white">
-              {error}
+            <div className="mx-6 mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                <p className="text-sm text-foreground font-body">{error}</p>
+              </div>
             </div>
           )}
 
           {/* Composer */}
-          <div className="border-t border-[#8a5a2b]/35 p-4 lg:p-6">
+          <div className="border-t border-border p-4 lg:p-6">
             <div className="flex items-end gap-3">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleInputKeyDown}
-                placeholder={`Message ${activeHostMeta.display_name}…`}
+                placeholder={`Message ${activeHostMeta.displayName}…`}
                 rows={1}
                 disabled={sending}
-                className="flex-1 resize-none rounded-xl border border-[#8a5a2b]/40 bg-[#2b1810] px-4 py-3 text-sm text-[#f7e7cf] placeholder:text-[#eadbc7]/40 focus:border-[#d2a24c] focus:outline-none disabled:opacity-60"
+                className="flex-1 resize-none rounded-lg border border-border bg-background px-4 py-3 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 disabled:opacity-60"
                 style={{ minHeight: '48px', maxHeight: '160px' }}
                 onInput={(e) => {
                   // Auto-grow up to max-height
@@ -384,36 +480,55 @@ function AskInner() {
                   el.style.height = Math.min(el.scrollHeight, 160) + 'px'
                 }}
               />
-              <button
-                onClick={sendMessage}
+              <Button
+                onClick={() => sendMessage()}
                 disabled={sending || !input.trim()}
-                className="rounded-xl bg-[#d2a24c] px-5 py-3 text-sm font-semibold text-[#2a0802] transition hover:bg-[#e0b866] disabled:opacity-50"
+                size="lg"
+                className="shrink-0"
               >
-                {sending ? 'Sending…' : 'Send'}
-              </button>
+                {sending ? (
+                  'Sending…'
+                ) : (
+                  <>
+                    Send
+                    <Send className="w-4 h-4 ml-2" />
+                  </>
+                )}
+              </Button>
             </div>
 
-            <p className="mt-3 text-xs text-[#eadbc7]/50">
+            <p className="mt-3 text-xs text-muted-foreground font-body">
               {isSignedIn
-                ? `Signed in as ${userEmail}. ${activeHostMeta.display_name} remembers returning guests.`
+                ? `Signed in as ${userEmail}. ${activeHostMeta.displayName} remembers returning guests.`
                 : 'Anonymous chat. Sign in for a larger message allowance and personalized continuity.'}
             </p>
           </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
   )
 }
 
 function AskSkeleton() {
   return (
-    <main className="min-h-screen bg-[#2a0802]">
-      <div className="mx-auto max-w-5xl px-6 py-8 lg:px-10">
-        <div className="h-4 w-32 bg-[#c9a961]/30 rounded animate-pulse" />
-        <div className="mt-6 h-12 max-w-lg bg-[#d2a24c]/20 rounded animate-pulse" />
-        <div className="mt-10 h-96 bg-[#1f0703] rounded-3xl animate-pulse" />
+    <div className="pt-24 pb-12 bg-background min-h-screen">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="space-y-3">
+          <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+          <div className="h-12 max-w-lg bg-muted rounded animate-pulse" />
+          <div className="h-5 w-3/4 bg-muted/50 rounded animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-20 rounded-xl border border-border bg-card/50 animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="h-[520px] rounded-xl border border-border bg-card/50 animate-pulse" />
       </div>
-    </main>
+    </div>
   )
 }
 

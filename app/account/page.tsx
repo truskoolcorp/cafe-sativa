@@ -5,7 +5,35 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  AlertCircle,
+  Calendar,
+  Crown,
+  LogOut,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  UserCircle,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+
+/**
+ * /account — the authenticated-user dashboard.
+ *
+ * Shows the current tier, subscription status, renewal/cancel
+ * date, staff/admin flags, and lets the visitor upgrade or sign
+ * out. Kept deliberately minimal — no ticket history list yet
+ * (that's a follow-up feature; this turn is visual-only).
+ *
+ * Logic preserved verbatim from the pre-restyle version:
+ *  - Route-guard: unauthenticated visitors get redirected to
+ *    /auth/signin?redirect=/account (then bounce back here)
+ *  - members_v fallback: if the view row hasn't materialized yet
+ *    (trigger race on first signup), show defaults for explorer
+ *  - Sign-out clears the Supabase session and routes home
+ */
 
 type MembershipState = {
   tier: 'explorer' | 'regular' | 'vip'
@@ -36,15 +64,15 @@ export default function AccountPage() {
 
         setEmail(data.user.email ?? null)
 
-        // Fetch member row from the view
         const { data: memberRow, error: memberError } = await supabase
           .from('members_v')
-          .select('tier, status, current_period_end, is_staff, is_admin, display_name')
+          .select(
+            'tier, status, current_period_end, is_staff, is_admin, display_name'
+          )
           .eq('id', data.user.id)
           .maybeSingle()
 
         if (memberError) {
-          // View exists, but the row might not — fall back to defaults.
           console.warn('members_v read failed:', memberError)
         }
 
@@ -58,8 +86,8 @@ export default function AccountPage() {
             displayName: memberRow.display_name,
           })
         } else {
-          // Profile row hasn't been created yet (trigger not fired, or race).
-          // Default to explorer until the row shows up.
+          // Profile row hasn't materialized yet (fresh signup).
+          // Default to explorer until the DB trigger completes.
           setMembership({
             tier: 'explorer',
             status: 'active',
@@ -101,9 +129,9 @@ export default function AccountPage() {
     membership?.status === 'past_due'
       ? 'Payment past due'
       : membership?.status === 'canceled'
-        ? 'Canceled (access remains through the period end)'
+        ? 'Canceled'
         : membership?.status === 'incomplete'
-          ? 'Incomplete (payment pending)'
+          ? 'Incomplete'
           : 'Active'
 
   const renewalDate = membership?.currentPeriodEnd
@@ -116,106 +144,206 @@ export default function AccountPage() {
 
   const tierDescription =
     membership?.tier === 'vip'
-      ? "Cigar Lounge, 20% off merch, priority ticketing, Tenerife priority list, and 365 days of host memory."
+      ? 'Every event free, priority Q&A seating, 365-day host memory, Cigar Lounge master blender sessions, and the Tenerife opening-week priority list.'
       : membership?.tier === 'regular'
-        ? 'All events free, 10% off merch, event recordings, and 90 days of host memory.'
-        : 'Venue access, Laviche chat, event browsing. Upgrade for free tickets and more.'
+        ? 'Most events included free, cooking classes at member rates, 90-day host memory, and Tenerife waitlist.'
+        : 'Browse the full venue, chat with our AI hosts, and buy tickets à la carte. Upgrade for free tickets to most events.'
+
+  // Decide which icon marks the tier header. Crown for VIP,
+  // Sparkles for Regular, UserCircle for Explorer.
+  const TierIcon =
+    membership?.tier === 'vip'
+      ? Crown
+      : membership?.tier === 'regular'
+        ? Sparkles
+        : UserCircle
 
   return (
-    <main className="min-h-screen bg-[#1a0904] px-6 py-20 text-[#f5e6d3] lg:px-10">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-8 flex flex-wrap items-center gap-3">
-          <Link href="/" className="rounded-md px-4 py-2 text-[#f5e6d3] hover:bg-white/5">
-            ← Back Home
-          </Link>
-          <Link
-            href="/membership"
-            className="rounded-md border border-[#c9a961]/25 px-4 py-2 text-[#f5e6d3] hover:bg-white/5"
-          >
-            Membership
-          </Link>
-          <button
-            onClick={handleSignOut}
-            className="rounded-md bg-[#c9a961] px-4 py-2 font-medium text-[#2b1810] hover:bg-[#e2c27a]"
-          >
-            Sign Out
-          </button>
+    <div className="pt-24 pb-16 bg-background min-h-screen">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Page header */}
+        <div className="mb-12">
+          <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold mb-3">
+            Account
+          </p>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <h1 className="font-heading text-4xl md:text-5xl font-bold text-foreground leading-tight">
+              {membership?.displayName
+                ? `Welcome back, ${membership.displayName}.`
+                : 'Welcome back.'}
+            </h1>
+            <Button variant="outline" size="sm" onClick={handleSignOut}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign out
+            </Button>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-[#c9a961]/20 bg-black/20 p-8">
-          <p className="text-sm uppercase tracking-[0.35em] text-[#c9a961]">Account</p>
+        {loading && (
+          <div className="space-y-6">
+            <div className="h-32 rounded-xl border border-border bg-card/50 animate-pulse" />
+            <div className="h-48 rounded-xl border border-border bg-card/50 animate-pulse" />
+          </div>
+        )}
 
-          <h1 className="mt-4 text-4xl font-semibold text-[#c9a961]">
-            {membership?.displayName
-              ? `Welcome back, ${membership.displayName}.`
-              : 'Welcome to Café Sativa'}
-          </h1>
+        {error && (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-6 py-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+              <p className="text-sm text-foreground font-body">{error}</p>
+            </div>
+          </div>
+        )}
 
-          {loading && <p className="mt-6 text-[#f5e6d3]/80">Loading account...</p>}
-          {error && <p className="mt-6 text-red-300">{error}</p>}
-
-          {!loading && !error && membership && (
-            <div className="mt-8 space-y-4">
-              <div className="rounded-xl border border-[#c9a961]/20 bg-[#2b1810]/60 p-5">
-                <p className="text-sm text-[#f5e6d3]/60">Signed in as</p>
-                <p className="mt-2 text-lg font-medium">{email || 'Unknown user'}</p>
-                {(membership.isStaff || membership.isAdmin) && (
-                  <p className="mt-2 text-xs uppercase tracking-[0.25em] text-[#c9a961]/80">
-                    {membership.isAdmin ? 'Admin' : 'Staff'} access enabled
+        {!loading && !error && membership && (
+          <div className="space-y-6">
+            {/* Identity card */}
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold">
+                    Signed in as
                   </p>
+                  <p className="font-heading text-lg font-bold text-foreground mt-1">
+                    {email || 'Unknown user'}
+                  </p>
+                </div>
+                {(membership.isStaff || membership.isAdmin) && (
+                  <div className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/5 px-3 py-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
+                      {membership.isAdmin ? 'Admin' : 'Staff'}
+                    </span>
+                  </div>
                 )}
               </div>
+            </div>
 
-              <div className="rounded-xl border border-[#c9a961]/20 bg-[#2b1810]/60 p-5">
-                <div className="flex flex-wrap items-baseline gap-3">
-                  <p className="text-sm text-[#f5e6d3]/60">Membership tier</p>
-                  <p className="text-2xl font-semibold text-[#c9a961]">{tierLabel}</p>
+            {/* Membership card */}
+            <div className="rounded-xl border border-primary/40 bg-card p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
+                  <TierIcon className="w-5 h-5 text-primary" />
                 </div>
-                <p className="mt-2 text-sm text-[#f5e6d3]/80">{tierDescription}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-3 mb-2">
+                    <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold">
+                      Current tier
+                    </p>
+                    <Badge
+                      variant={
+                        membership.status === 'past_due'
+                          ? 'destructive'
+                          : 'outline'
+                      }
+                      className="font-body"
+                    >
+                      {statusLabel}
+                    </Badge>
+                  </div>
+                  <h2 className="font-heading text-3xl font-bold text-foreground">
+                    {tierLabel}
+                  </h2>
+                  <p className="text-sm text-muted-foreground font-body mt-3 leading-relaxed">
+                    {tierDescription}
+                  </p>
 
-                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-                  <span className="text-[#f5e6d3]/60">
-                    Status: <span className="text-[#f5e6d3]">{statusLabel}</span>
-                  </span>
                   {renewalDate && (
-                    <span className="text-[#f5e6d3]/60">
-                      {membership.status === 'canceled' ? 'Access through: ' : 'Renews: '}
-                      <span className="text-[#f5e6d3]">{renewalDate}</span>
-                    </span>
+                    <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground font-body">
+                      <Calendar className="w-4 h-4 text-primary" />
+                      <span>
+                        {membership.status === 'canceled'
+                          ? 'Access through '
+                          : 'Renews '}
+                        <span className="text-foreground font-semibold">
+                          {renewalDate}
+                        </span>
+                      </span>
+                    </div>
                   )}
-                </div>
 
-                <div className="mt-5 flex flex-wrap gap-3">
-                  {membership.tier === 'explorer' && (
-                    <Link
-                      href="/membership"
-                      className="rounded-md bg-[#c9a961] px-4 py-2 text-sm font-medium text-[#2b1810] hover:bg-[#e2c27a]"
-                    >
-                      Upgrade
-                    </Link>
-                  )}
-                  {membership.tier === 'regular' && (
-                    <Link
-                      href="/membership"
-                      className="rounded-md bg-[#c9a961] px-4 py-2 text-sm font-medium text-[#2b1810] hover:bg-[#e2c27a]"
-                    >
-                      Upgrade to VIP
-                    </Link>
-                  )}
-                  {membership.tier !== 'explorer' && (
-                    <Link
-                      href="/membership"
-                      className="rounded-md border border-[#c9a961]/25 px-4 py-2 text-sm hover:bg-white/5"
-                    >
-                      Manage subscription
-                    </Link>
+                  {membership.status === 'past_due' && (
+                    <div className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3">
+                      <p className="text-sm text-foreground font-body">
+                        Your last payment didn&rsquo;t go through. Update your
+                        payment method to restore access.
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
+
+              {/* Action buttons */}
+              <div className="mt-6 pt-6 border-t border-border flex flex-wrap gap-3">
+                {membership.tier === 'explorer' && (
+                  <Button asChild>
+                    <Link href="/membership">
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Upgrade to Regular
+                    </Link>
+                  </Button>
+                )}
+                {membership.tier === 'regular' && (
+                  <Button asChild>
+                    <Link href="/membership?intent=vip">
+                      <Crown className="w-4 h-4 mr-2" />
+                      Upgrade to VIP
+                    </Link>
+                  </Button>
+                )}
+                {membership.tier !== 'explorer' && (
+                  <Button variant="outline" asChild>
+                    <Link href="/membership">
+                      <Settings className="w-4 h-4 mr-2" />
+                      Manage subscription
+                    </Link>
+                  </Button>
+                )}
+                <Button variant="ghost" asChild>
+                  <Link href="/events">Browse events →</Link>
+                </Button>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Quick-links row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Link
+                href="/events"
+                className="group rounded-xl border border-border bg-card/50 p-5 hover:border-primary/40 hover:bg-card transition-colors"
+              >
+                <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold mb-2">
+                  Events
+                </p>
+                <p className="font-heading text-base font-bold text-foreground group-hover:text-primary transition-colors">
+                  Browse the schedule
+                </p>
+              </Link>
+              <Link
+                href="/ask"
+                className="group rounded-xl border border-border bg-card/50 p-5 hover:border-primary/40 hover:bg-card transition-colors"
+              >
+                <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold mb-2">
+                  Talk to a host
+                </p>
+                <p className="font-heading text-base font-bold text-foreground group-hover:text-primary transition-colors">
+                  Laviche, Ginger, or Ahnika
+                </p>
+              </Link>
+              <Link
+                href="/contact"
+                className="group rounded-xl border border-border bg-card/50 p-5 hover:border-primary/40 hover:bg-card transition-colors"
+              >
+                <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold mb-2">
+                  Need help?
+                </p>
+                <p className="font-heading text-base font-bold text-foreground group-hover:text-primary transition-colors">
+                  Contact us
+                </p>
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
-    </main>
+    </div>
   )
 }

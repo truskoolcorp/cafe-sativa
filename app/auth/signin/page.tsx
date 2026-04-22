@@ -5,20 +5,27 @@ export const dynamic = 'force-dynamic'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { AuthCard } from '@/components/auth/AuthCard'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 /**
- * Inner form that reads ?redirect=... from search params.
+ * /auth/signin — email + password sign-in.
  *
- * Next.js 14 requires any component calling useSearchParams() to be
- * wrapped in a <Suspense> boundary — otherwise the static prerender
- * of this route fails with "useSearchParams() should be wrapped in
- * a suspense boundary". See:
- *   https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout
+ * Critical to preserve: the ?redirect=... query param handling.
+ * /membership and /events/[slug] bounce unauthenticated visitors
+ * here with `?redirect=/membership?intent=vip` (or equivalent), and
+ * expect us to land them back exactly where they were after a
+ * successful sign-in. Break that and the entire paid funnel breaks.
  *
- * Splitting the form into a child component lets the outer page wrap
- * it in Suspense while keeping the readable form structure.
+ * Suspense wrapper is also non-negotiable — Next 14 requires it
+ * around any component reading useSearchParams() or the static
+ * prerender bails. This was the fix that finally landed (commit
+ * 1c66333) after a ChatGPT patch kept missing it.
  */
+
 function SignInForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -33,6 +40,8 @@ function SignInForm() {
     setMounted(true)
   }, [])
 
+  // Defer Supabase client creation until after hydration so the env
+  // var reads don't hit the SSR path. Matches the existing pattern.
   const supabase = useMemo(() => {
     if (!mounted) return null
     try {
@@ -43,7 +52,7 @@ function SignInForm() {
     }
   }, [mounted])
 
-  const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
+  async function handleSignIn(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
     setError(null)
@@ -68,6 +77,9 @@ function SignInForm() {
         return
       }
 
+      // Redirect target comes from the upstream page — /membership
+      // and /events/[slug] both pass along an `intent` param so the
+      // action auto-resumes on return.
       const redirectTo = searchParams.get('redirect') || '/account'
       router.push(redirectTo)
       router.refresh()
@@ -81,113 +93,109 @@ function SignInForm() {
   if (!mounted) return <SignInSkeleton />
 
   return (
-    <div className="max-w-md w-full bg-[#5C4033] rounded-lg p-8 border border-[#C9A961]">
-      <div className="mb-6 flex flex-wrap gap-2 text-sm">
-        <Link href="/" className="text-[#F5E6D3] hover:underline">
-          ← Home
-        </Link>
-        <span className="text-[#c9a961]/50">•</span>
-        <Link href="/membership" className="text-[#F5E6D3] hover:underline">
-          Membership
-        </Link>
-        <span className="text-[#c9a961]/50">•</span>
-        <Link href="/auth/signup" className="text-[#C9A961] hover:underline">
-          Sign Up
-        </Link>
-      </div>
-
-      <div className="text-center mb-8">
-        <span className="text-4xl">☕</span>
-        <h1 className="text-[#C9A961] text-3xl font-serif mt-4">
-          Sign in to Café Sativa
-        </h1>
-      </div>
-
+    <>
       {error && (
-        <div className="bg-red-900 text-white p-3 rounded mb-6 text-sm">
-          {error}
+        <div className="mb-6 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+            <p className="text-sm text-foreground font-body">{error}</p>
+          </div>
         </div>
       )}
 
-      <form onSubmit={handleSignIn} className="space-y-6">
+      <form onSubmit={handleSignIn} className="space-y-5">
         <div>
-          <label className="block text-[#F5E6D3] text-sm mb-2">
+          <label
+            htmlFor="email"
+            className="block text-sm font-body font-semibold text-foreground mb-2"
+          >
             Email address
           </label>
-          <input
+          <Input
+            id="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full px-4 py-3 bg-[#2B1810] border border-[#C9A961] text-[#F5E6D3] rounded focus:outline-none focus:ring-2 focus:ring-[#C9A961]"
+            autoComplete="email"
             placeholder="you@email.com"
+            disabled={loading}
           />
         </div>
 
         <div>
-          <label className="block text-[#F5E6D3] text-sm mb-2">
-            Password
-          </label>
-          <input
+          <div className="flex items-center justify-between mb-2">
+            <label
+              htmlFor="password"
+              className="block text-sm font-body font-semibold text-foreground"
+            >
+              Password
+            </label>
+            {/* Placeholder link for a future /auth/reset flow. We
+                leave the link off the DOM for now rather than ship
+                a dead click. */}
+          </div>
+          <Input
+            id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            className="w-full px-4 py-3 bg-[#2B1810] border border-[#C9A961] text-[#F5E6D3] rounded focus:outline-none focus:ring-2 focus:ring-[#C9A961]"
+            autoComplete="current-password"
             placeholder="••••••••"
+            disabled={loading}
           />
         </div>
 
-        <button
+        <Button
           type="submit"
+          size="lg"
+          className="w-full"
           disabled={loading || !supabase}
-          className="w-full bg-[#C9A961] text-[#2B1810] py-4 rounded font-semibold hover:bg-[#F5E6D3] transition-colors disabled:opacity-50"
         >
-          {loading ? 'Signing in...' : 'Sign In'}
-        </button>
+          {loading ? 'Signing in…' : 'Sign in'}
+        </Button>
       </form>
-
-      <div className="mt-8 text-center">
-        <p className="text-[#F5E6D3] text-sm">
-          Don&rsquo;t have an account?{' '}
-          <Link href="/auth/signup" className="text-[#C9A961] hover:underline">
-            Sign up free
-          </Link>
-        </p>
-      </div>
-    </div>
+    </>
   )
 }
 
 /**
- * Placeholder shown while the form is mounting on the client (matches
- * the form's outer shell so layout doesn't jump). Also used as the
- * <Suspense fallback>.
+ * Skeleton used as both the pre-mount placeholder and the Suspense
+ * fallback. Matches the real form shell so there's no layout jump
+ * on hydration.
  */
 function SignInSkeleton() {
   return (
-    <div className="max-w-md w-full bg-[#5C4033] rounded-lg p-8 border border-[#C9A961]">
-      <div className="text-center mb-8">
-        <span className="text-4xl">☕</span>
-        <h1 className="text-[#C9A961] text-3xl font-serif mt-4">
-          Sign in to Café Sativa
-        </h1>
-      </div>
-      <div className="space-y-6 animate-pulse">
-        <div className="h-12 bg-[#2B1810] border border-[#C9A961]/50 rounded" />
-        <div className="h-12 bg-[#2B1810] border border-[#C9A961]/50 rounded" />
-        <div className="h-14 bg-[#C9A961]/60 rounded" />
-      </div>
+    <div className="space-y-5 animate-pulse">
+      <div className="h-5 w-28 bg-muted rounded" />
+      <div className="h-10 bg-muted rounded" />
+      <div className="h-5 w-20 bg-muted rounded" />
+      <div className="h-10 bg-muted rounded" />
+      <div className="h-11 bg-primary/30 rounded mt-6" />
     </div>
   )
 }
 
 export default function SignInPage() {
   return (
-    <main className="min-h-screen bg-[#2B1810] flex items-center justify-center px-4 py-10">
+    <AuthCard
+      title="Welcome back"
+      footer={
+        <>
+          Don&rsquo;t have an account?{' '}
+          <Link
+            href="/auth/signup"
+            className="text-primary hover:underline font-body font-semibold"
+          >
+            Sign up free
+          </Link>
+        </>
+      }
+    >
       <Suspense fallback={<SignInSkeleton />}>
         <SignInForm />
       </Suspense>
-    </main>
+    </AuthCard>
   )
 }

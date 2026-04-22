@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { Coffee } from 'lucide-react'
 
 /**
  * Shared visual shell for the /auth/signin and /auth/signup pages.
@@ -29,14 +28,15 @@ export function AuthCard({ title, children, footer }: Props) {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 pt-24 pb-12">
       <div className="w-full max-w-md">
-        {/* Logo + brand above card — establishes context without
-            needing a second nav. The link home doubles as a cancel. */}
+        {/* Brand wordmark above card — establishes context without
+            needing a second nav. The link home doubles as a cancel.
+            Wordmark-only, matching the Navbar treatment. Café Sativa
+            is a cultural venue, not a product brand, so no icon. */}
         <Link
           href="/"
-          className="flex items-center justify-center gap-2 mb-8"
+          className="flex items-center justify-center mb-8"
         >
-          <Coffee className="w-5 h-5 text-primary" />
-          <span className="font-heading text-lg font-bold text-foreground">
+          <span className="font-heading text-xl font-bold tracking-tight text-primary">
             Café Sativa
           </span>
         </Link>

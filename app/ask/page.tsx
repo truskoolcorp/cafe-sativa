@@ -7,7 +7,7 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Send,
-  Coffee,
+  Rose,
   Compass,
   Sparkles,
   AlertCircle,
@@ -41,7 +41,7 @@ import { cn } from '@/lib/utils'
  * Visual changes:
  *
  *   - Host tab bar redesigned as three cards with distinct icons
- *     (Coffee/Compass/Sparkles) so visitors can tell them apart at
+ *     (Rose/Compass/Sparkles) so visitors can tell them apart at
  *     a glance. Icon choice matches each host's domain.
  *   - Messages use semantic primary/card colors instead of amber
  *     hex, and the assistant bubble now shows a subtle host icon
@@ -71,7 +71,7 @@ const HOSTS: HostMeta[] = [
     displayName: 'Laviche',
     role: "Maître d'",
     tagline: 'Runs the floor. Knows where everything is.',
-    icon: Coffee,
+    icon: Rose,
     suggestions: [
       'What\u2019s coming up this summer?',
       'How do I get into the cigar lounge?',

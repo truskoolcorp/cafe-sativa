@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { Coffee } from 'lucide-react'
 
 /**
  * Site footer.
@@ -44,9 +43,8 @@ export function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
           {/* Brand column */}
           <div className="col-span-2">
-            <Link href="/" className="flex items-center gap-2 mb-4">
-              <Coffee className="w-5 h-5 text-primary" />
-              <span className="font-heading text-lg font-bold text-foreground">
+            <Link href="/" className="inline-flex items-center mb-4">
+              <span className="font-heading text-xl font-bold tracking-tight text-primary">
                 Café Sativa
               </span>
             </Link>

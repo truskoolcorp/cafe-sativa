@@ -24,11 +24,12 @@ const ALLOWED_TOPICS = new Set([
  *  - name + message both required, with generous length caps
  *  - topic must be one of the known values (or fall back to 'general')
  *
- * We don't send a confirmation email from this route — that
- * introduces a Resend dependency that isn't worth it for launch.
- * Instead, the success UI tells the user we've received it and
- * an admin will reply. When we add Resend later, this is the
- * place to hook it in.
+ * After a successful insert, we fire off two emails via Resend:
+ *   1. Acknowledgment to the submitter so they know the message landed
+ *   2. A forward to CONTACT_FORWARD_TO (team inbox) so we actually get it
+ * Both are fire-and-forget — the API returns 200 as soon as the DB
+ * write succeeds, regardless of email status. Resend failures log but
+ * don't fail the submission.
  */
 export async function POST(req: NextRequest) {
   let body: {
@@ -100,6 +101,54 @@ export async function POST(req: NextRequest) {
         { error: 'Could not send your message right now. Please try again.' },
         { status: 500 }
       )
+    }
+
+    // Fire-and-forget acknowledgment + team forward. Both wrapped
+    // so any failure here never blocks the success response.
+    try {
+      const { sendContactAcknowledgment } = await import(
+        '@/lib/email/send-contact-acknowledgment'
+      )
+      const { sendEmail } = await import('@/lib/email/send')
+
+      // Don't await these in parallel to avoid blocking the response.
+      // Promise.allSettled makes sure one failure doesn't prevent the
+      // other from attempting.
+      Promise.allSettled([
+        sendContactAcknowledgment({
+          to: email,
+          name,
+          topic,
+          originalMessage: message,
+        }),
+        // Forward to the team inbox, if configured. Falls back silently
+        // if CONTACT_FORWARD_TO isn't set.
+        process.env.CONTACT_FORWARD_TO
+          ? sendEmail({
+              to: process.env.CONTACT_FORWARD_TO,
+              subject: `[${topic}] Contact form — ${name}`,
+              html: `
+                <p><strong>From:</strong> ${name} &lt;${email}&gt;</p>
+                <p><strong>Topic:</strong> ${topic}</p>
+                ${subject ? `<p><strong>Subject:</strong> ${subject}</p>` : ''}
+                <hr>
+                <p style="white-space:pre-wrap">${message
+                  .replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')}</p>
+              `,
+              text: `From: ${name} <${email}>\nTopic: ${topic}\n${
+                subject ? `Subject: ${subject}\n` : ''
+              }\n${message}`,
+              replyTo: email,
+            })
+          : Promise.resolve({ ok: false, reason: 'no_forward_address' }),
+      ]).catch((err) => {
+        console.error('[contact] email fan-out failed', err)
+      })
+    } catch (emailErr) {
+      // Import-time or setup failure. Log but still return success.
+      console.error('[contact] could not dispatch emails', emailErr)
     }
 
     return NextResponse.json({ success: true })

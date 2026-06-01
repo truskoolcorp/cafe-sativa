@@ -18,7 +18,7 @@ export default async function KitchenPage() {
       title="The Kitchen"
       tagline="Cook along, live."
       description="Real-time cooking classes with visiting chefs. Prep ahead from our ingredient lists, then share a meal with the rest of the room when the class ends."
-      heroImage="https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=1920&q=80"
+      heroImage="/rooms/kitchen.webp"
       events={events}
     />
   )

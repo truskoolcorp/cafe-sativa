@@ -31,35 +31,35 @@ const ROOMS: Room[] = [
     title: 'The Stage',
     eyebrow: 'Live performance',
     description: 'Interviews, acoustic sets, comedy, spoken word.',
-    image: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80',
+    image: '/rooms/stage.webp',
   },
   {
     href: '/kitchen',
     title: 'The Kitchen',
     eyebrow: 'Cooking classes',
     description: 'Hands-on workshops with visiting chefs.',
-    image: 'https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=800&q=80',
+    image: '/rooms/kitchen.webp',
   },
   {
     href: '/cigar-lounge',
     title: 'Cigar Lounge',
     eyebrow: 'Tastings & talks',
     description: 'Guided flights, blind comparisons, master blender Q&As.',
-    image: 'https://images.unsplash.com/photo-1574068468668-a05a11f871da?w=800&q=80',
+    image: '/rooms/cigar_lounge.webp',
   },
   {
     href: '/gallery',
     title: 'The Gallery',
     eyebrow: 'Art & exhibition',
     description: 'Rotating exhibits and artist conversations.',
-    image: 'https://images.unsplash.com/photo-1554907984-15263bfd63bd?w=800&q=80',
+    image: '/rooms/gallery.webp',
   },
   {
     href: '/events',
     title: 'The Bar',
     eyebrow: 'Mixology',
     description: 'Classes and tastings with working bartenders.',
-    image: 'https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=800&q=80',
+    image: '/rooms/bar.webp',
   },
   {
     href: '/ask',
@@ -67,7 +67,7 @@ const ROOMS: Room[] = [
     eyebrow: 'Always open',
     description:
       'Talk to Laviche, Ginger, or Ahnika — our AI hosts — any time of day.',
-    image: 'https://images.unsplash.com/photo-1542044896530-05d85be9b11a?w=800&q=80',
+    image: '/rooms/community.webp',
   },
 ]
 

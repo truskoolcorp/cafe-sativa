@@ -104,30 +104,33 @@ function categoryLabel(category: EventRow['category']): string {
 // Category → fallback hero image. Matches the set used by
 // EventCard so the list → detail transition feels continuous.
 const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  stage: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=1920&q=80',
-  kitchen: 'https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=1920&q=80',
+  stage: '/rooms/stage.webp',
+  kitchen: '/rooms/kitchen.webp',
   cigar_lounge:
-    'https://images.unsplash.com/photo-1574068468668-a05a11f871da?w=1920&q=80',
-  bar: 'https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=1920&q=80',
+    '/rooms/cigar_lounge.webp',
+  bar: '/rooms/bar.webp',
   gallery:
-    'https://images.unsplash.com/photo-1554907984-15263bfd63bd?w=1920&q=80',
+    '/rooms/gallery.webp',
   community:
-    'https://images.unsplash.com/photo-1542044896530-05d85be9b11a?w=1920&q=80',
+    '/rooms/community.webp',
 }
 
 function formatEventDate(iso: string) {
   const d = new Date(iso)
+  const TZ = 'America/Chicago' // venue-local (Central); server runs UTC
   return {
-    weekday: d.toLocaleDateString('en-US', { weekday: 'long' }),
+    weekday: d.toLocaleDateString('en-US', { weekday: 'long', timeZone: TZ }),
     date: d.toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
+      timeZone: TZ,
     }),
     time: d.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       timeZoneName: 'short',
+      timeZone: TZ,
     }),
   }
 }

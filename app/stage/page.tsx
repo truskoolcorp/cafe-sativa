@@ -18,7 +18,7 @@ export default async function StagePage() {
       title="The Stage"
       tagline="Where the house lights dim."
       description="Interviews, acoustic sets, comedy, and spoken word — performed live with a real audience room. Most shows are free with membership."
-      heroImage="https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=1920&q=80"
+      heroImage="/rooms/stage.webp"
       events={events}
     />
   )

@@ -53,7 +53,7 @@ export default async function CigarLoungePage() {
       title="Cigar Lounge"
       tagline="Smoke, spoken softly."
       description="Guided tastings, blind flights, and conversations with working master blenders. Most programming is members-only — free with Regular, everything unlocked with VIP."
-      heroImage="https://images.unsplash.com/photo-1574068468668-a05a11f871da?w=1920&q=80"
+      heroImage="/rooms/cigar_lounge.webp"
       events={events}
       vipGateEnabled
       intro={intro}

@@ -33,15 +33,15 @@ function accessLabel(access: EventRow['access'], price: number): string {
 // Fallback image if event has no hero — each category gets a
 // different mood photo so the page still feels curated.
 const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  stage: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80',
-  kitchen: 'https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=800&q=80',
+  stage: '/rooms/stage.webp',
+  kitchen: '/rooms/kitchen.webp',
   cigar_lounge:
-    'https://images.unsplash.com/photo-1574068468668-a05a11f871da?w=800&q=80',
-  bar: 'https://images.unsplash.com/photo-1470337458703-46ad1756a187?w=800&q=80',
+    '/rooms/cigar_lounge.webp',
+  bar: '/rooms/bar.webp',
   gallery:
-    'https://images.unsplash.com/photo-1554907984-15263bfd63bd?w=800&q=80',
+    '/rooms/gallery.webp',
   community:
-    'https://images.unsplash.com/photo-1542044896530-05d85be9b11a?w=800&q=80',
+    '/rooms/community.webp',
 }
 
 export function EventCard({ event, vipGated }: Props) {

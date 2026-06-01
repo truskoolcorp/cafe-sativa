@@ -106,22 +106,29 @@ export async function getFeaturedEvent(): Promise<EventRow | null> {
  */
 export function formatEventDate(iso: string) {
   const d = new Date(iso)
+  // Café Sativa programming runs on Central Time. Pin every formatter to
+  // America/Chicago so dates render in venue-local time regardless of the
+  // server's timezone (Vercel runs in UTC).
+  const TZ = 'America/Chicago'
   return {
-    weekday: d.toLocaleDateString('en-US', { weekday: 'long' }),
-    weekdayShort: d.toLocaleDateString('en-US', { weekday: 'short' }),
+    weekday: d.toLocaleDateString('en-US', { weekday: 'long', timeZone: TZ }),
+    weekdayShort: d.toLocaleDateString('en-US', { weekday: 'short', timeZone: TZ }),
     date: d.toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
+      timeZone: TZ,
     }),
     dateShort: d.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
+      timeZone: TZ,
     }),
     time: d.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       timeZoneName: 'short',
+      timeZone: TZ,
     }),
   }
 }

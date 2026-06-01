@@ -43,7 +43,7 @@ export function Hero({ featured }: { featured: EventRow | null }) {
           viewport; object-position slightly low so the faces/lights
           sit in the upper third. */}
       <Image
-        src="https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=1920&q=80"
+        src="/rooms/venue.webp"
         alt=""
         fill
         priority

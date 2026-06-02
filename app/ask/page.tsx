@@ -80,7 +80,7 @@ const HOSTS: HostMeta[] = [
     suggestions: [
       'What\u2019s coming up this summer?',
       'How do I get into the cigar lounge?',
-      'What\u2019s the difference between Regular and VIP?',
+      'Show me something from Concrete Rose.',
     ],
   },
   {
@@ -102,9 +102,9 @@ const HOSTS: HostMeta[] = [
     tagline: 'Alignment, movement, and feeling good in your body.',
     icon: Sparkles,
     suggestions: [
-      'What should I wear to Ep 1?',
-      'Show me something from Concrete Rose.',
-      'Help me put together an outfit for a cigar tasting.',
+      'How do I get back in alignment?',
+      'Tell me about Faithfully Faded.',
+      'Any tips to feel grounded before an event?',
     ],
   },
 ]

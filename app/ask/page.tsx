@@ -75,7 +75,7 @@ const HOSTS: HostMeta[] = [
     id: 'laviche',
     displayName: 'Laviche',
     role: "Maître d'",
-    tagline: 'Runs the floor. Knows where everything is.',
+    tagline: 'Runs the floor and the looks. Concrete Rose is hers.',
     icon: Rose,
     suggestions: [
       'What\u2019s coming up this summer?',
@@ -98,8 +98,8 @@ const HOSTS: HostMeta[] = [
   {
     id: 'ahnika',
     displayName: 'Ahnika',
-    role: 'Style + merch',
-    tagline: 'Alignment coach meets stylist.',
+    role: 'Alignment + wellness',
+    tagline: 'Alignment, movement, and feeling good in your body.',
     icon: Sparkles,
     suggestions: [
       'What should I wear to Ep 1?',

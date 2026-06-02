@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import Image from 'next/image'
 import { Palette, Package } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
@@ -83,39 +84,52 @@ export default async function GalleryPage() {
   const products = await loadGallery()
 
   return (
-    <div className="pt-24 pb-16 bg-background min-h-screen">
-      {/* Header band */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-10">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/5 px-3 py-1 mb-4">
-              <Palette className="w-3.5 h-3.5 text-primary" />
-              <span className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
-                The Gallery
-              </span>
+    <div className="pb-16 bg-background min-h-screen">
+      {/* Hero band */}
+      <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden">
+        <Image
+          src="/rooms/gallery.webp"
+          alt=""
+          fill
+          priority
+          className="object-cover"
+          sizes="100vw"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/40 to-background" />
+        <div className="relative z-10 h-full flex items-end pb-16 md:pb-20">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/5 px-3 py-1 mb-4">
+                <Palette className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
+                  The Gallery
+                </span>
+              </div>
+              <h1 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
+                Work from our{' '}
+                <span className="text-primary italic">resident artists.</span>
+              </h1>
+              <p className="text-base md:text-lg text-muted-foreground font-body mt-4 leading-relaxed">
+                Original pieces, editions, digital work, and NFTs across the
+                Dallas–Tenerife axis. Every purchase sends funds directly to the
+                artist. We keep 10% to run the place.
+              </p>
             </div>
-            <h1 className="font-heading text-5xl md:text-6xl font-bold text-foreground leading-[1.05]">
-              Work from our{' '}
-              <span className="text-primary italic">resident artists.</span>
-            </h1>
-            <p className="text-base md:text-lg text-muted-foreground font-body max-w-2xl mt-4 leading-relaxed">
-              Original pieces, editions, digital work, and NFTs across the
-              Dallas–Tenerife axis. Every purchase sends funds directly to the
-              artist. We keep 10% to run the place.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <Link
-              href="/artist-dashboard"
-              className="text-sm font-body text-muted-foreground hover:text-primary transition-colors"
-            >
-              Sell your work →
-            </Link>
           </div>
         </div>
+      </section>
 
-        {/* Grid */}
+      {/* Grid */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
+        <div className="flex justify-end mb-6">
+          <Link
+            href="/artist-dashboard"
+            className="text-sm font-body text-muted-foreground hover:text-primary transition-colors"
+          >
+            Sell your work →
+          </Link>
+        </div>
+
         {products.length === 0 ? (
           <EmptyGallery />
         ) : (

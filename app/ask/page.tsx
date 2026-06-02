@@ -12,6 +12,11 @@ import {
   Sparkles,
   AlertCircle,
   Info,
+  Mic,
+  Square,
+  Volume2,
+  VolumeX,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -135,6 +140,37 @@ function setStoredConversationId(hostId: HostId, id: string) {
   localStorage.setItem(CONV_KEY_PREFIX + hostId, id)
 }
 
+/**
+ * Minimal typing for the Web Speech API (SpeechRecognition), which is
+ * not part of the standard TS DOM lib. We only model the few fields we
+ * touch. Browser support is Chrome/Edge/Safari; Firefox lacks it, so
+ * the mic button is hidden when the constructor is absent.
+ */
+type SpeechResultLike = { 0: { transcript: string }; isFinal: boolean }
+type SpeechEventLike = {
+  resultIndex: number
+  results: { length: number; [i: number]: SpeechResultLike }
+}
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: ((e: SpeechEventLike) => void) | null
+  onend: (() => void) | null
+  onerror: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
+  if (typeof window === 'undefined') return null
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike
+  }
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null
+}
+
 function AskInner() {
   const searchParams = useSearchParams()
   const hostParam = searchParams.get('host') as HostId | null
@@ -151,14 +187,25 @@ function AskInner() {
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
+  // Voice — layered on top of the text concierge, fully optional.
+  const [voiceMode, setVoiceMode] = useState(false) // speak replies aloud
+  const [voiceSupported, setVoiceSupported] = useState(true) // server TTS (flips off on 503)
+  const [sttSupported, setSttSupported] = useState(false) // browser speech-to-text
+  const [listening, setListening] = useState(false) // mic actively capturing
+  const [speakingTs, setSpeakingTs] = useState<number | null>(null) // which reply is playing
+
   const sessionIdRef = useRef<string>('')
   const conversationIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const voiceModeRef = useRef(false) // mirror of voiceMode for async sendMessage
 
   // Initialize session id + auth state on mount
   useEffect(() => {
     sessionIdRef.current = ensureSessionId()
     conversationIdRef.current = getStoredConversationId(activeHost)
+    setSttSupported(getSpeechRecognition() !== null)
 
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
@@ -168,12 +215,25 @@ function AskInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Stop any audio / mic capture when the component unmounts
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause()
+      recognitionRef.current?.stop()
+    }
+  }, [])
+
   // Host change — clear chat view, load stored conversation id
   useEffect(() => {
     setMessages([])
     setError(null)
     setRateLimited(null)
     conversationIdRef.current = getStoredConversationId(activeHost)
+    // Stop any in-flight voice when switching hosts
+    audioRef.current?.pause()
+    audioRef.current = null
+    setSpeakingTs(null)
+    recognitionRef.current?.stop()
   }, [activeHost])
 
   // Pin to newest message
@@ -186,6 +246,11 @@ function AskInner() {
     if (!trimmed || sending) return
     setError(null)
     setRateLimited(null)
+    // Stop any reply currently playing / mic capturing before the new turn
+    audioRef.current?.pause()
+    audioRef.current = null
+    setSpeakingTs(null)
+    if (listening) recognitionRef.current?.stop()
 
     const userMsg: Message = {
       role: 'user',
@@ -242,6 +307,16 @@ function AskInner() {
         timestamp: Date.now(),
       }
       setMessages((prev) => [...prev, replyMsg])
+
+      // If voice mode is on, speak the reply. The Send click / suggestion
+      // tap is a recent user gesture, so browser autoplay is permitted.
+      if (
+        voiceModeRef.current &&
+        typeof data.message === 'string' &&
+        data.message.trim()
+      ) {
+        void speak(data.message, activeHost, replyMsg.timestamp)
+      }
     } catch (err) {
       console.error('[ask] send failed', err)
       setError('Could not send your message. Check your connection.')
@@ -255,6 +330,107 @@ function AskInner() {
       e.preventDefault()
       sendMessage()
     }
+  }
+
+  // Speak a reply in the host's voice via the server TTS route. Keeps the
+  // ElevenLabs key server-side; we just play the returned audio/mpeg.
+  async function speak(text: string, host: HostId, ts: number) {
+    if (!voiceSupported || !text.trim()) return
+    // Stop anything currently playing first.
+    audioRef.current?.pause()
+    audioRef.current = null
+
+    try {
+      const res = await fetch('/api/concierge/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, text }),
+      })
+
+      if (res.status === 503) {
+        // Server has no ElevenLabs key — hide voice controls quietly.
+        setVoiceSupported(false)
+        setVoiceMode(false)
+        voiceModeRef.current = false
+        return
+      }
+      if (!res.ok) return
+
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audioRef.current = audio
+      setSpeakingTs(ts)
+
+      const cleanup = () => {
+        setSpeakingTs((cur) => (cur === ts ? null : cur))
+        URL.revokeObjectURL(url)
+        if (audioRef.current === audio) audioRef.current = null
+      }
+      audio.onended = cleanup
+      audio.onerror = cleanup
+
+      await audio.play().catch(() => {
+        // Autoplay blocked or playback failed — clear the indicator but
+        // leave controls in place (manual play still works on tap).
+        setSpeakingTs((cur) => (cur === ts ? null : cur))
+      })
+    } catch {
+      // Network error — the text reply is already shown, so just ignore.
+      setSpeakingTs((cur) => (cur === ts ? null : cur))
+    }
+  }
+
+  // Browser speech-to-text into the composer. Client-side only, no key.
+  function toggleMic() {
+    const Ctor = getSpeechRecognition()
+    if (!Ctor) return
+
+    if (listening) {
+      recognitionRef.current?.stop()
+      return
+    }
+
+    const rec = new Ctor()
+    rec.lang = 'en-US'
+    rec.continuous = false
+    rec.interimResults = true
+
+    let finalText = ''
+    rec.onresult = (e) => {
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i]
+        if (r.isFinal) finalText += r[0].transcript
+        else interim += r[0].transcript
+      }
+      setInput((finalText + interim).trim())
+    }
+    rec.onend = () => {
+      setListening(false)
+      recognitionRef.current = null
+    }
+    rec.onerror = () => {
+      setListening(false)
+      recognitionRef.current = null
+    }
+
+    recognitionRef.current = rec
+    setListening(true)
+    rec.start()
+  }
+
+  function toggleVoiceMode() {
+    setVoiceMode((v) => {
+      const next = !v
+      voiceModeRef.current = next
+      if (!next) {
+        audioRef.current?.pause()
+        audioRef.current = null
+        setSpeakingTs(null)
+      }
+      return next
+    })
   }
 
   const activeHostMeta = HOSTS.find((h) => h.id === activeHost)!
@@ -389,6 +565,20 @@ function AskInner() {
                         <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
                           {activeHostMeta.displayName}
                         </p>
+                        {voiceSupported && (
+                          <button
+                            type="button"
+                            onClick={() => speak(m.content, activeHost, m.timestamp)}
+                            aria-label={`Play ${activeHostMeta.displayName}'s reply`}
+                            className="ml-0.5 text-muted-foreground hover:text-primary transition-colors"
+                          >
+                            {speakingTs === m.timestamp ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Volume2 className="w-3 h-3" />
+                            )}
+                          </button>
+                        )}
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{m.content}</p>
@@ -464,6 +654,25 @@ function AskInner() {
           {/* Composer */}
           <div className="border-t border-border p-4 lg:p-6">
             <div className="flex items-end gap-3">
+              {sttSupported && (
+                <button
+                  type="button"
+                  onClick={toggleMic}
+                  aria-label={listening ? 'Stop voice input' : 'Speak your message'}
+                  className={cn(
+                    'shrink-0 h-12 w-12 rounded-lg border flex items-center justify-center transition-colors',
+                    listening
+                      ? 'border-primary bg-primary/15 text-primary animate-pulse'
+                      : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary/40'
+                  )}
+                >
+                  {listening ? (
+                    <Square className="w-4 h-4" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </button>
+              )}
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -497,11 +706,33 @@ function AskInner() {
               </Button>
             </div>
 
-            <p className="mt-3 text-xs text-muted-foreground font-body">
-              {isSignedIn
-                ? `Signed in as ${userEmail}. ${activeHostMeta.displayName} remembers returning guests.`
-                : 'Anonymous chat. Sign in for a larger message allowance and personalized continuity.'}
-            </p>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground font-body">
+                {isSignedIn
+                  ? `Signed in as ${userEmail}. ${activeHostMeta.displayName} remembers returning guests.`
+                  : 'Anonymous chat. Sign in for a larger message allowance and personalized continuity.'}
+              </p>
+              {voiceSupported && (
+                <button
+                  type="button"
+                  onClick={toggleVoiceMode}
+                  aria-pressed={voiceMode}
+                  className={cn(
+                    'shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-body transition-colors',
+                    voiceMode
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                  )}
+                >
+                  {voiceMode ? (
+                    <Volume2 className="w-3.5 h-3.5" />
+                  ) : (
+                    <VolumeX className="w-3.5 h-3.5" />
+                  )}
+                  {voiceMode ? 'Voice on' : 'Voice off'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

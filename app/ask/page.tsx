@@ -87,12 +87,12 @@ const HOSTS: HostMeta[] = [
     id: 'ginger',
     displayName: 'Ginger',
     role: 'Travel concierge',
-    tagline: "Adventure travel. Tenerife's her thing.",
+    tagline: 'Adventure travel. Dallasite on Tour and Wanderlust are hers.',
     icon: Compass,
     suggestions: [
       'Tell me about Tenerife.',
-      'What should I know before visiting the Canaries?',
-      'Where would you eat in Santa Cruz?',
+      'Tell me about Wanderlust.',
+      'What\u2019s Dallasite on Tour?',
     ],
   },
   {

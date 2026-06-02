@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CategoryPage } from '@/components/events/CategoryPage'
+import { PodcastSection } from '@/components/PodcastSection'
 import { getUpcomingEvents } from '@/lib/events'
 
 export const dynamic = 'force-dynamic'
@@ -57,6 +58,13 @@ export default async function CigarLoungePage() {
       events={events}
       vipGateEnabled
       intro={intro}
+      afterContent={
+        <PodcastSection
+          title="What are you Smoking?"
+          description="The lounge has its own show. Honest talk on leaf, ritual, and the people behind the blends — new episodes between events. Press play and pull up a chair."
+          embedSrc="https://share.transistor.fm/e/what-are-you-smoking/playlist"
+        />
+      }
     />
   )
 }

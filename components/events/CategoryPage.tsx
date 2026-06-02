@@ -38,6 +38,8 @@ type CategoryPageProps = {
   vipGateEnabled?: boolean
   /** Called-out extra section above the grid, optional. */
   intro?: React.ReactNode
+  /** Optional section rendered after the event grid (e.g. a podcast band). */
+  afterContent?: React.ReactNode
 }
 
 export function CategoryPage({
@@ -48,6 +50,7 @@ export function CategoryPage({
   events,
   vipGateEnabled = false,
   intro,
+  afterContent,
 }: CategoryPageProps) {
   return (
     <>
@@ -138,6 +141,9 @@ export function CategoryPage({
           )}
         </div>
       </section>
+
+      {/* Optional section after the grid (e.g. a podcast "Listen" band) */}
+      {afterContent}
     </>
   )
 }

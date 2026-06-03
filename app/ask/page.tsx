@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -66,6 +67,8 @@ type HostMeta = {
   tagline: string
   /** Icon shown on the host card + message avatar. */
   icon: LucideIcon
+  /** Optional circular photo avatar (card badge + chat header). */
+  avatar?: string
   /** Inline suggestion copy — appears when the chat is empty. */
   suggestions: string[]
 }
@@ -77,6 +80,7 @@ const HOSTS: HostMeta[] = [
     role: "Maître d'",
     tagline: 'Runs the floor and the looks. Concrete Rose is hers.',
     icon: Rose,
+    avatar: '/hosts/laviche.png',
     suggestions: [
       'What\u2019s coming up this summer?',
       'How do I get into the cigar lounge?',
@@ -89,6 +93,7 @@ const HOSTS: HostMeta[] = [
     role: 'Travel concierge',
     tagline: 'Adventure travel. Dallasite on Tour and Wanderlust are hers.',
     icon: Compass,
+    avatar: '/hosts/ginger.png',
     suggestions: [
       'Tell me about Tenerife.',
       'Tell me about Wanderlust.',
@@ -101,6 +106,7 @@ const HOSTS: HostMeta[] = [
     role: 'Alignment + wellness',
     tagline: 'Alignment, movement, and feeling good in your body.',
     icon: Sparkles,
+    avatar: '/hosts/ahnika.png',
     suggestions: [
       'How do I get back in alignment?',
       'Tell me about Faithfully Faded.',
@@ -436,6 +442,32 @@ function AskInner() {
   const activeHostMeta = HOSTS.find((h) => h.id === activeHost)!
   const ActiveHostIcon = activeHostMeta.icon
 
+  const hostMark = (size: 'sm' | 'md') => {
+    if (activeHostMeta.avatar) {
+      return (
+        <span
+          className={cn(
+            'inline-flex rounded-full overflow-hidden border border-primary/40 shrink-0',
+            size === 'md' ? 'w-6 h-6' : 'w-4 h-4'
+          )}
+        >
+          <Image
+            src={activeHostMeta.avatar}
+            alt=""
+            width={24}
+            height={24}
+            className="w-full h-full object-cover"
+          />
+        </span>
+      )
+    }
+    return (
+      <ActiveHostIcon
+        className={cn(size === 'md' ? 'w-5 h-5' : 'w-3 h-3', 'text-primary')}
+      />
+    )
+  }
+
   return (
     <div className="pt-24 pb-12 bg-background min-h-screen">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -473,18 +505,32 @@ function AskInner() {
                 <div className="flex items-start gap-3">
                   <div
                     className={cn(
-                      'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
-                      active
-                        ? 'bg-primary/10 border border-primary/40'
-                        : 'bg-muted border border-border'
+                      'w-9 h-9 rounded-full overflow-hidden flex items-center justify-center shrink-0 border',
+                      h.avatar
+                        ? active
+                          ? 'border-primary/70'
+                          : 'border-primary/30'
+                        : active
+                          ? 'bg-primary/10 border-primary/40'
+                          : 'bg-muted border-border'
                     )}
                   >
-                    <HostIcon
-                      className={cn(
-                        'w-4 h-4',
-                        active ? 'text-primary' : 'text-muted-foreground'
-                      )}
-                    />
+                    {h.avatar ? (
+                      <Image
+                        src={h.avatar}
+                        alt=""
+                        width={36}
+                        height={36}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <HostIcon
+                        className={cn(
+                          'w-4 h-4',
+                          active ? 'text-primary' : 'text-muted-foreground'
+                        )}
+                      />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-2">
@@ -517,7 +563,7 @@ function AskInner() {
             {messages.length === 0 && !sending && (
               <div className="py-8">
                 <div className="flex items-center justify-center gap-2 text-muted-foreground mb-4">
-                  <ActiveHostIcon className="w-5 h-5 text-primary" />
+                  {hostMark('md')}
                   <p className="text-sm font-body">
                     Start a conversation with {activeHostMeta.displayName}.
                   </p>
@@ -561,7 +607,7 @@ function AskInner() {
                   >
                     {!isUser && (
                       <div className="mb-1.5 flex items-center gap-1.5">
-                        <ActiveHostIcon className="w-3 h-3 text-primary" />
+                        {hostMark('sm')}
                         <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
                           {activeHostMeta.displayName}
                         </p>
@@ -591,7 +637,7 @@ function AskInner() {
               <div className="flex justify-start">
                 <div className="max-w-[85%] rounded-2xl bg-background border border-border px-4 py-3">
                   <div className="mb-1.5 flex items-center gap-1.5">
-                    <ActiveHostIcon className="w-3 h-3 text-primary" />
+                    {hostMark('sm')}
                     <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
                       {activeHostMeta.displayName}
                     </p>

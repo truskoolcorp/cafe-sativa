@@ -7,7 +7,7 @@ type MsgRole = 'keith' | 'laviche' | 'guest' | 'system'
 interface Message { id:string; role:MsgRole; speaker:string; text:string; ts:Date; pending?:boolean }
 interface Pipeline { claude:'idle'|'thinking'|'done'|'error'; tts:'idle'|'generating'|'playing'|'error'; avatar:'idle'|'animating'|'error' }
 
-const VOICES = { keith: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_KEITH||'9I3zeSiEilh5b2sSFWdK', laviche: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_LAVICHE||'v0r5L5uDA6ocN9hjTPYK' }
+const VOICES = { keith: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_KEITH||'P4TR6ShrGvF741Gei86A', laviche: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_LAVICHE||'oNYzGfXKQJfjG1yEuJe9' }
 const HEYGEN = { keith: process.env.NEXT_PUBLIC_HEYGEN_AVATAR_KEITH||'e9a45c47c2514c4f899cc00460c981a2', laviche: process.env.NEXT_PUBLIC_HEYGEN_AVATAR_LAVICHE||'b320213eeaf94f16a3ec32ca4fd99574' }
 const PERSONAS = {
   keith: `You are Keith Ingram — founder and CEO of Café Sativa, Dallas-born, Gulf War veteran, IT specialist turned cultural architect. You host At The Table, an intimate live conversation series. Tone: warm, direct, thoughtful, occasionally funny. Speak in complete sentences. No filler words. 2-4 sentences unless the moment calls for more.`,
@@ -30,14 +30,12 @@ export default function AvatarHostPage() {
   const [audio] = useState(()=> typeof window!=='undefined' ? new Audio() : null)
   const logRef = useRef<HTMLDivElement>(null)
 
-  // Auth gate
   useEffect(()=>{
     createClient().auth.getUser().then(({data})=>{
       setAuthed(ALLOWED.includes(data?.user?.email??''))
     })
   },[])
 
-  // Escape Next.js layout — hide nav/footer, take full viewport
   useEffect(()=>{
     const el = document.createElement('style')
     el.id = 'hc-escape'
@@ -99,9 +97,9 @@ export default function AvatarHostPage() {
     {h:'laviche' as HostId, t:"Bienvenidos, amores. Your presence here tonight means everything."},
     {h:'keith' as HostId, t:"The floor is open — who wants to share first?"},
     {h:'laviche' as HostId, t:"That is so beautifully said. Can I sit with that for a moment?"},
-    {h:'keith' as HostId, t:"Man, I appreciate y’all being here. This is exactly what Café Sativa is about."},
+    {h:'keith' as HostId, t:"Man, I appreciate y'all being here. This is exactly what Café Sativa is about."},
     {h:'laviche' as HostId, t:"What you just shared — that is the whole reason we built this table."},
-    {h:'keith' as HostId, t:"Thank you for being at the table tonight. Y’all made this real."},
+    {h:'keith' as HostId, t:"Thank you for being at the table tonight. Y'all made this real."},
     {h:'laviche' as HostId, t:"Until next time — keep glowing, keep growing. Besitos, amores."},
   ]
 
@@ -118,7 +116,6 @@ export default function AvatarHostPage() {
     <div style={{background:C.bg,height:'100vh',display:'grid',gridTemplateRows:'48px 1fr',overflow:'hidden',fontFamily:"'Inter',-apple-system,sans-serif",color:C.text}}>
       <style>{`@keyframes sw{from{transform:scaleY(0.3)}to{transform:scaleY(1)}}*{box-sizing:border-box;margin:0;padding:0}textarea{resize:none;outline:none;font-family:inherit}button{cursor:pointer;font-family:inherit}::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:${C.borderBright};border-radius:3px}`}</style>
 
-      {/* Topbar */}
       <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',padding:'0 18px',gap:14}}>
         <span style={{fontSize:12,fontWeight:700,color:C.gold,letterSpacing:'0.08em',textTransform:'uppercase'}}>Café Sativa</span>
         <span style={{color:C.muted,fontSize:12}}>› Host Console</span>
@@ -132,13 +129,10 @@ export default function AvatarHostPage() {
         </div>
       </div>
 
-      {/* Main */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 320px',overflow:'hidden'}}>
 
-        {/* Left */}
         <div style={{display:'grid',gridTemplateRows:'190px 1fr',overflow:'hidden',borderRight:`1px solid ${C.border}`}}>
 
-          {/* Stage */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:1,background:C.border}}>
             {(['keith','laviche'] as HostId[]).map(h=>{
               const spk = pipe.tts==='playing' && host===h
@@ -160,7 +154,6 @@ export default function AvatarHostPage() {
             })}
           </div>
 
-          {/* Transcript */}
           <div style={{display:'flex',flexDirection:'column',overflow:'hidden'}}>
             <div style={{padding:'8px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase'}}>Transcript</div>
             <div ref={logRef} style={{flex:1,overflowY:'auto',padding:'12px 16px',display:'flex',flexDirection:'column',gap:10}}>
@@ -180,10 +173,8 @@ export default function AvatarHostPage() {
           </div>
         </div>
 
-        {/* Right: controls */}
         <div style={{background:C.surface,display:'flex',flexDirection:'column',overflow:'hidden'}}>
 
-          {/* Session */}
           <div style={{padding:12,borderBottom:`1px solid ${C.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:7}}>Session</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
@@ -194,7 +185,6 @@ export default function AvatarHostPage() {
               style={{display:'block',marginTop:6,padding:'7px 0',borderRadius:5,border:`1px solid ${C.borderBright}`,background:'transparent',color:C.textDim,fontSize:11,fontWeight:600,textAlign:'center',textDecoration:'none'}}>Open Zoom ↗</a>
           </div>
 
-          {/* Host */}
           <div style={{padding:12,borderBottom:`1px solid ${C.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:7}}>Speaking as</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
@@ -208,12 +198,11 @@ export default function AvatarHostPage() {
             </div>
           </div>
 
-          {/* Guest → AI */}
           <div style={{padding:12,borderBottom:`1px solid ${C.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:7}}>Guest says → AI responds</div>
             <textarea value={guestInput} onChange={e=>setGuestInput(e.target.value)}
               onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))generateResponse(guestInput)}}
-              placeholder="Paste guest’s words… ⌘+Enter"
+              placeholder="Paste guest's words… ⌘+Enter"
               style={{width:'100%',height:64,background:C.card,border:`1px solid ${C.borderBright}`,borderRadius:5,padding:'8px 10px',color:C.text,fontSize:12,lineHeight:1.5}}/>
             <button onClick={()=>generateResponse(guestInput)} disabled={pipe.claude==='thinking'||!guestInput.trim()}
               style={{marginTop:5,width:'100%',padding:'8px 0',borderRadius:5,border:'none',background:pipe.claude==='thinking'?C.goldDim:C.gold,color:'#0a0705',fontSize:11,fontWeight:700,opacity:!guestInput.trim()?0.5:1}}>
@@ -221,7 +210,6 @@ export default function AvatarHostPage() {
             </button>
           </div>
 
-          {/* Scripted line */}
           <div style={{padding:12,borderBottom:`1px solid ${C.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:7}}>Scripted line — bypasses AI</div>
             <textarea value={scriptLine} onChange={e=>setScriptLine(e.target.value)}
@@ -232,7 +220,6 @@ export default function AvatarHostPage() {
               style={{marginTop:5,width:'100%',padding:'7px 0',borderRadius:5,border:`1px solid ${C.borderBright}`,background:'transparent',color:C.textDim,fontSize:11,fontWeight:700}}>Speak →</button>
           </div>
 
-          {/* Quick lines */}
           <div style={{flex:1,overflowY:'auto',padding:12}}>
             <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:7}}>Quick lines</div>
             <div style={{display:'flex',flexDirection:'column',gap:4}}>

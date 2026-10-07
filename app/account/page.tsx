@@ -63,6 +63,7 @@ export default function AccountPage() {
         }
 
         setEmail(data.user.email ?? null)
+        const contentAdmin = data.user.app_metadata?.cafe_sativa_admin === true
 
         const { data: memberRow, error: memberError } = await supabase
           .from('members_v')
@@ -82,7 +83,7 @@ export default function AccountPage() {
             status: memberRow.status,
             currentPeriodEnd: memberRow.current_period_end,
             isStaff: memberRow.is_staff,
-            isAdmin: memberRow.is_admin,
+            isAdmin: memberRow.is_admin || contentAdmin,
             displayName: memberRow.display_name,
           })
         } else {
@@ -93,7 +94,7 @@ export default function AccountPage() {
             status: 'active',
             currentPeriodEnd: null,
             isStaff: false,
-            isAdmin: false,
+            isAdmin: contentAdmin,
             displayName: null,
           })
         }
@@ -119,7 +120,9 @@ export default function AccountPage() {
   }
 
   const tierLabel =
-    membership?.tier === 'vip'
+    membership?.isAdmin
+      ? 'Administrator'
+      : membership?.tier === 'vip'
       ? 'VIP'
       : membership?.tier === 'regular'
         ? 'Regular'
@@ -143,7 +146,9 @@ export default function AccountPage() {
     : null
 
   const tierDescription =
-    membership?.tier === 'vip'
+    membership?.isAdmin
+      ? 'Your administrator access includes content review and approval. No membership purchase is required to use these tools.'
+      : membership?.tier === 'vip'
       ? 'Every event free, priority Q&A seating, 365-day host memory, Cigar Lounge master blender sessions, and the Tenerife opening-week priority list.'
       : membership?.tier === 'regular'
         ? 'Most events included free, cooking classes at member rates, 90-day host memory, and Tenerife waitlist.'
@@ -275,7 +280,8 @@ export default function AccountPage() {
 
               {/* Action buttons */}
               <div className="mt-6 pt-6 border-t border-border flex flex-wrap gap-3">
-                {membership.tier === 'explorer' && (
+                {membership.isAdmin && <Button asChild><Link href="/admin/content">Review content</Link></Button>}
+                {!membership.isAdmin && membership.tier === 'explorer' && (
                   <Button asChild>
                     <Link href="/membership">
                       <Sparkles className="w-4 h-4 mr-2" />
@@ -283,7 +289,7 @@ export default function AccountPage() {
                     </Link>
                   </Button>
                 )}
-                {membership.tier === 'regular' && (
+                {!membership.isAdmin && membership.tier === 'regular' && (
                   <Button asChild>
                     <Link href="/membership?intent=vip">
                       <Crown className="w-4 h-4 mr-2" />
@@ -291,7 +297,7 @@ export default function AccountPage() {
                     </Link>
                   </Button>
                 )}
-                {membership.tier !== 'explorer' && (
+                {!membership.isAdmin && membership.tier !== 'explorer' && (
                   <Button variant="outline" asChild>
                     <Link href="/membership">
                       <Settings className="w-4 h-4 mr-2" />

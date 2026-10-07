@@ -27,23 +27,23 @@ export default function ContentReview() {
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to save review.') }
     finally { setBusy(false) }
   }
-  return <main style={{ maxWidth: 1000, margin: 'auto', padding: 24, color: '#eee', background: '#161008', minHeight: '100vh' }}>
+  return <main style={{ maxWidth: 1000, margin: 'auto', padding: '120px 24px 40px', color: '#eee', background: '#161008', minHeight: '100vh' }}>
     <Link href="/admin">← Content calendar</Link>
-    <h1>Café Sativa content review</h1>
+    <h1 className="text-3xl font-heading font-bold mt-6 mb-4">Café Sativa content review</h1>
     <p>Compare each clip with its approved venue reference. Approval adds it to the reusable media library. Social delivery is not connected yet.</p>
     {error && <p role="alert">{error}</p>}
     <button onClick={load} disabled={busy}>Refresh previews</button>
     {data && <>
       <p>Generation: {data.generationEnabled ? 'enabled' : 'paused'} · Monthly generation limit: ${(data.monthlyLimitCents / 100).toFixed(2)}</p>
-      <h2>Venue references</h2>
+      <h2 className="text-xl font-heading font-semibold mt-8 mb-3">Venue references</h2>
       {!data.assets.length && <p>No approved venue references yet. Recovered floor plans disagree; final layout selection is pending.</p>}
       {data.assets.map((asset: any) => <p key={asset.id}>{asset.subject} · {asset.version} · {asset.active && asset.approved_at ? 'Approved' : 'Candidate'}</p>)}
-      <h2>Planned content and media</h2>
+      <h2 className="text-xl font-heading font-semibold mt-8 mb-3">Planned content and media</h2>
       {!data.jobs.length && <p>No content planned yet.</p>}
       {data.jobs.map((job: any) => {
         const asset = data.assets.find((a: any) => a.id === job.canonical_asset_id)
         return <article key={job.id} style={{ border: '1px solid #b8813a', padding: 16, marginBottom: 16 }}>
-          <h3>{job.title}</h3><p>{job.slot_key} · {job.status.replaceAll('_', ' ')}</p><p>{job.caption}</p>
+          <h3 className="text-lg font-heading font-semibold mb-3">{job.title}</h3><p>{job.slot_key} · {job.status.replaceAll('_', ' ')}</p><p>{job.caption}</p>
           {job.blocker && <p>{job.blocker}</p>}
           {job.previewUrl && <video src={job.previewUrl} controls preload="metadata" style={{ maxWidth: '100%', maxHeight: 420 }} />}
           {asset && <div><p>Reference: {asset.subject} · {asset.version}</p><img src={asset.url} alt={`Approved ${asset.subject} reference`} style={{ maxWidth: '100%', maxHeight: 300 }} /></div>}

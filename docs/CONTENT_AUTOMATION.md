@@ -21,8 +21,8 @@ photorealism and accuracy. Owner-selected generation budget: **$25 per calendar 
 
 - Repository: `truskoolcorp/cafe-sativa`.
 - Vercel: `virtual-cafe-sativa`, project `prj_x7gIEqL9s0si4RwIOFYDHtZEq71w`.
-- Supabase `cafe-sativa-prod` (`nwfxvhqbjtfvoopcadff`) is inactive.
-  Restoration returned the two-active-free-project limit. No other project was paused.
+- Supabase `cafe-sativa-prod` (`nwfxvhqbjtfvoopcadff`) is ACTIVE_HEALTHY in the owner-approved TS_Empire Pro organization. No other project was paused. The migration and private output bucket are live; canonical registry is empty.
+- Production planner verification created `2026-10-07:bar`. Generation remains disabled. RUNWAYML_API_SECRET and the verified cost quote are missing.
 - Airtable `appOKiDIBrgayTVW5` has Content Calendar, Generation Log, Publish Log,
   Weekly Brief, and Settings. Eight inaccurate unpublished June captions were corrected;
   their original drafts were retained in Approval Notes. Nine calendar drafts were
@@ -34,8 +34,8 @@ photorealism and accuracy. Owner-selected generation budget: **$25 per calendar 
 
 ## Activation sequence
 
-1. Resolve Supabase project limit through the owner's chosen account/project action.
-2. Apply `supabase/migrations/20261007_content_automation.sql` to cafe-sativa-prod.
+1. Supabase restoration is complete.
+2. The content migration is applied.
 3. Create `cafe-sativa-canon` storage for approved public venue image references, and
    a private `cafe-sativa-content` output bucket. Upload immutable versioned keyframes;
    record their exact SHA-256, version, subject/room, owner approval and timestamp.
@@ -61,3 +61,9 @@ Style prompts cannot guarantee exact twins. A measured reference comparison and
 review of the first approved reusable clip in every room remain necessary.
 Physical Tenerife location/opening details stay explicitly future/planned until confirmed.
 Do not use a schedule timestamp as a Runway URL or an old placeholder event as a real event.
+
+## Source review, 7 October 2026
+
+Drive Cafe_Sativa-FloorPlan-1.webp (1SbDG-2y5hajX3EPfhHuo-PR3sWaFfVWU) shows a curved central bar, performance lounge, gallery, kitchen and courtyard. The pitch deck (1N6isMez-MP-pDTaphkBciAivtQMWlBZ3), slide 6/image18.jpg, shows a different rectangular layout with numerous private smoking rooms and central stage. Its scale labels appear inconsistent; measured dimensions have not been verified. The deck describes a 4,700 sq ft concept.
+
+Deck interiors vary in design and do not establish one twin. Website venue/bar/gallery images contain people and are not empty-room geometry references. Final approved layout and room views remain required. Runway workspace discovery stalled and was interrupted; API funding and credentials are unverified.

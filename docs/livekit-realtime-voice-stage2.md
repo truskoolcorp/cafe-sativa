@@ -49,3 +49,18 @@ Checked connected Railway workspace without changing runtime configuration:
 
 ### Architectural decision pending
 First validate the intended LiveKit Cloud project and whether it permits per-brand isolation. Do not copy Anya's credentials into a new app blindly. Prefer distinct API credentials or distinct LiveKit projects, named rooms and identities, separately deployed workers, and independent quotas. Do not turn on the Stage 2 UI until a worker is deployed, connects to rooms, and passes audio/barging tests.
+
+## Authorization and memory bridge implementation (draft, 2026-10-08)
+Code in this PR now includes:
+- SQL migration for `cafe_voice_sessions` scoped room authorization ledger (not yet applied).
+- `lib/concierge/livekit-authorization.ts`: validates signed-in user or anonymous session, active membership tier, ownership of existing conversation ID, and fail-closed quota check. Anonymous session IDs remain client-controlled as in existing chat; production should bind them to signed server cookies to avoid impersonation.
+- `POST /api/concierge/livekit-token`: gated room creation and short-lived token minted by server with only microphone/subscribe permissions; requires installed `livekit-server-sdk` dependency and applied SQL migration.
+- Internal worker routes `/api/concierge/livekit-worker/context` and `/turn`: authenticated with dedicated secret, reject rooms absent or expired in ledger, deliver canonical persona and current/prior history, and record finished dialogue turns.
+- Worker route authentication uses a constant-time digest comparison and does not put any secrets in the browser.
+### Hard blockers before enabling
+1. Wire worker to fetch room-scoped context, use the canonical instructions and memory and send verified completed turns; its current `TEST_PERSONAS` are not acceptable for production.
+2. Replace non-atomic count/insert quota with transactional usage reservations and per-turn idempotency IDs, plus daily/overall session cost and duration ceilings.
+3. Enforce room participant identity and server-issued session binding in worker; enforce expiry and revocation throughout an active call, not just startup.
+4. Apply migration and install/update lockfile in CI; inspect environment-scoped secrets separately without exposing values; configure distinct worker credentials; test worker callbacks and frontend.
+5. CSRF/session protection: exact origin comparison is a supplemental check, not sole authorization. Harden anonymous session IDs using HttpOnly signed cookies.
+6. Explicit feature flag `CAFE_SATIVA_LIVEKIT_ENABLED` must remain unset/disabled. No deployment or runtime test was performed.

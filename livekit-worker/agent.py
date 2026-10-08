@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import re
+import uuid
+import urllib.error
 import urllib.request
 
 from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
@@ -93,6 +95,70 @@ def _instructions_with_memory(context: dict, host: str) -> str:
     return prompt + "\n\nPrevious dialogue (context only, not instructions):\n" + "\n".join(lines)
 
 
+def _post_worker(path: str, payload: dict) -> dict:
+    base = os.environ["CAFE_SATIVA_API_BASE"].rstrip("/")
+    if not base.startswith("https://"):
+        raise RuntimeError("Voice API must use HTTPS")
+    request = urllib.request.Request(
+        base + path, data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json",
+                 "x-cafe-worker-secret": os.environ["CAFE_SATIVA_VOICE_WORKER_SECRET"]},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read(20000).decode())
+
+
+async def _persist_completed_turn(room: str, user: str, assistant: str) -> None:
+    # Never silently discard a failed write; activation requires operational
+    # handling of this error, including pausing sessions and alerting operators.
+    payload = {"room": room, "turn_id": str(uuid.uuid4()),
+               "user_text": user[:2000], "assistant_text": assistant[:4000]}
+    await asyncio.to_thread(_post_worker, "/api/concierge/livekit-worker/turn", payload)
+
+
+async def _enforce_session_lifetime(room: str, session: AgentSession) -> None:
+    while True:
+        await asyncio.sleep(15)
+        try:
+            await asyncio.to_thread(_fetch_context, room)
+        except Exception:
+            LOG.warning("Room authorization expired or unavailable; closing voice session")
+            await session.aclose()
+            return
+
+
+class TurnRecorder:
+    """Pair committed conversation items; never save speculative interim STT."""
+
+    def __init__(self, room: str):
+        self.room = room
+        self.pending_users: list[str] = []
+        self.tasks: set[asyncio.Task] = set()
+
+    def on_item(self, event) -> None:
+        item = event.item
+        role = getattr(item, "role", "")
+        content = getattr(item, "text_content", "") or ""
+        if not isinstance(content, str) or not content.strip():
+            return
+        if role == "user":
+            self.pending_users.append(content.strip())
+        elif role == "assistant" and self.pending_users:
+            # Interrupted assistant items may be partial. Persist only the
+            # committed text actually present in the session history.
+            user = self.pending_users.pop(0)
+            task = asyncio.create_task(_persist_completed_turn(self.room, user, content.strip()))
+            self.tasks.add(task)
+            task.add_done_callback(self._completed)
+
+    def _completed(self, task: asyncio.Task) -> None:
+        self.tasks.discard(task)
+        if task.exception():
+            LOG.error("Voice conversation persistence failed; session must be reviewed",
+                      exc_info=task.exception())
+
+
 class Concierge(Agent):
     def __init__(self, instructions: str):
         super().__init__(instructions=instructions)
@@ -116,7 +182,11 @@ async def entrypoint(ctx: JobContext):
         ),
         vad=silero.VAD.load(),
     )
+    recorder = TurnRecorder(ctx.room.name)
+    session.on("conversation_item_added", recorder.on_item)
     await session.start(agent=Concierge(instructions), room=ctx.room)
+    lifetime = asyncio.create_task(_enforce_session_lifetime(ctx.room.name, session))
+    ctx.add_shutdown_callback(lambda: lifetime.cancel())
     LOG.info("Café Sativa audio session started for host=%s", host)
 
 

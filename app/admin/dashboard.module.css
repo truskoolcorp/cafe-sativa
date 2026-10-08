@@ -14,3 +14,12 @@
 .cardBody {padding:20px;}.cardBody h2 {font-size:18px;line-height:1.3;margin:14px 0;}.cardBody p {line-height:1.6;}
 .placeholder {height:180px;display:grid;place-items:center;background:#2c2012;color:#e5cda7;font-size:18px;}
 @media(max-width:600px){.dashboard{padding-top:100px;}.dashboard>div{flex-wrap:wrap;height:auto!important;}.dashboard table{display:block;overflow-x:auto;}}
+
+.dialog {color:#e8ddd0;background:#161008;border:2px solid #967346;border-radius:14px;width:min(1100px,94vw);max-height:90vh;padding:20px;}
+.dialog::backdrop {background:rgba(0,0,0,.8);}
+.cardTitle {display:block!important;text-align:left;background:transparent!important;border:0!important;padding:10px 0!important;margin:10px 0!important;color:#f8e6c4;font-size:16px!important;font-weight:700;width:100%;cursor:pointer;}
+.copyEditor {display:block;box-sizing:border-box;width:100%;min-height:180px;padding:14px;margin:12px 0;color:#fff4dc;background:#0d0a07;border:1px solid #b38b54;border-radius:8px;font:inherit;line-height:1.6;}
+.approve {background:#14472d!important;color:#caffdd!important;border:2px solid #63ca89!important;font-weight:700;cursor:pointer;}
+.reject {background:#4a1715!important;color:#ffd1ca!important;border:2px solid #d57c72!important;cursor:pointer;}
+.dashboard button:disabled {opacity:.45;cursor:not-allowed;}
+.feedback {padding:16px;border:1px solid #c49a5c;border-radius:8px;background:#322513;}

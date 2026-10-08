@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import ContentReview from './content/ContentReview';
 import styles from './dashboard.module.css';
 
 // All Airtable calls go through /api/admin/airtable — PAT never exposed client-side
@@ -44,7 +45,12 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
 }
 
 export default function AdminPage() {
-  const [tab, setTab]         = useState('current');
+  const [tab, setTab]         = useState('calendar');
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [draftCopy, setDraftCopy] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [detailMessage, setDetailMessage] = useState('');
   const [current, setCurrent] = useState<any>(null);
   const [loadError, setLoadError] = useState('');
   const [records, setRecords] = useState<any[]>([]);
@@ -81,9 +87,33 @@ export default function AdminPage() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  useEffect(() => {
+    if (detail) dialogRef.current?.showModal();
+    else dialogRef.current?.close();
+  }, [detail]);
+  useEffect(() => {
+    const timer = setInterval(() => { if (!document.hidden && !detail && !acting) void loadAll(); }, 60000);
+    return () => clearInterval(timer);
+  }, [detail, acting, loadAll]);
+  function openDraft(rec:any) { setDetail({ kind:'draft', record:rec }); setDraftCopy(rec.fields['Copy Draft'] || ''); setConfirmed(false); setDetailMessage(''); }
+  async function saveDraft(action:string) {
+    setActing(detail.record.id); setDetailMessage('Saving…');
+    try {
+      const response = await fetch(`/api/admin/airtable?table=calendar&recordId=${detail.record.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ action, copy:draftCopy, expectedCopy:detail.record.fields['Copy Draft'] || '', confirmAccuracy:confirmed }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to save');
+      setDetail({ kind:'draft', record:body }); setDraftCopy(body.fields['Copy Draft']); setConfirmed(false);
+      setDetailMessage(action==='approve' ? 'Copy approved. Scheduling is still pending; no post was sent by this action.' : action==='return' ? 'Returned for revision.' : 'Draft saved. Review it before approval.');
+      await loadAll();
+    } catch(e) { setDetailMessage(e instanceof Error ? e.message : 'Unable to save'); }
+    finally { setActing(null); }
+  }
+  const liveJobs = current?.jobs || [];
+  const totalPending = records.filter(r=>r.fields.Status==='pending_approval').length + liveJobs.filter((j:any)=>j.status==='pending_qa').length;
   const counts = records.reduce((a: Record<string,number>, r) => { const s = r.fields?.Status || 'unknown'; a[s] = (a[s]||0)+1; return a; }, {});
   const pending  = records.filter(r => r.fields?.Status === 'pending_approval');
-  const filtered = filter === 'all' ? records : records.filter(r => r.fields?.Status === filter);
+  const filtered = tab==='approvals' ? pending : filter === 'all' ? records : records.filter(r => r.fields?.Status === filter);
+  const shownJobs = liveJobs.filter((j:any)=>tab==='approvals' ? j.status==='pending_qa' : filter==='all' || (filter==='pending_approval' ? j.status==='pending_qa' : j.status===filter));
 
   const btn = (label: string, key: string) => (
     <button key={key} onClick={() => setTab(key)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '12px 16px', fontSize: 12, fontWeight: tab===key ? 700 : 400, color: tab===key ? C.accent : C.textDim, borderBottom: tab===key ? `2px solid ${C.accent}` : '2px solid transparent', letterSpacing: '0.03em' }}>{label}</button>
@@ -93,6 +123,28 @@ export default function AdminPage() {
     <div className={styles.dashboard} style={{ background: C.bg, color: C.text, minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif", fontSize: 13 }}>
       {toast && <div style={{ position:'fixed', top:16, right:16, zIndex:9999, background: toast.ok?'#0a2010':'#2a0a08', border:`1px solid ${toast.ok?C.green:C.red}`, color:toast.ok?C.green:C.red, padding:'10px 16px', borderRadius:6, fontSize:12, fontWeight:600 }}>{toast.msg}</div>}
 
+      <dialog ref={dialogRef} className={styles.dialog} onCancel={e=>{if(acting){e.preventDefault();return;}setDetail(null);}} onClose={()=>{if(!acting)setDetail(null);}}>
+        <button className={styles.secondary} disabled={!!acting} onClick={()=>setDetail(null)}>← Back to overview</button>
+        {detail?.kind==='video' && <ContentReview jobId={detail.id} embedded onChanged={()=>void loadAll()}/>}
+        {detail?.kind==='draft' && <div style={{padding:20}}>
+          <h2>{detail.record.fields.Title}</h2><Badge status={detail.record.fields.Status}/>
+          <p>{detail.record.fields.Agent} · {detail.record.fields.Channel}</p>
+          <label htmlFor="draft-copy"><strong>Full draft copy</strong></label>
+          <textarea id="draft-copy" className={styles.copyEditor} value={draftCopy} maxLength={15000} disabled={!!acting || ['scheduled','published'].includes(detail.record.fields.Status)} onChange={e=>{setDraftCopy(e.target.value);setConfirmed(false);}}/>
+          {detail.record.fields['Media URL'] && (/\.(mp4|webm|mov)/i.test(detail.record.fields['Media URL']) ? <video src={detail.record.fields['Media URL']} controls style={{maxWidth:'100%',maxHeight:350}}/> : <img src={detail.record.fields['Media URL']} alt="Draft attachment" style={{maxWidth:'100%',maxHeight:350}}/>)}
+          <p><strong>Delivery:</strong> {detail.record.fields['Media URL']?'Media attached; final media approval and channel scheduling still need verification.':'No media attached. Copy approval does not create an image or video.'} No verified scheduler receipt is linked to this draft.</p>
+          {!['scheduled','published'].includes(detail.record.fields.Status) && <>
+            <label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed this copy for current use, including future-venue wording and dates.</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
+              <button className={styles.secondary} disabled={!!acting || !draftCopy.trim()} onClick={()=>saveDraft('save')}>Save edits</button>
+              <button className={styles.approve} disabled={!!acting || !confirmed || !draftCopy.trim()} onClick={()=>saveDraft('approve')}>✓ Approve copy</button>
+              <button className={styles.reject} disabled={!!acting || !draftCopy.trim()} onClick={()=>saveDraft('return')}>Return for revision</button>
+            </div>
+          </>}
+          {detailMessage && <p role="status" className={styles.feedback}>{detailMessage}</p>}
+          <details style={{marginTop:20}}><summary>Extended details &amp; activity</summary><dl>{Object.entries(detail.record.fields).filter(([key])=>key!=='Copy Draft').map(([key,value])=><div key={key} style={{marginTop:12}}><dt><strong>{key==='Scheduled At'?'Proposed schedule (unverified)':key}</strong></dt><dd style={{whiteSpace:'pre-wrap',margin:'4px 0',overflowWrap:'anywhere'}}>{typeof value==='string'?value:JSON.stringify(value)}</dd></div>)}</dl></details>
+        </div>}
+      </dialog>
       {/* Header */}
       <div style={{ borderBottom:`1px solid ${C.border}`, padding:'0 24px', display:'flex', alignItems:'center', justifyContent:'space-between', height:52, background:C.surface }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -101,135 +153,77 @@ export default function AdminPage() {
           <span style={{ color:C.muted, fontSize:12 }}>/ Content Engine</span>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          {pending.length > 0 && <span style={{ background:C.amber, color:'#0d0a07', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:10 }}>{current?.jobs.filter((j:any)=>j.status==='pending_qa').length || 0} to review</span>}
+          {pending.length > 0 && <span style={{ background:C.amber, color:'#0d0a07', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:10 }}>{totalPending} to review</span>}
           <button onClick={loadAll} style={{ background:'none', border:`1px solid ${C.border}`, color:C.textDim, padding:'5px 12px', borderRadius:5, cursor:'pointer', fontSize:11 }}>↻ Refresh</button>
         </div>
       </div>
 
       <div style={{ padding:'20px 24px', display:'flex', flexWrap:'wrap', alignItems:'center', gap:12 }}>
-        <a className={styles.primary} href="/admin/content">Review videos &amp; approve →</a>
+        <button className={styles.primary} onClick={()=>{setTab('approvals');setFilter('all');}}>Review &amp; approve ({totalPending})</button>
         <a className={styles.secondary} href="https://app.metricool.com/planner/calendar?blogId=5373515" target="_blank" rel="noreferrer">Open social planner ↗</a>
         <span style={{ color:C.textDim }}>Generation {current?.generationEnabled ? 'enabled' : 'paused'} · $25 monthly limit</span>
       </div>
       {loadError && <p role="alert" style={{ padding:20, color:'#ffb8b0' }}>{loadError}</p>}
       {/* Stats */}
       <div style={{ padding:'16px 24px', display:'flex', gap:10, flexWrap:'wrap', borderBottom:`1px solid ${C.border}` }}>
-        <Stat label="Current clips" value={current?.jobs.length || 0} />
-        <Stat label="Needs review" value={current?.jobs.filter((j:any)=>j.status==='pending_qa').length || 0} color={C.amber} />
+        <Stat label="Total" value={records.length + liveJobs.length} />
+        <Stat label="Pending" value={totalPending} color={C.amber} />
         <Stat label="Clips scheduled" value={current?.jobs.filter((j:any)=>j.status==='scheduled').length || 0} color="#5aa0d0" />
         <Stat label="Clips published" value={current?.jobs.filter((j:any)=>j.status==='published').length || 0} color={C.green} />
-        <Stat label="Historical records" value={records.length} color={C.textDim} />
+        <Stat label="Copy drafts" value={records.length} color={C.textDim} />
       </div>
 
       {/* Tabs */}
       <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, padding:'0 24px', background:C.surface }}>
-        {btn('Current content', 'current')}
-        {btn('Historical calendar', 'calendar')}
-        {btn(`On hold (${pending.length})`, 'approvals')}
-        {btn('Past generation', 'genlog')}
-        {btn('Past delivery attempts', 'publog')}
+        {btn('Content Calendar', 'calendar')}
+        {btn(`Approvals (${totalPending})`, 'approvals')}
+        {btn('Generation Log', 'genlog')}
+        {btn('Publish Log', 'publog')}
         {btn('Weekly Brief', 'brief')}
       </div>
 
-      {tab !== 'current' && <p style={{ padding:'12px 24px', color:'#f0cf96' }}>Historical records · read-only. Dates are original plans, not confirmed delivery times. Approval alone did not schedule these posts.</p>}
+      <p style={{ padding:'8px 24px', color:C.textDim }}>Open a card to inspect, edit and approve. Dates in titles are original planning dates. Approval and scheduling are separate steps. Status refreshes every minute while this dashboard is open.</p>
       {/* Body */}
       <div style={{ padding:'20px 24px' }}>
         {loading ? <div style={{ textAlign:'center', padding:60, color:C.muted }}>Loading…</div> : (
           <>
-            {tab==='current' && <div className={styles.cards}>
-              {current?.jobs.map((job:any) => {
-                const asset = current.assets.find((a:any)=>a.id===job.canonical_asset_id);
-                return <article className={styles.card} key={job.id}>
-                  {job.previewUrl ? <video src={job.previewUrl} poster={asset?.url} controls preload="metadata" /> : asset ? <img src={asset.url} alt={`${job.room} approved reference`} /> : <div className={styles.placeholder}>Reference needed</div>}
+            {['calendar','approvals'].includes(tab) && <>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+                {['all','pending_approval','approved','scheduled','published','failed'].map(status=><button key={status} onClick={()=>{setTab('calendar');setFilter(status);}} style={{background:filter===status?C.accent:C.card,color:filter===status?'#160d05':C.text}}>{status==='all'?'All':STATUS[status]?.label || status}</button>)}
+              </div>
+              <div className={styles.cards}>
+                {shownJobs.map((job:any)=> {
+                  const asset=current.assets.find((a:any)=>a.id===job.canonical_asset_id);
+                  return <article className={styles.card} key={job.id}>
+                    {job.previewUrl && <video src={job.previewUrl} poster={asset?.url} controls preload="metadata"/>}
+                    <div className={styles.cardBody}>
+                      <Badge status={job.status}/><span style={{color:C.textDim}}> · Video</span>
+                      <button className={styles.cardTitle} onClick={()=>setDetail({kind:'video',id:job.id})}>{job.title}</button>
+                      <p>{job.caption}</p>
+                      <button className={job.status==='pending_qa'?styles.approve:styles.secondary} onClick={()=>setDetail({kind:'video',id:job.id})}>{job.status==='pending_qa'?'✓ Review & approve':'Open draft & details'}</button>
+                      {job.blocker && <p style={{color:C.textDim}}>{job.status==='scheduled'?'Scheduling receipt available.':job.blocker}</p>}
+                    </div>
+                  </article>;
+                })}
+                {filtered.map(rec=>{const f=rec.fields; return <article className={styles.card} key={rec.id} style={{borderLeft:`3px solid ${AGENT_COLOR[f.Agent]||C.accent}`}}>
                   <div className={styles.cardBody}>
-                    <Badge status={job.status}/>
-                    <h2>{job.title}</h2>
-                    <p style={{ color:C.textDim }}>Content ID: {job.slot_key}</p>
-                    <p>{job.caption}</p>
-                    <a className={styles.primary} href={`/admin/content#job-${job.id}`}>{job.status==='pending_qa' ? 'Review & approve →' : 'Open clip details →'}</a>
-                    {job.status==='scheduled' && <p style={{color:C.green}}>Scheduling receipt available in clip details.</p>}
+                    <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:AGENT_COLOR[f.Agent]||C.textDim}}>{CH_ICON[f.Channel]||f.Channel} · {f.Agent}</span><Badge status={f.Status}/></div>
+                    <button className={styles.cardTitle} onClick={()=>openDraft(rec)}>{f.Title}</button>
+                    <p style={{display:'-webkit-box',WebkitLineClamp:3,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{f['Copy Draft']}</p>
+                    {/Jun.*2026/.test(f.Title||'') && <p style={{color:C.amber}}>June draft · review for current use</p>}
+                    {f['Media URL'] && <p>Media attached · open details to preview</p>}
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                      <button className={styles.secondary} onClick={()=>openDraft(rec)}>Open draft &amp; details</button>
+                      {f.Status==='pending_approval' && <button className={styles.approve} onClick={()=>openDraft(rec)}>✓ Approve</button>}
+                    </div>
+                    {f.Status==='approved' && <p style={{color:C.amber}}>Copy approved · scheduling pending</p>}
                   </div>
-                </article>;
-              })}
-              {current && !current.jobs.length && <p>No current clips yet.</p>}
-            </div>}
-            {/* CALENDAR */}
-            {tab==='calendar' && (
-              <div>
-                <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
-                  {['all','pending_approval','approved','scheduled','published','failed'].map(s => (
-                    <button key={s} onClick={() => setFilter(s)} style={{ background:filter===s?C.accent:C.card, border:`1px solid ${filter===s?C.accent:C.border}`, color:filter===s?'#0d0a07':C.textDim, padding:'4px 12px', borderRadius:4, cursor:'pointer', fontSize:11, fontWeight:filter===s?700:400, textTransform:'capitalize' }}>
-                      {s==='all'?'All':(STATUS[s]?.label||s)}{s!=='all'&&counts[s]?` · ${counts[s]}`:''}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:12 }}>
-                  {filtered.map(rec => {
-                    const f = rec.fields||{}; const ag = f.Agent||'?'; const ia = acting===rec.id;
-                    return (
-                      <div key={rec.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:16, borderLeft:`3px solid ${AGENT_COLOR[ag]||C.muted}` }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <span style={{ background:C.surface, color:C.textDim, fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:3 }}>{CH_ICON[f.Channel]||'?'}</span>
-                            <Dot agent={ag}/><span style={{ fontSize:11, color:AGENT_COLOR[ag]||C.textDim, fontWeight:600 }}>{ag}</span>
-                          </div>
-                          <Badge status={f.Status}/>
-                        </div>
-                        <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:6, lineHeight:1.4 }}>{f.Title||'Untitled'}</div>
-                        {f['Copy Draft'] && <div style={{ fontSize:11, color:C.textDim, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{f['Copy Draft']}</div>}
-                        {f['Media URL'] && (
-                          f['Media URL'].match(/\.(mp4|webm|mov)/i)
-                            ? <video src={f['Media URL']} controls muted style={{ width:'100%', borderRadius:4, maxHeight:160, background:'#000', marginBottom:8 }}/>
-                            : <img src={f['Media URL']} alt="" style={{ width:'100%', borderRadius:4, maxHeight:160, objectFit:'cover', marginBottom:8 }} onError={e=>(e.currentTarget.style.display='none')}/>
-                        )}
-                        {f.Status==='pending_approval' && (
-                          <div style={{ display:'flex', gap:6, marginTop:8 }}>
-                            <span style={{ color:C.amber, fontWeight:700 }}>On hold · historical draft</span>
-                            
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {filtered.length===0 && <div style={{ gridColumn:'1/-1', textAlign:'center', color:C.muted, padding:40 }}>No posts in this status.</div>}
-                </div>
+                </article>})}
               </div>
-            )}
-
-            {/* APPROVALS */}
-            {tab==='approvals' && (
-              <div>
-                {pending.length===0
-                  ? <div style={{ textAlign:'center', color:C.muted, padding:60 }}>All clear — nothing pending.</div>
-                  : pending.map(rec => {
-                    const f=rec.fields||{}; const ag=f.Agent||'?'; const ia=acting===rec.id;
-                    return (
-                      <div key={rec.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:16, display:'flex', gap:16, marginBottom:10, borderLeft:`3px solid ${AGENT_COLOR[ag]||C.muted}` }}>
-                        {f['Media URL'] && <div style={{ width:100, flexShrink:0 }}>
-                          {f['Media URL'].match(/\.(mp4|webm|mov)/i)
-                            ? <video src={f['Media URL']} muted style={{ width:'100%', borderRadius:4, height:100, objectFit:'cover' }}/>
-                            : <img src={f['Media URL']} alt="" style={{ width:'100%', borderRadius:4, height:100, objectFit:'cover' }} onError={e=>(e.currentTarget.style.display='none')}/>}
-                        </div>}
-                        <div style={{ flex:1 }}>
-                          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:6 }}>
-                            <span style={{ background:C.surface, color:C.textDim, fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:3 }}>{CH_ICON[f.Channel]||'?'}</span>
-                            <Dot agent={ag}/><span style={{ fontSize:12, fontWeight:600, color:AGENT_COLOR[ag] }}>{ag}</span>
-                            <span style={{ fontSize:11, color:C.textDim }}>{f.Title}</span>
-                          </div>
-                          {f['Copy Draft'] && <div style={{ fontSize:12, color:C.text, lineHeight:1.5, marginBottom:6 }}>{f['Copy Draft']}</div>}
-                          {f.Hashtags && <div style={{ fontSize:11, color:C.accent, marginBottom:8 }}>{f.Hashtags}</div>}
-                          <div style={{ display:'flex', gap:6 }}>
-                            <span style={{ color:C.amber, fontWeight:700 }}>On hold · historical draft</span>
-                            
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                }
-              </div>
-            )}
-
+              {!shownJobs.length && !filtered.length && <p>No items in this view.</p>}
+            </>}
+            {tab==='genlog' && <div style={{marginBottom:24}}><h2>Current generation status</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status} · {j.blocker || 'No blocker recorded'}</p>)}</div>}
+            {tab==='publog' && <div style={{marginBottom:24}}><h2>Current video delivery</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status}<br/>{j.blocker || (j.status==='approved'?'Approved; awaiting scheduling':'No delivery receipt recorded')}</p>)}<p>Older delivery attempts below are retained with their original result notes.</p></div>}
             {/* GEN LOG */}
             {tab==='genlog' && (
               <table style={{ width:'100%', borderCollapse:'collapse' }}>

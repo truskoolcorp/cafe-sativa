@@ -39,3 +39,13 @@ Status: **design / implementation gate; NOT production-ready.** Stage 1 browser-
 - **Cost:** concurrency cap and a per-session budget, explicit idle timeout and disconnect cleanup.
 
 Do not enable Stage 2 in production until the LiveKit project, running worker, route, and all acceptance tests have been independently verified.
+
+## Infrastructure discovery — 2026-10-08
+
+Checked connected Railway workspace without changing runtime configuration:
+- Project `glyph-ecosystem`, production: `anya-worker` already has variable names `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `ELEVENLABS_API_KEY` (values not extracted).
+- The production `anya-worker` service is **offline**, with no active deployments. `glyph-ecosystem` and `anya-openclaw` are also offline. Do **not** claim live agent service availability.
+- Café Sativa Vercel project currently has `ELEVENLABS_API_KEY` but no project-specific LiveKit variable names in its listed environment. Existing synchronous ElevenLabs TTS works as a separate path.
+
+### Architectural decision pending
+First validate the intended LiveKit Cloud project and whether it permits per-brand isolation. Do not copy Anya's credentials into a new app blindly. Prefer distinct API credentials or distinct LiveKit projects, named rooms and identities, separately deployed workers, and independent quotas. Do not turn on the Stage 2 UI until a worker is deployed, connects to rooms, and passes audio/barging tests.

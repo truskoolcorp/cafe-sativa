@@ -71,3 +71,15 @@ Deck interiors vary in design and do not establish one twin. Website venue/bar/g
 ## Owner-approved logos, 7 October 2026
 
 The original rose, gold and bronze references and the approved transparent rose refinement are versioned under `public/brand/cafe-sativa/2026-10-07/`. Their exact hashes and use restrictions are in `manifest.json`. The rose refinement is the default compositing asset. The generated bronze refinement is not approved. Hookah predecessors are retired; Faithfully Faded butterflies and Concrete Rose apparel must retain their separate brand contexts. Logo approval does not approve any room geometry.
+
+
+## Current operational checkpoint - October 8, 2026
+
+- One bar pilot has completed generation, owner QA approval, and verified Metricool scheduling. See PUBLISHING_RECEIPTS.md.
+- The approved bar image is in cafe-sativa-canon/bar-pilot-2026-10-07.png; SHA256 b6ae58d3151e7b93bd03f2dc55bae1424c03f8307c67dc9affb88fd0831720a9. Approval covers the empty-room pilot, not the final physical property.
+- The Runway API credential was successfully used by the pilot. CS_RUNWAY_FIVE_SECOND_QUOTE_CENTS=100 reserves $1 per clip, compared with the verified $0.60 published base charge. It is a conservative reservation, not a measured invoice cost. Monthly cap remains $25.
+- CS_CONTENT_GENERATION_ENABLED remains false. The authenticated admin pilot endpoint checks Runway access and runs only the original bar slot while recurring generation stays paused. Result checks reuse the existing task; no automatic paid retries.
+- The public approved-bar media endpoint releases only this specifically authorized pilot and verifies current approval and active reference on each request. Other media stays private.
+- Owner accepts some CGI/AI appearance for explicitly labeled future-venue concept previews. Realistic footage remains the aspiration for other uses. Geometry, branding and artifact checks remain required.
+- Other room references and all character references remain unregistered as approved. The main-lounge schedule subject is distinct from bar.
+- Social delivery was performed through the connected Metricool tool; there is no unattended website-to-Metricool integration. A daily ChatGPT monitoring task could not be created because all five active task slots are occupied. No new subscription or task replacement was made.

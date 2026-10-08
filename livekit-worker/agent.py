@@ -99,10 +99,10 @@ def _post_worker(path: str, payload: dict) -> dict:
         return json.loads(response.read(20000).decode())
 
 
-async def _persist_completed_turn(room: str, user: str, assistant: str) -> None:
+async def _persist_completed_turn(room: str, user: str, assistant: str, turn_id: str) -> None:
     # Never silently discard a failed write; activation requires operational
     # handling of this error, including pausing sessions and alerting operators.
-    payload = {"room": room, "turn_id": str(uuid.uuid4()),
+    payload = {"room": room, "turn_id": turn_id,
                "user_text": user[:2000], "assistant_text": assistant[:4000]}
     await asyncio.to_thread(_post_worker, "/api/concierge/livekit-worker/turn", payload)
 
@@ -121,10 +121,11 @@ async def _enforce_session_lifetime(room: str, session: AgentSession) -> None:
 class TurnRecorder:
     """Pair committed conversation items; never save speculative interim STT."""
 
-    def __init__(self, room: str, session: AgentSession):
+    def __init__(self, room: str, session: AgentSession | None):
         self.room = room
         self.session = session
         self.pending_users: list[str] = []
+        self.reserved_ids: list[tuple[str, str]] = []
         self.tasks: set[asyncio.Task] = set()
 
     def on_item(self, event) -> None:
@@ -139,7 +140,16 @@ class TurnRecorder:
             # Interrupted assistant items may be partial. Persist only the
             # committed text actually present in the session history.
             user = self.pending_users.pop(0)
-            task = asyncio.create_task(_persist_completed_turn(self.room, user, content.strip()))
+            if not self.reserved_ids:
+                LOG.error("Missing turn reservation; closing agent session")
+                asyncio.create_task(self.session.aclose())
+                return
+            turn_id, reserved_text = self.reserved_ids.pop(0)
+            if user != reserved_text:
+                LOG.error("Reserved speech and transcript mismatch; closing session")
+                asyncio.create_task(self.session.aclose())
+                return
+            task = asyncio.create_task(_persist_completed_turn(self.room, user, content.strip(), turn_id))
             self.tasks.add(task)
             task.add_done_callback(self._completed)
 
@@ -154,8 +164,22 @@ class TurnRecorder:
 
 
 class Concierge(Agent):
-    def __init__(self, instructions: str):
+    def __init__(self, instructions: str, room: str, recorder):
         super().__init__(instructions=instructions)
+        self.room_name = room
+        self.recorder = recorder
+
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        user_text = getattr(new_message, "text_content", "") or ""
+        if not user_text.strip():
+            raise RuntimeError("Cannot authorize empty voice turn")
+        turn_id = str(uuid.uuid4())
+        result = await asyncio.to_thread(_post_worker,
+            "/api/concierge/livekit-worker/reserve",
+            {"room": self.room_name, "turn_id": turn_id})
+        if result.get("status") != "reserved":
+            raise RuntimeError("Voice usage reservation denied")
+        self.recorder.reserved_ids.append((turn_id, user_text.strip()))
 
 
 async def entrypoint(ctx: JobContext):
@@ -167,6 +191,7 @@ async def entrypoint(ctx: JobContext):
     context = await asyncio.to_thread(_fetch_context, ctx.room.name)
     instructions = _instructions_with_memory(context, host)
     await ctx.connect()
+    recorder = TurnRecorder(ctx.room.name, None)
     session = AgentSession(
         stt=deepgram.STT(model="nova-3"),
         llm=openai.LLM(model=os.getenv("CAFE_SATIVA_VOICE_LLM_MODEL", "gpt-4o-mini")),
@@ -176,9 +201,9 @@ async def entrypoint(ctx: JobContext):
         ),
         vad=silero.VAD.load(),
     )
-    recorder = TurnRecorder(ctx.room.name, session)
+    recorder.session = session
     session.on("conversation_item_added", recorder.on_item)
-    await session.start(agent=Concierge(instructions), room=ctx.room)
+    await session.start(agent=Concierge(instructions, ctx.room.name, recorder), room=ctx.room)
     lifetime = asyncio.create_task(_enforce_session_lifetime(ctx.room.name, session))
     @session.on("close")
     def on_session_close(_event):

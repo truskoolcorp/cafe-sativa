@@ -17,6 +17,16 @@ export default function ContentReview() {
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load review data.') }
   }
   useEffect(() => { void load() }, [])
+  async function pilot() {
+    setBusy(true)
+    try {
+      const r = await fetch('/api/content/pilot', {method:'POST'})
+      const body = await r.json()
+      if (!r.ok) throw new Error(body.error)
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Pilot unavailable.') }
+    finally { setBusy(false) }
+  }
   async function review(id: string, action: string) {
     setBusy(true)
     try {
@@ -44,6 +54,7 @@ export default function ContentReview() {
         const asset = data.assets.find((a: any) => a.id === job.canonical_asset_id)
         return <article key={job.id} style={{ border: '1px solid #b8813a', padding: 16, marginBottom: 16 }}>
           <h3 className="text-lg font-heading font-semibold mb-3">{job.title}</h3><p>{job.slot_key} · {job.status.replaceAll('_', ' ')}</p><p>{job.caption}</p>
+          {job.slot_key === '2026-10-07:bar' && ['planned','blocked','generating'].includes(job.status) && <button disabled={busy} onClick={pilot}>{job.status === 'generating' ? 'Check pilot result' : 'Run approved 5-second pilot (reserves $1)'}</button>}
           {job.blocker && <p>{job.blocker}</p>}
           {job.previewUrl && <video src={job.previewUrl} controls preload="metadata" style={{ maxWidth: '100%', maxHeight: 420 }} />}
           {asset && <div><p>Reference: {asset.subject} · {asset.version}</p><img src={asset.url} alt={`Approved ${asset.subject} reference`} style={{ maxWidth: '100%', maxHeight: 300 }} /></div>}

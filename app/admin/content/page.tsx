@@ -59,7 +59,7 @@ export default function ContentReview() {
   const locked = busy || loading
   const venues = data?.assets.filter((asset: any) => asset.kind === 'venue') || []
   return <main className={styles.page} aria-busy={locked}>
-    <Link className={`${styles.button} ${styles.secondary}`} href="/admin">← Content calendar</Link>
+    <Link className={`${styles.button} ${styles.secondary}`} href="/admin/archive">View historical drafts</Link>
     <header className={styles.header}>
       <div><h1>Café Sativa content review</h1><p>Review each clip against its approved reference, then approve it for reuse. Social scheduling is a separate step.</p></div>
       <button className={`${styles.button} ${styles.secondary}`} onClick={load} disabled={locked}>{loading ? 'Refreshing…' : '↻ Refresh previews'}</button>

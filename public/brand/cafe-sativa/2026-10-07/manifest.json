@@ -1,0 +1,46 @@
+{
+  "brand": "Café Sativa",
+  "primary": "rose-refined-transparent.png",
+  "approval_evidence": "Owner approved originals; owner replied perfect to transparent rose refinement on 2026-10-07.",
+  "rules": [
+    "Composite actual asset; never regenerate logo inside venue imagery.",
+    "Hookah-style predecessor logos are retired.",
+    "Faithfully Faded butterflies are merchandise branding, not venue logo.",
+    "Concrete Rose is Laviche-associated branding, not a Café Sativa venue logo.",
+    "Bronze generated refinement remains a review preview."
+  ],
+  "assets": [
+    {
+      "file": "official-rose-original.png",
+      "url": "https://www.cafe-sativa.com/brand/cafe-sativa/2026-10-07/official-rose-original.png",
+      "sha256": "1d8d7457de5561a7e4840369aa516e38b6ab5e28c0c6336859b6657341fac370",
+      "version": "2026-10-07",
+      "type": "original",
+      "status": "owner-approved"
+    },
+    {
+      "file": "official-gold-original.png",
+      "url": "https://www.cafe-sativa.com/brand/cafe-sativa/2026-10-07/official-gold-original.png",
+      "sha256": "29a829b13a50aa82f83c40636be79e76c4bda41f8d1b70390a4fc5dbf4ccde72",
+      "version": "2026-10-07",
+      "type": "original",
+      "status": "owner-approved"
+    },
+    {
+      "file": "official-bronze-original.png",
+      "url": "https://www.cafe-sativa.com/brand/cafe-sativa/2026-10-07/official-bronze-original.png",
+      "sha256": "e6a1b7abad7b15e2e7496f0b18893a3ed761423dafd163b1fecc409bfba91c35",
+      "version": "2026-10-07",
+      "type": "original",
+      "status": "owner-approved"
+    },
+    {
+      "file": "rose-refined-transparent.png",
+      "url": "https://www.cafe-sativa.com/brand/cafe-sativa/2026-10-07/rose-refined-transparent.png",
+      "sha256": "49129647d08491a3e0849867e16fcf269a5b558447c06f264f66335efd7afaa5",
+      "version": "2026-10-07",
+      "type": "refined",
+      "status": "owner-approved"
+    }
+  ]
+}

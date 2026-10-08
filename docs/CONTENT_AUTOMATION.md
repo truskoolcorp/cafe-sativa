@@ -67,3 +67,7 @@ Do not use a schedule timestamp as a Runway URL or an old placeholder event as a
 Drive Cafe_Sativa-FloorPlan-1.webp (1SbDG-2y5hajX3EPfhHuo-PR3sWaFfVWU) shows a curved central bar, performance lounge, gallery, kitchen and courtyard. The pitch deck (1N6isMez-MP-pDTaphkBciAivtQMWlBZ3), slide 6/image18.jpg, shows a different rectangular layout with numerous private smoking rooms and central stage. Its scale labels appear inconsistent; measured dimensions have not been verified. The deck describes a 4,700 sq ft concept.
 
 Deck interiors vary in design and do not establish one twin. Website venue/bar/gallery images contain people and are not empty-room geometry references. Final approved layout and room views remain required. Runway workspace discovery stalled and was interrupted; API funding and credentials are unverified.
+
+## Owner-approved logos, 7 October 2026
+
+The original rose, gold and bronze references and the approved transparent rose refinement are versioned under `public/brand/cafe-sativa/2026-10-07/`. Their exact hashes and use restrictions are in `manifest.json`. The rose refinement is the default compositing asset. The generated bronze refinement is not approved. Hookah predecessors are retired; Faithfully Faded butterflies and Concrete Rose apparel must retain their separate brand contexts. Logo approval does not approve any room geometry.

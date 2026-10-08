@@ -87,3 +87,11 @@ These event handlers have **not** been runtime-tested against the deployed LiveK
 5. The current generic LiveKit `AgentSession` pipeline auto-invokes LLM on final STT. Merely calling `reserve_turn` inside `conversation_item_added` is too late. A **tested** pre-LLM interception/hook or custom orchestration pipeline is required. Do not claim prepaid cost enforcement until test instrumentation proves reservation precedes every LLM/TTS request.
 6. Lock down anonymous identity (signed HttpOnly session binding) before guest rooms are allowed. Existing bridge currently requires authenticated users.
 7. Regression gate: parallel rooms for the same identity, duplicate event delivery, interrupted replies, expired reservations, database outage, quota exhaustion, and provider 429; all must fail closed.
+
+## Pre-LLM reservation hook — code progress
+- A pre-generation `Concierge.on_user_turn_completed(turn_ctx, new_message)` hook requests `reserve_cafe_voice_turn` and raises on denial. LiveKit documents this callback as firing before normal agent replies: https://docs.livekit.io/agents/logic/nodes/
+- The worker associates the returned reservation ID with its committed transcript, and the database settlement RPC now requires the same unexpired reservation to exist before inserting messages, then marks it settled.
+- Important: **this is not yet proven fail-closed in runtime**. The LiveKit default preemptive-generation behavior may send speculative LLM calls ahead of this hook; disable speculative generation in a version-verified way and instrument tests to show the provider received zero requests on denial.
+- Interrupted responses and canceled reservations still need an explicit lifecycle; the current FIFO recorder is not acceptable as proof of correct pairing under barge-in. The worker may hold reserved entries until their short expiry, which consumes quota temporarily.
+- The migration scripts assume `cafe_voice_reservations` exists before `persist_cafe_voice_turn` is created; migration ordering and RLS/service-role permissions need database QA.
+- No CI, interpreter, database, external provider, or live-browser test performed. Both feature flags stay disabled.

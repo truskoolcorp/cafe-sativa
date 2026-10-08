@@ -131,8 +131,9 @@ async def _enforce_session_lifetime(room: str, session: AgentSession) -> None:
 class TurnRecorder:
     """Pair committed conversation items; never save speculative interim STT."""
 
-    def __init__(self, room: str):
+    def __init__(self, room: str, session: AgentSession):
         self.room = room
+        self.session = session
         self.pending_users: list[str] = []
         self.tasks: set[asyncio.Task] = set()
 
@@ -154,9 +155,12 @@ class TurnRecorder:
 
     def _completed(self, task: asyncio.Task) -> None:
         self.tasks.discard(task)
-        if task.exception():
-            LOG.error("Voice conversation persistence failed; session must be reviewed",
-                      exc_info=task.exception())
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error:
+            LOG.error("Voice conversation persistence failed; closing session", exc_info=error)
+            asyncio.create_task(self.session.aclose())
 
 
 class Concierge(Agent):
@@ -182,11 +186,12 @@ async def entrypoint(ctx: JobContext):
         ),
         vad=silero.VAD.load(),
     )
-    recorder = TurnRecorder(ctx.room.name)
+    recorder = TurnRecorder(ctx.room.name, session)
     session.on("conversation_item_added", recorder.on_item)
     await session.start(agent=Concierge(instructions), room=ctx.room)
     lifetime = asyncio.create_task(_enforce_session_lifetime(ctx.room.name, session))
-    ctx.add_shutdown_callback(lambda: lifetime.cancel())
+    # Session shutdown cancels the authorization monitor through the agent lifecycle.
+    # Avoid starting a second long-running process in the Web deployment.
     LOG.info("Café Sativa audio session started for host=%s", host)
 
 

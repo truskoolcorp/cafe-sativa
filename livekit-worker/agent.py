@@ -20,16 +20,6 @@ LOG = logging.getLogger("cafe-sativa-voice")
 HOSTS = ("laviche", "ginger", "ahnika")
 ROOM_PATTERN = re.compile(r"^cafe-sativa-(laviche|ginger|ahnika)-[a-f0-9]{32}$")
 
-# IMPORTANT: These are temporary minimal prompts for integration smoke testing.
-# Production requires the canonical prompts from lib/concierge/personas.ts via
-# an authenticated configuration service, together with existing memory/quota.
-TEST_PERSONAS = {
-    "laviche": "You are Laviche, the Café Sativa maître d'. Be warm, concise, and clear.",
-    "ginger": "You are Ginger, the Café Sativa travel concierge. Be concise and helpful.",
-    "ahnika": "You are Ahnika, the Café Sativa wellness host. Be concise and helpful.",
-}
-
-
 def host_for_room(room_name: str) -> str:
     match = ROOM_PATTERN.fullmatch(room_name)
     if not match:
@@ -190,8 +180,9 @@ async def entrypoint(ctx: JobContext):
     session.on("conversation_item_added", recorder.on_item)
     await session.start(agent=Concierge(instructions), room=ctx.room)
     lifetime = asyncio.create_task(_enforce_session_lifetime(ctx.room.name, session))
-    # Session shutdown cancels the authorization monitor through the agent lifecycle.
-    # Avoid starting a second long-running process in the Web deployment.
+    @session.on("close")
+    def on_session_close(_event):
+        lifetime.cancel()
     LOG.info("Café Sativa audio session started for host=%s", host)
 
 

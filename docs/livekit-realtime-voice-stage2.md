@@ -77,3 +77,13 @@ These event handlers have **not** been runtime-tested against the deployed LiveK
 - Agent event-to-message pairing can be imperfect under interruptions, tool calls, or multiple queued user messages. Validate with live regression tests before enabling; prefer stable event item IDs and explicit turn lifecycle handling.
 - Database migration must be applied, SDK dependencies and lockfile refreshed, browser client implemented, agent deployed to an isolated service, per-host voice IDs verified, and integration/security tests executed.
 - Do not set either `CAFE_SATIVA_LIVEKIT_ENABLED` or `CAFE_SATIVA_VOICE_INTEGRATION_READY` to `1` yet.
+
+## Cost-gated production protocol — next implementation boundary
+**Do not activate rooms yet.** The current `conversation_item_added` listener persists output *after* LLM/TTS consumption. No endpoint can retroactively prevent charges. The next implementation must enforce the following protocol:
+1. On the final user transcription event and **before** requesting LLM/TTS, call a server-only `reserve_turn(room,turn_id)` transaction. Count both persisted and in-flight reservations against the same identity-wide allowance; record `reserved_at`, `expires_at`, `status`, and immutable `turn_id`.
+2. The worker must **block response generation** until a reservation is confirmed. Client-supplied `turn_id` values are untrusted; only the server's room-bound worker may request one.
+3. On successful finalized response, atomically settle the reservation and insert the user/assistant messages once. On interruption or upstream failure mark as canceled/failed, with a documented policy for which consumed credits count. Retry must reuse the same reservation ID.
+4. Add independent maximum call length, token/minute and concurrent-room caps: message quota alone is insufficient to cap costs before the first turn.
+5. The current generic LiveKit `AgentSession` pipeline auto-invokes LLM on final STT. Merely calling `reserve_turn` inside `conversation_item_added` is too late. A **tested** pre-LLM interception/hook or custom orchestration pipeline is required. Do not claim prepaid cost enforcement until test instrumentation proves reservation precedes every LLM/TTS request.
+6. Lock down anonymous identity (signed HttpOnly session binding) before guest rooms are allowed. Existing bridge currently requires authenticated users.
+7. Regression gate: parallel rooms for the same identity, duplicate event delivery, interrupted replies, expired reservations, database outage, quota exhaustion, and provider 429; all must fail closed.

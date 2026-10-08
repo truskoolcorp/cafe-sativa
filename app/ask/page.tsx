@@ -385,12 +385,14 @@ function AskInner() {
       setSpeakingTs(ts)
 
       const cleanup = () => {
-        if (voiceModeRef.current && hostRef.current === host) {
-          resumeListeningRef.current()
-        }
         setSpeakingTs((cur) => (cur === ts ? null : cur))
         URL.revokeObjectURL(url)
-        if (audioRef.current === audio) audioRef.current = null
+        if (audioRef.current === audio) {
+          audioRef.current = null
+          if (voiceModeRef.current && hostRef.current === host) {
+            resumeListeningRef.current()
+          }
+        }
       }
       audio.onended = cleanup
       audio.onerror = cleanup

@@ -64,3 +64,16 @@ Code in this PR now includes:
 4. Apply migration and install/update lockfile in CI; inspect environment-scoped secrets separately without exposing values; configure distinct worker credentials; test worker callbacks and frontend.
 5. CSRF/session protection: exact origin comparison is a supplemental check, not sole authorization. Harden anonymous session IDs using HttpOnly signed cookies.
 6. Explicit feature flag `CAFE_SATIVA_LIVEKIT_ENABLED` must remain unset/disabled. No deployment or runtime test was performed.
+
+## Worker event integration update — October 8, 2026
+- Worker now subscribes to LiveKit `conversation_item_added` events and pairs committed user / assistant items for server-side transcript persistence. LiveKit documents this event with message `role`, `text_content` and `interrupted` (see https://docs.livekit.io/reference/agents/events/).
+- Worker calls the authenticated `livekit-worker/turn` endpoint using unique turn IDs; a write failure initiates session shutdown rather than silently continuing.
+- Worker rechecks its room authorization every 15 seconds and closes on expiry, revocation or backend unavailability. This is a secondary control; revoking room participant tokens with LiveKit's server API is still needed for immediate removal.
+- Canonical host instructions and prior memory are loaded from the backend; placeholder persona strings have been removed.
+### Not yet validated
+These event handlers have **not** been runtime-tested against the deployed LiveKit Agents Python version. The source code has been committed but not installed, built, run, or exercised with live microphone and synthesized audio.
+### Release blockers remain
+- Atomic turn persistence is **post-response accounting**, not up-front usage reservation. Race protection exists only when the DB migration is applied. For cost protection, authorize/reserve per user turn **before** invoking STT/LLM/TTS; add minute and credit budgets per room.
+- Agent event-to-message pairing can be imperfect under interruptions, tool calls, or multiple queued user messages. Validate with live regression tests before enabling; prefer stable event item IDs and explicit turn lifecycle handling.
+- Database migration must be applied, SDK dependencies and lockfile refreshed, browser client implemented, agent deployed to an isolated service, per-host voice IDs verified, and integration/security tests executed.
+- Do not set either `CAFE_SATIVA_LIVEKIT_ENABLED` or `CAFE_SATIVA_VOICE_INTEGRATION_READY` to `1` yet.

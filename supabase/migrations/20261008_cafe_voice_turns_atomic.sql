@@ -35,6 +35,12 @@ begin
       where room_name=p_room and turn_id=p_turn_id) then
     return 'duplicate';
   end if;
+  -- A charged turn must first have received an atomic reservation.
+  if not exists (select 1 from public.cafe_voice_reservations
+      where room_name=p_room and turn_id=p_turn_id
+        and status='reserved' and expires_at > now()) then
+    raise exception 'No active pre-provider reservation';
+  end if;
   case v_session.tier
     when 'anonymous' then v_max := 10; v_window := interval '1 hour';
     when 'explorer' then v_max := 50; v_window := interval '1 day';
@@ -49,8 +55,11 @@ begin
         (v_session.user_id is not null and hc.user_id=v_session.user_id)
         or (v_session.user_id is null and hc.session_id=v_session.session_id)
       );
-  if v_used >= v_max then raise exception 'Voice quota exhausted'; end if;
+  -- The reservation was counted against the allowance before generation.
+  -- Do not reject a legitimately reserved in-flight turn after another turn settled.
   insert into public.cafe_voice_turns(room_name, turn_id) values(p_room,p_turn_id);
+  update public.cafe_voice_reservations set status='settled'
+    where room_name=p_room and turn_id=p_turn_id;
   insert into public.host_messages(conversation_id,role,content) values
     (v_session.conversation_id, 'user',trim(p_user_text)),
     (v_session.conversation_id, 'assistant',trim(p_assistant_text));

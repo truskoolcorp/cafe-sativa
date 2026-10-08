@@ -59,7 +59,7 @@ export default function ContentReview() {
   const locked = busy || loading
   const venues = data?.assets.filter((asset: any) => asset.kind === 'venue') || []
   return <main className={styles.page} aria-busy={locked}>
-    <Link className={`${styles.button} ${styles.secondary}`} href="/admin/archive">View historical drafts</Link>
+    <Link className={`${styles.button} ${styles.secondary}`} href="/admin">← Back to dashboard</Link>
     <header className={styles.header}>
       <div><h1>Café Sativa content review</h1><p>Review each clip against its approved reference, then approve it for reuse. Social scheduling is a separate step.</p></div>
       <button className={`${styles.button} ${styles.secondary}`} onClick={load} disabled={locked}>{loading ? 'Refreshing…' : '↻ Refresh previews'}</button>
@@ -75,7 +75,7 @@ export default function ContentReview() {
         const asset = data.assets.find((a: any) => a.id === job.canonical_asset_id)
         const count = Object.keys(checks).filter(key => selected[job.id]?.[key]).length
         const canApprove = !!job.previewUrl && count === Object.keys(checks).length
-        return <article key={job.id} className={styles.card}>
+        return <article id={`job-${job.id}`} key={job.id} className={styles.card}>
           <div className={styles.cardTitle}><h3>{job.title}</h3><span className={`${styles.badge} ${['approved','scheduled','published'].includes(job.status) ? styles.success : ''}`}>{job.status.replaceAll('_', ' ')}</span></div>
           <p className={styles.meta}>{job.slot_key}</p><p>{job.caption}</p>
           <div className={styles.nextAction}><strong>{['scheduled','published'].includes(job.status) ? 'Delivery status' : 'Your next step'}</strong><p>{guidance[job.status] || 'Check the current job status below.'}</p>

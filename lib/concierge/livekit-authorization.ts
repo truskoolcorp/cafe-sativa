@@ -47,7 +47,9 @@ export async function authorizeVoiceSession(input: {
   const userId = identity.user?.id ?? null
   const sessionId = typeof input.sessionId === 'string' &&
     /^[a-f0-9-]{36}$/i.test(input.sessionId) ? input.sessionId : null
-  if (!userId && !sessionId) throw new Error('Session identity required')
+  // Until anonymous sessions are bound to signed HttpOnly cookies, refuse
+  // unauthenticated LiveKit rooms rather than trusting a client UUID.
+  if (!userId) throw new Error('Sign-in required for real-time voice')
   const admin = createAdminClient()
   let tier: Tier = userId ? 'explorer' : 'anonymous'
   if (userId) {

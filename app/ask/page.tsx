@@ -206,6 +206,11 @@ function AskInner() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const voiceModeRef = useRef(false) // mirror of voiceMode for async sendMessage
+  const sendingRef = useRef(false)
+  const submitSpeechRef = useRef<(text: string) => void>(() => {})
+  const resumeListeningRef = useRef<() => void>(() => {})
+  const hostRef = useRef(activeHost)
+  hostRef.current = activeHost
 
   // Initialize session id + auth state on mount
   useEffect(() => {
@@ -240,6 +245,8 @@ function AskInner() {
     audioRef.current = null
     setSpeakingTs(null)
     recognitionRef.current?.stop()
+    recognitionRef.current = null
+    setListening(false)
   }, [activeHost])
 
   // Pin to newest message
@@ -249,14 +256,17 @@ function AskInner() {
 
   async function sendMessage(text?: string) {
     const trimmed = (text ?? input).trim()
-    if (!trimmed || sending) return
+    if (!trimmed || sendingRef.current) return
+    sendingRef.current = true
     setError(null)
     setRateLimited(null)
     // Stop any reply currently playing / mic capturing before the new turn
     audioRef.current?.pause()
     audioRef.current = null
     setSpeakingTs(null)
-    if (listening) recognitionRef.current?.stop()
+    // Explicitly stop dictation when manually submitting; the onend handler
+    // will not duplicate the message because the synchronous guard is set.
+    if (recognitionRef.current) recognitionRef.current.stop()
 
     const userMsg: Message = {
       role: 'user',
@@ -328,8 +338,11 @@ function AskInner() {
       setError('Could not send your message. Check your connection.')
     } finally {
       setSending(false)
+      sendingRef.current = false
     }
   }
+
+  submitSpeechRef.current = (text) => { void sendMessage(text) }
 
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -360,7 +373,10 @@ function AskInner() {
         voiceModeRef.current = false
         return
       }
-      if (!res.ok) return
+      if (!res.ok) {
+        resumeListeningRef.current()
+        return
+      }
 
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
@@ -369,6 +385,9 @@ function AskInner() {
       setSpeakingTs(ts)
 
       const cleanup = () => {
+        if (voiceModeRef.current && hostRef.current === host) {
+          resumeListeningRef.current()
+        }
         setSpeakingTs((cur) => (cur === ts ? null : cur))
         URL.revokeObjectURL(url)
         if (audioRef.current === audio) audioRef.current = null
@@ -377,66 +396,92 @@ function AskInner() {
       audio.onerror = cleanup
 
       await audio.play().catch(() => {
-        // Autoplay blocked or playback failed — clear the indicator but
-        // leave controls in place (manual play still works on tap).
-        setSpeakingTs((cur) => (cur === ts ? null : cur))
+        // Autoplay blocked: don't hold the microphone indefinitely.
+        cleanup()
       })
     } catch {
       // Network error — the text reply is already shown, so just ignore.
       setSpeakingTs((cur) => (cur === ts ? null : cur))
+      resumeListeningRef.current()
     }
   }
 
-  // Browser speech-to-text into the composer. Client-side only, no key.
-  function toggleMic() {
+  // In voice mode a finalized utterance submits automatically; in text mode
+  // the mic continues to work as ordinary dictation.
+  function startListening() {
     const Ctor = getSpeechRecognition()
-    if (!Ctor) return
-
-    if (listening) {
-      recognitionRef.current?.stop()
-      return
-    }
+    if (!Ctor || recognitionRef.current || sendingRef.current || audioRef.current) return
 
     const rec = new Ctor()
     rec.lang = 'en-US'
     rec.continuous = false
     rec.interimResults = true
-
     let finalText = ''
+    let interimText = ''
+    let failed = false
+    const hostAtStart = hostRef.current
+
     rec.onresult = (e) => {
-      let interim = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i]
-        if (r.isFinal) finalText += r[0].transcript
-        else interim += r[0].transcript
+      // Reconstruct the full result rather than appending repeated final events.
+      finalText = ''
+      interimText = ''
+      for (let i = 0; i < e.results.length; i++) {
+        const result = e.results[i]
+        if (result.isFinal) finalText += result[0].transcript
+        else interimText += result[0].transcript
       }
-      setInput((finalText + interim).trim())
+      setInput((finalText + interimText).trim())
     }
     rec.onend = () => {
-      setListening(false)
+      if (recognitionRef.current !== rec) return
       recognitionRef.current = null
+      setListening(false)
+      if (!failed && voiceModeRef.current && hostRef.current === hostAtStart && finalText.trim()) {
+        submitSpeechRef.current(finalText.trim())
+      }
     }
     rec.onerror = () => {
+      failed = true
       setListening(false)
-      recognitionRef.current = null
+      if (recognitionRef.current === rec) recognitionRef.current = null
+      // Leave transcription in the composer so users can send it manually.
     }
 
     recognitionRef.current = rec
-    setListening(true)
-    rec.start()
+    try {
+      rec.start()
+      setListening(true)
+    } catch {
+      recognitionRef.current = null
+      setListening(false)
+    }
+  }
+
+  resumeListeningRef.current = () => {
+    if (voiceModeRef.current && !sendingRef.current) startListening()
+  }
+
+  function toggleMic() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+    } else {
+      startListening()
+    }
   }
 
   function toggleVoiceMode() {
-    setVoiceMode((v) => {
-      const next = !v
-      voiceModeRef.current = next
-      if (!next) {
-        audioRef.current?.pause()
-        audioRef.current = null
-        setSpeakingTs(null)
-      }
-      return next
-    })
+    const next = !voiceModeRef.current
+    voiceModeRef.current = next
+    setVoiceMode(next)
+    if (!next) {
+      recognitionRef.current?.stop()
+      audioRef.current?.pause()
+      audioRef.current = null
+      setSpeakingTs(null)
+    } else {
+      // Direct user gesture permits microphone permission request.
+      startListening()
+    }
   }
 
   const activeHostMeta = HOSTS.find((h) => h.id === activeHost)!

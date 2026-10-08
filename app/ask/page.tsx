@@ -385,6 +385,7 @@ function AskInner() {
   async function speak(text: string, host: HostId, ts: number) {
     if (!voiceSupported || !text.trim()) return
     const turn = voiceTurnRef.current
+    const conversational = voiceModeRef.current
     stopListening()
     stopAudio()
     try {
@@ -392,10 +393,10 @@ function AskInner() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ host, text }),
       })
-      if (!mountedRef.current || turn !== voiceTurnRef.current) return
+      if (!mountedRef.current || turn !== voiceTurnRef.current || (conversational && !voiceModeRef.current)) return
       if (!res.ok) throw new Error(res.status === 503 ? 'Voice is temporarily unavailable.' : 'Could not play the host voice. Try again.')
       const blob = await res.blob()
-      if (!mountedRef.current || turn !== voiceTurnRef.current) return
+      if (!mountedRef.current || turn !== voiceTurnRef.current || (conversational && !voiceModeRef.current)) return
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audioRef.current = audio
@@ -488,7 +489,6 @@ function AskInner() {
     setVoiceMode(next)
     setError(null)
     if (!next) {
-      voiceTurnRef.current++
       stopListening()
       stopAudio()
     } else {

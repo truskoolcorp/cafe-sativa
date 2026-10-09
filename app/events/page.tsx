@@ -1,3 +1,4 @@
+import { SiteFeatures } from '@/components/events/SiteFeatures'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Calendar } from 'lucide-react'
@@ -90,9 +91,7 @@ export default async function EventsPage({
             What&rsquo;s on at Café Sativa.
           </h1>
           <p className="text-base md:text-lg text-muted-foreground font-body mt-6 leading-relaxed">
-            Live interviews, cooking classes, tastings, and performances — all
-            streamed from the venue. Members get in free; everyone else grabs a
-            ticket.
+            Explore online features and confirmed virtual events. Our physical venue is planned for 2027; the exact opening date is still to be confirmed.
           </p>
         </div>
 
@@ -117,6 +116,7 @@ export default async function EventsPage({
           })}
         </div>
 
+        <SiteFeatures category={filter ?? undefined} />
         {/* Results */}
         <div className="mt-16">
           {events.length === 0 ? (
@@ -124,8 +124,8 @@ export default async function EventsPage({
               <Calendar className="w-8 h-8 text-primary mx-auto mb-4" />
               <p className="font-heading text-xl text-foreground mb-2">
                 {filter
-                  ? 'Nothing in this category right now'
-                  : 'Next season announcing soon'}
+                  ? 'No confirmed upcoming events in this category'
+                  : 'No confirmed upcoming events yet'}
               </p>
               <p className="text-sm text-muted-foreground font-body max-w-md mx-auto">
                 {filter ? (
@@ -134,9 +134,7 @@ export default async function EventsPage({
                   </>
                 ) : (
                   <>
-                    We&rsquo;re between runs. Join the mailing list on the home
-                    page and we&rsquo;ll tell you the moment the next show
-                    goes up.
+                    Visit the home page to follow the development of our virtual-first venue.
                   </>
                 )}
               </p>

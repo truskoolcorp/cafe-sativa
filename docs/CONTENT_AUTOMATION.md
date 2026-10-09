@@ -83,3 +83,11 @@ The original rose, gold and bronze references and the approved transparent rose 
 - Owner accepts some CGI/AI appearance for explicitly labeled future-venue concept previews. Realistic footage remains the aspiration for other uses. Geometry, branding and artifact checks remain required.
 - Other room references and all character references remain unregistered as approved. The main-lounge schedule subject is distinct from bar.
 - Social delivery was performed through the connected Metricool tool; there is no unattended website-to-Metricool integration. A daily ChatGPT monitoring task could not be created because all five active task slots are occupied. No new subscription or task replacement was made.
+
+## Browser voice verification — 9 October 2026
+
+Owner reported testing Laviche, Ginger and Ahnika: all three voices appear to work.
+This records operational playback confirmation, not a new voice-ID selection or
+image-canonical approval. Preserve the working configuration. Hands-free speech
+submission was deployed; an uninterrupted multi-turn browser conversation and
+LiveKit duplex operation are separate verification items.

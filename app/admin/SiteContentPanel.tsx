@@ -1,0 +1,65 @@
+'use client'
+import { useCallback, useEffect, useState } from 'react'
+import styles from './dashboard.module.css'
+
+type Item = {id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null}
+export default function SiteContentPanel() {
+  const [items,setItems]=useState<Item[]>([])
+  const [selected,setSelected]=useState<Item|null>(null)
+  const [copy,setCopy]=useState('')
+  const [schedule,setSchedule]=useState('')
+  const [confirmed,setConfirmed]=useState(false)
+  const [busy,setBusy]=useState(false)
+  const [message,setMessage]=useState('')
+  const load=useCallback(async()=>{
+    const response=await fetch('/api/content/site',{cache:'no-store'})
+    const body=await response.json()
+    if(!response.ok) throw new Error(body.error || 'Unable to load website content')
+    setItems(body.items || [])
+    return body.items as Item[]
+  },[])
+  useEffect(()=>{void load().catch(e=>setMessage(e.message))},[load])
+  function open(item:Item) {setSelected(item);setCopy(item.copy_draft || '');setSchedule(item.scheduled_at || '');setConfirmed(false);setMessage('')}
+  async function act(action:string) {
+    setBusy(true);setMessage('Saving…')
+    try {
+      const response=await fetch('/api/content/site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:selected?.id,copy,expectedUpdatedAt:selected?.updated_at,scheduledAt:schedule,confirmAccuracy:confirmed})})
+      const body=await response.json()
+      if(!response.ok) throw new Error(body.error || 'Website action failed')
+      const fresh=await load()
+      if(selected){const item=fresh.find(i=>i.id===selected.id);if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
+      setConfirmed(false)
+      setMessage(action==='approve' ? (body.published ? 'Published to the website. Open the category page to view it.' : 'Approved. The daily publisher will release it when its schedule is due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
+    }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
+    finally{setBusy(false)}
+  }
+  const locked=selected && ['published','archived','failed'].includes(selected.status)
+  return <section aria-label="Website programming">
+    <h2>Website programming</h2>
+    <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
+    <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
+      <button className={styles.primary} disabled={busy} onClick={()=>act('plan')}>Prepare program drafts</button>
+      <button className={styles.secondary} disabled={busy} onClick={()=>act('publish_due')}>Publish approved due items</button>
+      <button className={styles.secondary} disabled={busy} onClick={()=>void load().catch(e=>setMessage(e.message))}>Refresh status</button>
+    </div>
+    {message && <p role="status" aria-live="polite">{message}</p>}
+    {selected ? <div className={styles.card} style={{padding:24}}>
+      <button className={styles.secondary} disabled={busy} onClick={()=>{setSelected(null);setMessage('')}}>← Back to website overview</button>
+      <h3>{selected.title}</h3><p>{selected.site_category.replaceAll('_',' ')} · {selected.status}</p>
+      <label htmlFor="site-copy">Full website copy</label>
+      <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
+      <label htmlFor="site-schedule">Publication time (ISO date with timezone, e.g. 2026-10-19T19:00:00-05:00)</label>
+      <input id="site-schedule" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={schedule} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value);setConfirmed(false)}}/>
+      <p>{selected.approval_notes}</p>
+      {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
+      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+        <button className={styles.secondary} disabled={busy || !copy.trim()} onClick={()=>act('save')}>Save edits</button>
+        <button className={styles.approve} disabled={busy || !confirmed || !copy.trim()} onClick={()=>act('approve')}>✓ Approve website publication</button>
+        <button className={styles.reject} disabled={busy} onClick={()=>act('return')}>Return for revision</button>
+      </div></>}
+      {selected.published_at && <p>Website published: {new Date(selected.published_at).toLocaleString()}</p>}
+      <p><a href={`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
+    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}><div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
+    {!items.length && <p>No website drafts prepared yet.</p>}
+  </section>
+}

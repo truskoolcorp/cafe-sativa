@@ -1,5 +1,14 @@
 export const REFERENCE_CANDIDATES = [
   {
+    "key": "proposal-v1:community-long-table",
+    "kind": "venue",
+    "subject": "community",
+    "path": "/references/2026-10-10/community-long-table-proposal-v1.png",
+    "sha256": "42bdb1c1072c2ec396018e007b6d8df1f0f055162b87cb91f0004d4fd4f7ebeb",
+    "source": "At the Table long-table proposal derived from main-lounge photo v2; 10 October 2026",
+    "reviewNotes": "Empty-room Community setting for Keith and Laviche's conversation format. Foreground furniture is a proposed long-table configuration; fixed lounge architecture is retained. Review seating, circulation and the intended layout before approval. This is not a measured or approved physical floor plan."
+  },
+  {
     "key": "photo-v2:main-lounge",
     "kind": "venue",
     "subject": "main-lounge",

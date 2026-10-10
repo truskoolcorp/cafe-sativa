@@ -1,3 +1,4 @@
+import { SiteFeatures } from '@/components/events/SiteFeatures'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -119,6 +120,7 @@ export default async function GalleryPage() {
         </div>
       </section>
 
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><SiteFeatures category="gallery" /></div>
       {/* Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
         <div className="flex justify-end mb-6">

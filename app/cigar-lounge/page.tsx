@@ -51,6 +51,7 @@ export default async function CigarLoungePage() {
 
   return (
     <CategoryPage
+      category="cigar_lounge"
       title="Cigar Lounge"
       tagline="Smoke, spoken softly."
       description="Guided tastings, blind flights, and conversations with working master blenders. Most programming is members-only — free with Regular, everything unlocked with VIP."

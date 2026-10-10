@@ -185,6 +185,15 @@ export default function AdminPage() {
       </div>
 
       <p style={{ padding:'8px 24px', color:C.textDim }}>Open a card to inspect, edit and approve. Dates in titles are original planning dates. Approval and scheduling are separate steps. Status refreshes every minute while this dashboard is open.</p>
+      {current?.operational && <section style={{margin:'12px 24px',padding:20,border:'1px solid #b8813a',borderRadius:8}} aria-label="Automation readiness">
+        <h2>Automation readiness</h2>
+        <p>Recurring media processing: <strong>{current.generationEnabled ? 'enabled' : 'paused'}</strong> · Monthly generation cap: <strong>${(current.monthlyLimitCents/100).toFixed(2)}</strong></p>
+        <p>{current.operational.voiceVerification}</p>
+        {!!current.operational.missingRooms.length && <p>Room references awaiting approval: <strong>{current.operational.missingRooms.join(', ')}</strong>.</p>}
+        {!current.operational.characterMediaReady && <p>Character media: approved image references have not been registered. Character generation remains held.</p>}
+        <p>Unattended social delivery: <strong>{current.operational.socialDispatchConfigured ? 'credential present; delivery verification required' : 'website connector not configured'}</strong>. Existing Metricool posts remain independently scheduled.</p>
+        <button className={styles.primary} onClick={()=>setTab('website')}>Review website program drafts →</button>
+      </section>}
       {/* Body */}
       <div style={{ padding:'20px 24px' }}>
         {loading ? <div style={{ textAlign:'center', padding:60, color:C.muted }}>Loading…</div> : (

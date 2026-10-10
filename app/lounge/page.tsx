@@ -1,3 +1,4 @@
+import { SiteFeatures } from '@/components/events/SiteFeatures'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { MessageCircle, Lock, ArrowRight } from 'lucide-react'
@@ -159,6 +160,7 @@ export default async function LoungePage() {
         </div>
 
         {/* Chat surface — client component handles realtime */}
+        <SiteFeatures category="community" />
         <LoungeRoom
           roomId={data.room.id}
           userId={data.user.id}

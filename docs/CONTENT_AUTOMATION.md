@@ -91,3 +91,17 @@ This records operational playback confirmation, not a new voice-ID selection or
 image-canonical approval. Preserve the working configuration. Hands-free speech
 submission was deployed; an uninterrupted multi-turn browser conversation and
 LiveKit duplex operation are separate verification items.
+
+## Autonomous continuation — 9 October 2026 evening (Chicago)
+
+- Six program introduction drafts are in content_items, pending owner review. They are not episodes, recordings or new event bookings.
+- Website category feeds are connected on events and the Stage/Kitchen/Cigar/Gallery/Community landing surfaces. Only approved published text is public.
+- Worker queue selection skips rooms without approved references, while recording their blocker. A blocked Gallery job can no longer starve an approved Bar job.
+- Reuse of the approved Bar clip precedes paid generation. New/reused captions remain in QA. The atomic database cap is $25 per Chicago calendar month.
+- Metricool posts 390856410, 390803327 and 390803425 were rechecked: Facebook/Threads pending automatic publication Oct 12/14/16 at 19:00 Chicago. No platform publication receipt exists yet.
+- No Metricool API credential is installed on this website. Interactive connector access does not provide an unattended server integration.
+- Current Library voice registry draft has Laviche and Ginger provisional clones; Ahnika's preferred clone differs from the working generated alternate. Preserve tested Ask IDs; do not silently promote or replace candidates.
+
+Recurring processing enabled under the owner’s autonomous-continuation instruction.
+Deployment retains reference checks, QA holds and atomic $25 cap. Prior paused
+checkpoints above are historical. Current bar work should reuse approved media.

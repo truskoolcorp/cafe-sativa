@@ -55,15 +55,27 @@ export async function processContent(req: NextRequest, pilot = false) {
         if (changed.error) throw changed.error
       }
     }
-    let selection = db.from('cs_content_jobs').select('*').in('status', ['planned', 'blocked'])
+    // Missing references must not starve another room with an approved keyframe.
+    const references = await db.from('cs_canonical_assets').select('*').eq('kind', 'venue').eq('active', true)
+    if (references.error) throw references.error
+    const approved = (references.data || []).filter(asset => approvedAsset(asset as CanonicalAsset)) as CanonicalAsset[]
+    const rooms = approved.map(asset => asset.subject)
+    const waiting = await db.from('cs_content_jobs').select('id,room').in('status', ['planned','blocked']).limit(100)
+    if (waiting.error) throw waiting.error
+    const missing = (waiting.data || []).filter(job => !rooms.includes(job.room))
+    for (const room of Array.from(new Set(missing.map(job => job.room)))) {
+      const marked = await db.from('cs_content_jobs').update({status:'blocked',blocker:`Approved canonical keyframe missing for ${room}`})
+        .eq('room',room).in('status',['planned','blocked'])
+      if (marked.error) throw marked.error
+    }
+    if (!rooms.length) return NextResponse.json({submitted:0,reason:'No approved room references',blocked:missing.length})
+    let selection = db.from('cs_content_jobs').select('*').in('status', ['planned', 'blocked']).in('room',rooms)
     if (pilot) selection = selection.eq('slot_key', '2026-10-07:bar')
     const selected = await selection.order('created_at').limit(1)
     if (selected.error) throw selected.error
     const job = selected.data?.[0]
-    if (!job) return NextResponse.json({ processed: true, submitted: 0 })
-    const found = await db.from('cs_canonical_assets').select('*').eq('kind', 'venue').eq('subject', job.room).eq('active', true).maybeSingle()
-    if (found.error) throw found.error
-    const asset = found.data as CanonicalAsset | null
+    if (!job) return NextResponse.json({ processed: true, submitted: 0, blocked:missing.length })
+    const asset = approved.find(asset => asset.subject === job.room) || null
     const block = async (reason: string) => {
       const changed = await db.from('cs_content_jobs').update({ status: 'blocked', blocker: reason }).eq('id', job.id).in('status', ['planned', 'blocked'])
       if (changed.error) throw changed.error

@@ -15,9 +15,10 @@ export default async function KitchenPage() {
 
   return (
     <CategoryPage
+      category="kitchen"
       title="The Kitchen"
       tagline="Cook along, live."
-      description="Real-time cooking classes with visiting chefs. Prep ahead from our ingredient lists, then share a meal with the rest of the room when the class ends."
+      description="Fusion cuisines, featured-chef programming and Café Sativa After Dark in the virtual Kitchen. Confirmed classes will include their actual hosts, ingredients and participation details."
       heroImage="/rooms/kitchen.webp"
       events={events}
     />

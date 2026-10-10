@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { isContentAdmin } from '@/lib/content/auth'
-import { CONTENT_POLICY } from '@/lib/content/policy'
+import { approvedAsset, CONTENT_POLICY, WEEKLY_SLOTS } from '@/lib/content/policy'
 
 export const dynamic = 'force-dynamic'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -27,7 +27,15 @@ export async function GET() {
       }
       return { ...job, previewUrl }
     }))
-    return response({ jobs: previews, assets: assets.data, budget: budget.data, generationEnabled: process.env.CS_CONTENT_GENERATION_ENABLED === 'true', monthlyLimitCents: CONTENT_POLICY.monthlyBudgetCents })
+    const approvedRooms = (assets.data || []).filter(asset => asset.kind === 'venue' && approvedAsset(asset)).map(asset => asset.subject)
+    const missingRooms = WEEKLY_SLOTS.map(slot => slot.room).filter(room => !approvedRooms.includes(room))
+    const operational = {
+      missingRooms,
+      characterMediaReady: (assets.data || []).some(asset => asset.kind === 'character' && approvedAsset(asset)),
+      socialDispatchConfigured: Boolean(process.env.METRICOOL_API_TOKEN),
+      voiceVerification: 'Owner reported all three Ask voices working on October 9, 2026. Visual identity approval is separate.',
+    }
+    return response({ operational, jobs: previews, assets: assets.data, budget: budget.data, generationEnabled: process.env.CS_CONTENT_GENERATION_ENABLED === 'true', monthlyLimitCents: CONTENT_POLICY.monthlyBudgetCents })
   } catch { return response({ error: 'Review data unavailable.' }, 503) }
 }
 

@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/content/social/probe",
-      "schedule": "45 13 * * *"
+      "schedule": "36 13 * * *"
     }
   ]
 }

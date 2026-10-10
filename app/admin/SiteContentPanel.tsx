@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import styles from './dashboard.module.css'
+import SocialConnectionPanel from './SocialConnectionPanel'
 
 type Item = {id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null; media_url:string|null}
 const PROGRAM_DETAILS: Record<string,{host:string;format:string;reference:string}> = {
@@ -64,6 +65,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const locked=selected && ['published','archived','failed'].includes(selected.status)
   return <section aria-label="Website programming">
     <h2>Website programming</h2>
+    <SocialConnectionPanel/>
     <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
       <button className={styles.primary} disabled={busy} onClick={()=>act('plan')}>Prepare program drafts</button>

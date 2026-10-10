@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { cronAuthorized } from '@/lib/content/auth'
-import { CONTENT_POLICY, dueSlots, localDate } from '@/lib/content/policy'
+import { approvedAsset, CONTENT_POLICY, dueSlots, localDate } from '@/lib/content/policy'
 
 import { planSiteContent, publishDueSiteContent } from '@/lib/content/site'
 
@@ -15,10 +15,14 @@ export async function GET(req: NextRequest) {
     const sitePlanned = await planSiteContent(now)
     const sitePublished = await publishDueSiteContent(now)
     const db = createAdminClient()
+    const references = await db.from('cs_canonical_assets').select('*').eq('kind','venue').eq('active',true)
+    if (references.error) throw references.error
+    const approvedRooms = new Set((references.data || []).filter(approvedAsset).map(asset => asset.subject))
     const jobs = dueSlots(now).map(slot => ({
       slot_key: `${localDate(now)}:${slot.room}`, room: slot.room,
       title: slot.title, caption: slot.caption, camera_action: slot.action,
-      policy_version: CONTENT_POLICY.version, status: 'planned',
+      policy_version: CONTENT_POLICY.version, status: approvedRooms.has(slot.room) ? 'planned' : 'blocked',
+      blocker: approvedRooms.has(slot.room) ? null : `Approved ${slot.room} venue reference required. Review room references in the admin dashboard.`,
     }))
     if (jobs.length) {
       const { error } = await db.from('cs_content_jobs').upsert(jobs, { onConflict: 'slot_key', ignoreDuplicates: true })

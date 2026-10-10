@@ -1,0 +1,97 @@
+# Café Sativa — Real-time LiveKit voice integration (Stage 2)
+
+Status: **design / implementation gate; NOT production-ready.** Stage 1 browser-SpeechRecognition turn-taking remains the default until end-to-end tests pass.
+
+## Current, verified integration
+- `app/ask/page.tsx`: web SpeechRecognition microphone; POST `/api/concierge` for turn replies; `/api/concierge/speak` for ElevenLabs audio. This is **not** a LiveKit audio room.
+- `app/api/concierge/route.ts`: host persona, tier/rate limit, conversation lookup, prior-memory retrieval, Claude reply, persistence.
+- `app/api/concierge/speak/route.ts`: server-side ElevenLabs TTS; voice IDs via `ELEVENLABS_VOICE_<HOST>` override and existing defaults; `eleven_turbo_v2_5` default.
+- `lib/concierge/personas.ts`: canonical host prompt definitions.
+
+## Target
+- Retain host identifiers `laviche`, `ginger`, `ahnika`, exact verified ElevenLabs voice IDs, persona prompts and tenant-specific memory and rate limits.
+- LiveKit WebRTC carries full-duplex room audio between browser and a dedicated voice-agent worker.
+- Worker supports endpointing / turn detection, streaming STT, LLM response generation, streaming ElevenLabs TTS, and barge-in cancellation; audio echo handling and duplicate turn protections required.
+- Stage 1 remains a user-visible fallback whenever a room or worker cannot be provisioned.
+
+## Required server-side credentials (not checked in)
+- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in the **token service / worker server** as appropriate.
+- `ELEVENLABS_API_KEY` and named `ELEVENLABS_VOICE_LAVICHE`, `ELEVENLABS_VOICE_GINGER`, `ELEVENLABS_VOICE_AHNIKA` at the worker if TTS runs there (or a protected voice registry service). Preserve existing mapped IDs.
+- Authorized LLM and STT provider credentials, if running separately.
+- No private keys in `NEXT_PUBLIC_*`, access tokens only minted server side with short expiry and narrow room permissions.
+
+## Implementation plan
+1. Identify the **actual** LiveKit Cloud project / worker hosting and any deployed agent service; inspect account configuration read-only before changing variables.
+2. Add `/api/concierge/livekit-token` with server-side host validation; authenticate signed-in or anonymous session; enforce access entitlement and rate limits, strict allowed origin, per-session room naming and token expiry. Protect worker join identities. No untrusted room selection.
+3. Add isolated agent-worker project with LiveKit Agents runtime, turn detector/VAD, streaming STT, LLM adapter, canonical TTS voices, cancelable responses, and structured errors.
+4. Reuse existing authorization, identity, session and host conversation persistence contracts. Never bypass the current usage quota merely by choosing voice transport.
+5. Add browser `LiveKitRoom` / audio session connection behind `NEXT_PUBLIC_LIVEKIT_VOICE_ENABLED` (off by default). Display `connecting / listening / thinking / speaking / recovering` and `End call`; default text mode unaffected.
+6. Implement failover to the current stage-1 voice flow when room join, worker or audio pipeline fails; preserve the same conversation and selected host.
+7. Monitor join latency, time-to-first-audio, interrupted speech cancellations, reconnection success, wrong-voice incidents, token failures, usage and estimated TTS/STT costs — never log API keys or raw personal conversation audio.
+
+## Acceptance tests / release gate
+- **Voice canonicality:** each host uses the exact currently verified ElevenLabs voice; changing hosts cannot leak voice, session or conversation memory.
+- **Hands-free:** 3+ turns without a button; mic auto-sends only completed utterances; quick pause does not create empty or duplicate messages.
+- **Barge-in:** interrupt while host speaks; previous TTS is canceled promptly and the new question is answered, without doubled voices.
+- **Transport resilience:** network loss, agent crash, browser permission refusal, provider 429/503, and token expiry display recoverable status and fall back to Stage 1.
+- **Security:** no leaked credentials, anonymous tier and authenticated quotas enforced, no cross-user room access, short-lived room token.
+- **Browsers:** desktop Chrome and mobile Safari microphone / autoplay tested; text chat still works.
+- **Cost:** concurrency cap and a per-session budget, explicit idle timeout and disconnect cleanup.
+
+Do not enable Stage 2 in production until the LiveKit project, running worker, route, and all acceptance tests have been independently verified.
+
+## Infrastructure discovery — 2026-10-08
+
+Checked connected Railway workspace without changing runtime configuration:
+- Project `glyph-ecosystem`, production: `anya-worker` already has variable names `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `ELEVENLABS_API_KEY` (values not extracted).
+- The production `anya-worker` service is **offline**, with no active deployments. `glyph-ecosystem` and `anya-openclaw` are also offline. Do **not** claim live agent service availability.
+- Café Sativa Vercel project currently has `ELEVENLABS_API_KEY` but no project-specific LiveKit variable names in its listed environment. Existing synchronous ElevenLabs TTS works as a separate path.
+
+### Architectural decision pending
+First validate the intended LiveKit Cloud project and whether it permits per-brand isolation. Do not copy Anya's credentials into a new app blindly. Prefer distinct API credentials or distinct LiveKit projects, named rooms and identities, separately deployed workers, and independent quotas. Do not turn on the Stage 2 UI until a worker is deployed, connects to rooms, and passes audio/barging tests.
+
+## Authorization and memory bridge implementation (draft, 2026-10-08)
+Code in this PR now includes:
+- SQL migration for `cafe_voice_sessions` scoped room authorization ledger (not yet applied).
+- `lib/concierge/livekit-authorization.ts`: validates signed-in user or anonymous session, active membership tier, ownership of existing conversation ID, and fail-closed quota check. Anonymous session IDs remain client-controlled as in existing chat; production should bind them to signed server cookies to avoid impersonation.
+- `POST /api/concierge/livekit-token`: gated room creation and short-lived token minted by server with only microphone/subscribe permissions; requires installed `livekit-server-sdk` dependency and applied SQL migration.
+- Internal worker routes `/api/concierge/livekit-worker/context` and `/turn`: authenticated with dedicated secret, reject rooms absent or expired in ledger, deliver canonical persona and current/prior history, and record finished dialogue turns.
+- Worker route authentication uses a constant-time digest comparison and does not put any secrets in the browser.
+### Hard blockers before enabling
+1. Wire worker to fetch room-scoped context, use the canonical instructions and memory and send verified completed turns; its current `TEST_PERSONAS` are not acceptable for production.
+2. Replace non-atomic count/insert quota with transactional usage reservations and per-turn idempotency IDs, plus daily/overall session cost and duration ceilings.
+3. Enforce room participant identity and server-issued session binding in worker; enforce expiry and revocation throughout an active call, not just startup.
+4. Apply migration and install/update lockfile in CI; inspect environment-scoped secrets separately without exposing values; configure distinct worker credentials; test worker callbacks and frontend.
+5. CSRF/session protection: exact origin comparison is a supplemental check, not sole authorization. Harden anonymous session IDs using HttpOnly signed cookies.
+6. Explicit feature flag `CAFE_SATIVA_LIVEKIT_ENABLED` must remain unset/disabled. No deployment or runtime test was performed.
+
+## Worker event integration update — October 8, 2026
+- Worker now subscribes to LiveKit `conversation_item_added` events and pairs committed user / assistant items for server-side transcript persistence. LiveKit documents this event with message `role`, `text_content` and `interrupted` (see https://docs.livekit.io/reference/agents/events/).
+- Worker calls the authenticated `livekit-worker/turn` endpoint using unique turn IDs; a write failure initiates session shutdown rather than silently continuing.
+- Worker rechecks its room authorization every 15 seconds and closes on expiry, revocation or backend unavailability. This is a secondary control; revoking room participant tokens with LiveKit's server API is still needed for immediate removal.
+- Canonical host instructions and prior memory are loaded from the backend; placeholder persona strings have been removed.
+### Not yet validated
+These event handlers have **not** been runtime-tested against the deployed LiveKit Agents Python version. The source code has been committed but not installed, built, run, or exercised with live microphone and synthesized audio.
+### Release blockers remain
+- Atomic turn persistence is **post-response accounting**, not up-front usage reservation. Race protection exists only when the DB migration is applied. For cost protection, authorize/reserve per user turn **before** invoking STT/LLM/TTS; add minute and credit budgets per room.
+- Agent event-to-message pairing can be imperfect under interruptions, tool calls, or multiple queued user messages. Validate with live regression tests before enabling; prefer stable event item IDs and explicit turn lifecycle handling.
+- Database migration must be applied, SDK dependencies and lockfile refreshed, browser client implemented, agent deployed to an isolated service, per-host voice IDs verified, and integration/security tests executed.
+- Do not set either `CAFE_SATIVA_LIVEKIT_ENABLED` or `CAFE_SATIVA_VOICE_INTEGRATION_READY` to `1` yet.
+
+## Cost-gated production protocol — next implementation boundary
+**Do not activate rooms yet.** The current `conversation_item_added` listener persists output *after* LLM/TTS consumption. No endpoint can retroactively prevent charges. The next implementation must enforce the following protocol:
+1. On the final user transcription event and **before** requesting LLM/TTS, call a server-only `reserve_turn(room,turn_id)` transaction. Count both persisted and in-flight reservations against the same identity-wide allowance; record `reserved_at`, `expires_at`, `status`, and immutable `turn_id`.
+2. The worker must **block response generation** until a reservation is confirmed. Client-supplied `turn_id` values are untrusted; only the server's room-bound worker may request one.
+3. On successful finalized response, atomically settle the reservation and insert the user/assistant messages once. On interruption or upstream failure mark as canceled/failed, with a documented policy for which consumed credits count. Retry must reuse the same reservation ID.
+4. Add independent maximum call length, token/minute and concurrent-room caps: message quota alone is insufficient to cap costs before the first turn.
+5. The current generic LiveKit `AgentSession` pipeline auto-invokes LLM on final STT. Merely calling `reserve_turn` inside `conversation_item_added` is too late. A **tested** pre-LLM interception/hook or custom orchestration pipeline is required. Do not claim prepaid cost enforcement until test instrumentation proves reservation precedes every LLM/TTS request.
+6. Lock down anonymous identity (signed HttpOnly session binding) before guest rooms are allowed. Existing bridge currently requires authenticated users.
+7. Regression gate: parallel rooms for the same identity, duplicate event delivery, interrupted replies, expired reservations, database outage, quota exhaustion, and provider 429; all must fail closed.
+
+## Pre-LLM reservation hook — code progress
+- A pre-generation `Concierge.on_user_turn_completed(turn_ctx, new_message)` hook requests `reserve_cafe_voice_turn` and raises on denial. LiveKit documents this callback as firing before normal agent replies: https://docs.livekit.io/agents/logic/nodes/
+- The worker associates the returned reservation ID with its committed transcript, and the database settlement RPC now requires the same unexpired reservation to exist before inserting messages, then marks it settled.
+- Important: **this is not yet proven fail-closed in runtime**. The LiveKit default preemptive-generation behavior may send speculative LLM calls ahead of this hook; disable speculative generation in a version-verified way and instrument tests to show the provider received zero requests on denial.
+- Interrupted responses and canceled reservations still need an explicit lifecycle; the current FIFO recorder is not acceptable as proof of correct pairing under barge-in. The worker may hold reserved entries until their short expiry, which consumes quota temporarily.
+- The migration scripts assume `cafe_voice_reservations` exists before `persist_cafe_voice_turn` is created; migration ordering and RLS/service-role permissions need database QA.
+- No CI, interpreter, database, external provider, or live-browser test performed. Both feature flags stay disabled.

@@ -105,3 +105,8 @@ LiveKit duplex operation are separate verification items.
 Recurring processing enabled under the owner’s autonomous-continuation instruction.
 Deployment retains reference checks, QA holds and atomic $25 cap. Prior paused
 checkpoints above are historical. Current bar work should reuse approved media.
+
+The approved bar pilot and its exact approved caption are also reused as a Bar
+website feature. No new approval is attributed to the six program introductions.
+The feed checks active venue reference, current policy and clip QA at read time;
+the media route checks these again before releasing a signed preview.

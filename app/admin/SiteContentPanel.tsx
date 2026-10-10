@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import styles from './dashboard.module.css'
 
-type Item = {id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null}
+type Item = {id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null; media_url:string|null}
 export default function SiteContentPanel() {
   const [items,setItems]=useState<Item[]>([])
   const [selected,setSelected]=useState<Item|null>(null)
@@ -33,7 +33,7 @@ export default function SiteContentPanel() {
     }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
     finally{setBusy(false)}
   }
-  const locked=selected && ['published','archived','failed'].includes(selected.status)
+  const locked=selected && (Boolean(selected.media_url) || ['published','archived','failed'].includes(selected.status))
   return <section aria-label="Website programming">
     <h2>Website programming</h2>
     <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
@@ -50,7 +50,7 @@ export default function SiteContentPanel() {
       <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
       <label htmlFor="site-schedule">Publication time (ISO date with timezone, e.g. 2026-10-19T19:00:00-05:00)</label>
       <input id="site-schedule" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={schedule} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value);setConfirmed(false)}}/>
-      <p>{selected.approval_notes}</p>
+      <p>{selected.approval_notes}</p>{selected.media_url && <p>This item reuses an approved clip and its approved caption. Media changes require a separate review.</p>}
       {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
         <button className={styles.secondary} disabled={busy || !copy.trim()} onClick={()=>act('save')}>Save edits</button>

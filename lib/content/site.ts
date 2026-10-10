@@ -1,3 +1,4 @@
+import { approvedAsset, CONTENT_POLICY } from '@/lib/content/policy'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const SITE_CATEGORIES = ['stage','kitchen','cigar_lounge','bar','gallery','community'] as const
@@ -25,6 +26,21 @@ export async function planSiteContent(now = new Date()) {
   return planned
 }
 
+// Only the explicitly released bar pilot can be embedded publicly at this stage.
+export async function siteMediaApproved(item: {media_url?:string|null; source_job_id?:string|null}) {
+  if (!item.media_url) return true
+  if (!item.source_job_id || item.media_url !== '/api/content/media/approved-bar.mp4') return false
+  const db = createAdminClient()
+  const result = await db.from('cs_content_jobs').select('canonical_asset_id,output_url,qa_approved_by,qa_approved_at,policy_version,status')
+    .eq('id',item.source_job_id).eq('slot_key','2026-10-07:bar').in('status',['approved','scheduled','published']).maybeSingle()
+  if(result.error) throw result.error
+  const job=result.data
+  if(!job?.qa_approved_by || !job.qa_approved_at || job.policy_version !== CONTENT_POLICY.version || job.output_url !== 'ee51c8a4-cffa-4dc1-b34d-cc5b98dc43eb.mp4') return false
+  const canonical=await db.from('cs_canonical_assets').select('*').eq('id',job.canonical_asset_id).eq('kind','venue').eq('subject','bar').maybeSingle()
+  if(canonical.error) throw canonical.error
+  return approvedAsset(canonical.data)
+}
+
 export async function publishDueSiteContent(now = new Date()) {
   const db = createAdminClient()
   const due = await db.from('content_items').select('*').not('site_category','is',null).in('status',['approved','scheduled']).not('approved_at','is',null).not('approved_by','is',null).lte('scheduled_at',now.toISOString())
@@ -32,7 +48,7 @@ export async function publishDueSiteContent(now = new Date()) {
   let published = 0
   for (const item of due.data || []) {
     // Text-only editorial content is supported; linked media needs its own approved job.
-    if (item.media_url) continue
+    if (!await siteMediaApproved(item)) continue
     if (!item.copy_final?.trim()) continue
     const result = await db.from('content_items').update({status:'published',published_at:now.toISOString(),publish_error:null,updated_at:now.toISOString()}).eq('id',item.id).in('status',['approved','scheduled']).eq('updated_at',item.updated_at).select('id')
     if (result.error) throw result.error
@@ -43,9 +59,10 @@ export async function publishDueSiteContent(now = new Date()) {
 
 export async function getSiteContent(category?:string) {
   const db = createAdminClient()
-  let query = db.from('content_items').select('id,title,copy_final,site_category,published_at').eq('status','published').not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).lte('published_at',new Date().toISOString()).order('published_at',{ascending:false}).limit(30)
+  let query = db.from('content_items').select('id,title,copy_final,site_category,published_at,media_url,source_job_id').eq('status','published').not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).lte('published_at',new Date().toISOString()).order('published_at',{ascending:false}).limit(30)
   if (category) query=query.eq('site_category',category)
   const result=await query
   if (result.error) throw new Error('Website features are temporarily unavailable')
-  return result.data || []
+  const visible = await Promise.all((result.data || []).map(async item => await siteMediaApproved(item) ? item : null))
+  return visible.filter((item): item is NonNullable<typeof item> => item !== null)
 }

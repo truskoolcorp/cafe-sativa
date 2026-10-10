@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isContentAdmin } from '@/lib/content/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import { planSiteContent, publishDueSiteContent } from '@/lib/content/site'
+import { planSiteContent, publishDueSiteContent, siteMediaApproved } from '@/lib/content/site'
+import { planApprovedClipFeatures } from '@/lib/content/clip-features'
 export const dynamic='force-dynamic'
 export async function GET() {
   if (!await isContentAdmin()) return NextResponse.json({error:'Unauthorized'},{status:401})
@@ -15,6 +16,7 @@ export async function POST(req:NextRequest) {
   try {
     const body=await req.json()
     if(body.action==='plan') return NextResponse.json({planned:await planSiteContent()})
+    if(body.action==='prepare_clips') return NextResponse.json({planned:await planApprovedClipFeatures()})
     if(body.action==='publish_due') return NextResponse.json({published:await publishDueSiteContent()})
     if(!/^[0-9a-f-]{36}$/i.test(body.id || '') || !['save','approve','return'].includes(body.action) || typeof body.copy!=='string' || !body.copy.trim() || body.copy.length>15000) return NextResponse.json({error:'Invalid content update'},{status:400})
     if(body.action==='approve' && body.confirmAccuracy!==true) return NextResponse.json({error:'Confirm accuracy before approval'},{status:400})
@@ -22,7 +24,7 @@ export async function POST(req:NextRequest) {
     const found=await db.from('content_items').select('*').eq('id',body.id).not('site_category','is',null).single()
     if(found.error) throw found.error
     if(['published','archived','failed'].includes(found.data.status)) return NextResponse.json({error:'Already published; this draft cannot be edited here.'},{status:409})
-    if(found.data.media_url) return NextResponse.json({error:'This editor supports text-only features; media requires separate canonical approval.'},{status:409})
+    if(found.data.media_url && !await siteMediaApproved(found.data)) return NextResponse.json({error:'Clip QA or its canonical room approval is no longer valid. Review references before publication.'},{status:409})
     if(found.data.updated_at!==body.expectedUpdatedAt) return NextResponse.json({error:'Content changed; reopen it before saving.'},{status:409})
     const scheduled=body.scheduledAt ? new Date(body.scheduledAt) : new Date()
     if(!Number.isFinite(scheduled.getTime())) return NextResponse.json({error:'Invalid schedule'},{status:400})

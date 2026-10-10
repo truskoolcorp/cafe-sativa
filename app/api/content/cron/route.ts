@@ -4,6 +4,7 @@ import { cronAuthorized } from '@/lib/content/auth'
 import { approvedAsset, CONTENT_POLICY, dueSlots, localDate } from '@/lib/content/policy'
 
 import { planSiteContent, publishDueSiteContent } from '@/lib/content/site'
+import { planApprovedClipFeatures } from '@/lib/content/clip-features'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   try {
     const sitePlanned = await planSiteContent(now)
+    const clipFeaturesPlanned = await planApprovedClipFeatures(now)
     const sitePublished = await publishDueSiteContent(now)
     const db = createAdminClient()
     const references = await db.from('cs_canonical_assets').select('*').eq('kind','venue').eq('active',true)
@@ -31,7 +33,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await db.from('cs_content_jobs').select('id,title,room,status,blocker').in('status', ['planned', 'blocked']).limit(20)
     if (error) throw error
     // A schedule plans work; the separate worker handles approved media and metered generation.
-    return NextResponse.json({ sitePlanned, sitePublished, planned_slots: jobs.length, jobs: data, policy: CONTENT_POLICY.version })
+    return NextResponse.json({ sitePlanned, clipFeaturesPlanned, sitePublished, planned_slots: jobs.length, jobs: data, policy: CONTENT_POLICY.version })
   } catch {
     return NextResponse.json({ error: 'Content operation failed; inspect website and generation status before retrying' }, { status: 503 })
   }

@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { isContentAdmin } from '@/lib/content/auth'
 import { approvedAsset, CONTENT_POLICY, WEEKLY_SLOTS } from '@/lib/content/policy'
+import { planApprovedClipFeatures } from '@/lib/content/clip-features'
 
 export const dynamic = 'force-dynamic'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq('id', job.id).eq('status', 'pending_qa').select('id,status').maybeSingle()
     if (changed.error) throw changed.error
-    return changed.data ? response(changed.data) : response({ error: 'Another review changed this job. Refresh.' }, 409)
+    if(!changed.data)return response({ error: 'Another review changed this job. Refresh.' }, 409)
+    if(body.action==='approve') {
+      try { return response({...changed.data,websiteDraftsPrepared:await planApprovedClipFeatures()}) }
+      catch { return response({...changed.data,websiteDraftWarning:'Clip approval saved. Use Prepare approved clip drafts in Website programming to retry website-card preparation.'}) }
+    }
+    return response(changed.data)
   } catch { return response({ error: 'Review could not be saved.' }, 503) }
 }

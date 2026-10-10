@@ -57,23 +57,24 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       const fresh=await load()
       if(selected){const item=fresh.find(i=>i.id===selected.id);if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
       setConfirmed(false)
-      setMessage(action==='approve' ? (body.published ? 'Published to the website. Open the category page to view it.' : 'Approved. The daily publisher will release it when its schedule is due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
+      setMessage(action==='approve' ? (body.published ? 'Published to the website. Open the category page to view it.' : 'Approved. The daily publisher will release it when its schedule is due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='prepare_clips' ? `${body.planned} approved clip drafts prepared. Existing cards and schedules were preserved.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
     }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
     finally{setBusy(false)}
   }
-  const locked=selected && (Boolean(selected.media_url) || ['published','archived','failed'].includes(selected.status))
+  const locked=selected && ['published','archived','failed'].includes(selected.status)
   return <section aria-label="Website programming">
     <h2>Website programming</h2>
     <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
       <button className={styles.primary} disabled={busy} onClick={()=>act('plan')}>Prepare program drafts</button>
+      <button className={styles.primary} disabled={busy} onClick={()=>act('prepare_clips')}>Prepare approved clip drafts</button>
       <button className={styles.secondary} disabled={busy} onClick={()=>act('publish_due')}>Publish approved due items</button>
       <button className={styles.secondary} disabled={busy} onClick={()=>void load().catch(e=>setMessage(e.message))}>Refresh status</button>
     </div>
     <details className={styles.programDetails}><summary>How references and recurring programming work</summary>
       <p>Approve each master room and character reference once, with its source and version. Future briefs reuse those references; a changed layout, identity or voice requires a new version.</p>
       <p>The daily worker checks registered references, reuses approved media before spending and holds missing-reference jobs. New clips and captions still enter accuracy review.</p>
-      <p>Website publishing releases approved items when due. The current planner prepares initial program introductions; recurring episode creation and unattended social delivery are not yet connected.</p>
+      <p>Approved venue clips automatically receive website review cards after accuracy review. Review their captions and choose release times here. The daily planner also recovers missing cards without replacing your edits. Recurring character episode creation and unattended social delivery are not yet connected.</p>
     </details>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {selected ? <div className={styles.card} style={{padding:24}}>
@@ -87,7 +88,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
       <label htmlFor="site-schedule">Publication time (ISO date with timezone, e.g. 2026-10-19T19:00:00-05:00)</label>
       <input id="site-schedule" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={schedule} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value);setConfirmed(false)}}/>
-      <p>{selected.approval_notes}</p>{selected.media_url && <p>This item reuses an approved clip and its approved caption. Media changes require a separate review.</p>}
+      <p>{selected.approval_notes}</p>{selected.media_url && <p>This item uses a clip that passed accuracy review. You can review its website caption and release time here. Changing the clip requires a separate accuracy review.</p>}
       {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
         <button className={styles.secondary} disabled={busy || !copy.trim()} onClick={()=>act('save')}>Save edits</button>

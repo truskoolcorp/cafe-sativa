@@ -163,7 +163,7 @@ type SpeechRecognitionLike = {
   interimResults: boolean
   onresult: ((e: SpeechEventLike) => void) | null
   onend: (() => void) | null
-  onerror: (() => void) | null
+  onerror: ((event: { error?: string }) => void) | null
   start: () => void
   stop: () => void
 }
@@ -205,10 +205,18 @@ function AskInner() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const sendingRef = useRef(false)
+  const voiceTurnRef = useRef(0)
+  const mountedRef = useRef(true)
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const audioDoneRef = useRef<(() => void) | null>(null)
+  const sendRef = useRef<(text:string)=>Promise<void>>(async()=>{})
+  const listenRef = useRef<()=>void>(()=>{})
   const voiceModeRef = useRef(false) // mirror of voiceMode for async sendMessage
 
   // Initialize session id + auth state on mount
   useEffect(() => {
+    mountedRef.current = true
     sessionIdRef.current = ensureSessionId()
     conversationIdRef.current = getStoredConversationId(activeHost)
     setSttSupported(getSpeechRecognition() !== null)
@@ -224,8 +232,12 @@ function AskInner() {
   // Stop any audio / mic capture when the component unmounts
   useEffect(() => {
     return () => {
-      audioRef.current?.pause()
-      recognitionRef.current?.stop()
+      mountedRef.current = false
+      voiceModeRef.current = false
+      voiceTurnRef.current++
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+      stopListening()
+      stopAudio()
     }
   }, [])
 
@@ -235,11 +247,10 @@ function AskInner() {
     setError(null)
     setRateLimited(null)
     conversationIdRef.current = getStoredConversationId(activeHost)
-    // Stop any in-flight voice when switching hosts
-    audioRef.current?.pause()
-    audioRef.current = null
-    setSpeakingTs(null)
-    recognitionRef.current?.stop()
+    voiceTurnRef.current++
+    stopListening()
+    stopAudio()
+    resumeListening()
   }, [activeHost])
 
   // Pin to newest message
@@ -249,14 +260,14 @@ function AskInner() {
 
   async function sendMessage(text?: string) {
     const trimmed = (text ?? input).trim()
-    if (!trimmed || sending) return
+    if (!trimmed || sendingRef.current) return
+    sendingRef.current = true
+    const turn = voiceTurnRef.current
+    let succeeded = false
     setError(null)
     setRateLimited(null)
-    // Stop any reply currently playing / mic capturing before the new turn
-    audioRef.current?.pause()
-    audioRef.current = null
-    setSpeakingTs(null)
-    if (listening) recognitionRef.current?.stop()
+    stopListening()
+    stopAudio()
 
     const userMsg: Message = {
       role: 'user',
@@ -281,6 +292,7 @@ function AskInner() {
       })
 
       const data = await res.json().catch(() => ({}))
+      if (!mountedRef.current || turn !== voiceTurnRef.current) return
 
       if (res.status === 429 && data?.rate_limited) {
         setRateLimited(data.error || 'You have hit the message limit.')
@@ -321,13 +333,20 @@ function AskInner() {
         typeof data.message === 'string' &&
         data.message.trim()
       ) {
-        void speak(data.message, activeHost, replyMsg.timestamp)
+        await speak(data.message, activeHost, replyMsg.timestamp)
       }
+      succeeded = true
     } catch (err) {
       console.error('[ask] send failed', err)
       setError('Could not send your message. Check your connection.')
     } finally {
-      setSending(false)
+      sendingRef.current = false
+      if (mountedRef.current) setSending(false)
+      if ((turn === voiceTurnRef.current && succeeded) || (turn !== voiceTurnRef.current && voiceModeRef.current)) resumeListening()
+      else if (voiceModeRef.current && !succeeded && turn === voiceTurnRef.current) {
+        voiceModeRef.current = false
+        setVoiceMode(false)
+      }
     }
   }
 
@@ -338,105 +357,144 @@ function AskInner() {
     }
   }
 
-  // Speak a reply in the host's voice via the server TTS route. Keeps the
-  // ElevenLabs key server-side; we just play the returned audio/mpeg.
+  function stopListening() {
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = null
+    const rec = recognitionRef.current
+    recognitionRef.current = null
+    if (rec) { rec.onend = null; rec.onresult = null; rec.onerror = null; rec.stop() }
+    if (mountedRef.current) setListening(false)
+  }
+  function stopAudio() {
+    audioRef.current?.pause()
+    audioDoneRef.current?.()
+    audioDoneRef.current = null
+    audioRef.current = null
+    if (mountedRef.current) setSpeakingTs(null)
+  }
+  function resumeListening() {
+    if (!voiceModeRef.current || !mountedRef.current) return
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = setTimeout(() => {
+      resumeTimerRef.current = null
+      if (voiceModeRef.current && !sendingRef.current && !audioRef.current && mountedRef.current) listenRef.current()
+    }, 350)
+  }
+
+  // Resolve only when playback finishes, so the microphone never transcribes the host.
   async function speak(text: string, host: HostId, ts: number) {
     if (!voiceSupported || !text.trim()) return
-    // Stop anything currently playing first.
-    audioRef.current?.pause()
-    audioRef.current = null
-
+    const turn = voiceTurnRef.current
+    const conversational = voiceModeRef.current
+    stopListening()
+    stopAudio()
     try {
       const res = await fetch('/api/concierge/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ host, text }),
       })
-
-      if (res.status === 503) {
-        // Server has no ElevenLabs key — hide voice controls quietly.
-        setVoiceSupported(false)
-        setVoiceMode(false)
-        voiceModeRef.current = false
-        return
-      }
-      if (!res.ok) return
-
+      if (!mountedRef.current || turn !== voiceTurnRef.current || (conversational && !voiceModeRef.current)) return
+      if (!res.ok) throw new Error(res.status === 503 ? 'Voice is temporarily unavailable.' : 'Could not play the host voice. Try again.')
       const blob = await res.blob()
+      if (!mountedRef.current || turn !== voiceTurnRef.current || (conversational && !voiceModeRef.current)) return
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audioRef.current = audio
       setSpeakingTs(ts)
-
-      const cleanup = () => {
-        setSpeakingTs((cur) => (cur === ts ? null : cur))
-        URL.revokeObjectURL(url)
-        if (audioRef.current === audio) audioRef.current = null
-      }
-      audio.onended = cleanup
-      audio.onerror = cleanup
-
-      await audio.play().catch(() => {
-        // Autoplay blocked or playback failed — clear the indicator but
-        // leave controls in place (manual play still works on tap).
-        setSpeakingTs((cur) => (cur === ts ? null : cur))
+      await new Promise<void>((resolve, reject) => {
+        let ended = false
+        const cleanup = () => {
+          if (ended) return
+          ended = true
+          URL.revokeObjectURL(url)
+          if (audioRef.current === audio) audioRef.current = null
+          audioDoneRef.current = null
+          if (mountedRef.current) setSpeakingTs(cur => cur === ts ? null : cur)
+        }
+        audioDoneRef.current = () => { cleanup(); resolve() }
+        audio.onended = () => { cleanup(); resolve() }
+        audio.onerror = () => { cleanup(); reject(new Error('Audio playback failed.')) }
+        audio.play().catch(() => { cleanup(); reject(new Error('Your browser blocked audio. Click the speaker button to play the reply, then enable voice mode again.')) })
       })
-    } catch {
-      // Network error — the text reply is already shown, so just ignore.
-      setSpeakingTs((cur) => (cur === ts ? null : cur))
+      if (!sendingRef.current) resumeListening()
+    } catch (e) {
+      if (mountedRef.current && turn === voiceTurnRef.current) {
+        setError(e instanceof Error ? e.message : 'Voice playback failed.')
+        voiceModeRef.current = false
+        setVoiceMode(false)
+      }
     }
   }
 
-  // Browser speech-to-text into the composer. Client-side only, no key.
-  function toggleMic() {
+  function startListening() {
     const Ctor = getSpeechRecognition()
-    if (!Ctor) return
-
-    if (listening) {
-      recognitionRef.current?.stop()
-      return
-    }
-
+    if (!Ctor || recognitionRef.current || sendingRef.current || audioRef.current) return
     const rec = new Ctor()
     rec.lang = 'en-US'
     rec.continuous = false
     rec.interimResults = true
-
     let finalText = ''
-    rec.onresult = (e) => {
+    let failed = false
+    rec.onresult = e => {
       let interim = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i]
-        if (r.isFinal) finalText += r[0].transcript
-        else interim += r[0].transcript
+      finalText = ''
+      for (let i = 0; i < e.results.length; i++) {
+        const result = e.results[i]
+        if (result.isFinal) finalText += result[0].transcript + ' '
+        else interim += result[0].transcript + ' '
       }
       setInput((finalText + interim).trim())
     }
     rec.onend = () => {
-      setListening(false)
+      if (recognitionRef.current !== rec) return
       recognitionRef.current = null
-    }
-    rec.onerror = () => {
       setListening(false)
-      recognitionRef.current = null
+      if (voiceModeRef.current && !failed) {
+        if (finalText.trim()) void sendRef.current(finalText.trim())
+        else resumeListening()
+      }
     }
-
+    rec.onerror = event => {
+      if (event.error === 'no-speech') return
+      failed = true
+      recognitionRef.current = null
+      setListening(false)
+      voiceModeRef.current = false
+      setVoiceMode(false)
+      setError(event.error === 'not-allowed' ? 'Allow microphone access, then enable voice mode again.' : 'Microphone stopped. Enable voice mode to try again.')
+    }
     recognitionRef.current = rec
     setListening(true)
-    rec.start()
+    try { rec.start() } catch {
+      recognitionRef.current = null
+      setListening(false)
+      voiceModeRef.current = false
+      setVoiceMode(false)
+      setError('Could not start the microphone. Try enabling voice mode again.')
+    }
   }
+  listenRef.current = startListening
+  sendRef.current = sendMessage
 
+  function toggleMic() {
+    if (recognitionRef.current) {
+      // In voice mode, stopping the microphone explicitly pauses the conversation.
+      if (voiceModeRef.current) { voiceModeRef.current = false; setVoiceMode(false); stopListening() }
+      else recognitionRef.current.stop()
+    } else startListening()
+  }
   function toggleVoiceMode() {
-    setVoiceMode((v) => {
-      const next = !v
-      voiceModeRef.current = next
-      if (!next) {
-        audioRef.current?.pause()
-        audioRef.current = null
-        setSpeakingTs(null)
-      }
-      return next
-    })
+    const next = !voiceModeRef.current
+    voiceModeRef.current = next
+    setVoiceMode(next)
+    setError(null)
+    if (!next) {
+      stopListening()
+      stopAudio()
+    } else {
+      if (getSpeechRecognition()) startListening()
+      else setError('This browser supports spoken replies, but hands-free microphone input is unavailable. Try Chrome.')
+    }
   }
 
   const activeHostMeta = HOSTS.find((h) => h.id === activeHost)!
@@ -775,7 +833,7 @@ function AskInner() {
                   ) : (
                     <VolumeX className="w-3.5 h-3.5" />
                   )}
-                  {voiceMode ? 'Voice on' : 'Voice off'}
+                  {voiceMode ? listening ? 'Listening…' : sending ? 'Host replying…' : speakingTs ? 'Speaking…' : 'Voice on' : 'Start voice conversation'}
                 </button>
               )}
             </div>

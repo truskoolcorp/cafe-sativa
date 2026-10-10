@@ -1,3 +1,4 @@
+import { SiteFeatures } from '@/components/events/SiteFeatures'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Calendar } from 'lucide-react'
@@ -21,6 +22,7 @@ import type { EventRow } from '@/lib/events'
 
 type CategoryPageProps = {
   /** Eyebrow label — "The Stage", "The Kitchen", etc. */
+  category: string
   title: string
   /** Bold tagline — one short sentence. */
   tagline: string
@@ -43,6 +45,7 @@ type CategoryPageProps = {
 }
 
 export function CategoryPage({
+  category,
   title,
   tagline,
   description,
@@ -94,6 +97,8 @@ export function CategoryPage({
       {/* Event grid */}
       <section className="py-16 md:py-24 bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <SiteFeatures category={category} />
+          <div className="mt-12"/>
           {events.length === 0 ? (
             <div className="border border-border rounded-xl p-12 text-center max-w-2xl mx-auto">
               <Calendar className="w-8 h-8 text-primary mx-auto mb-4" />
@@ -101,8 +106,8 @@ export function CategoryPage({
                 New programming coming soon
               </p>
               <p className="text-sm text-muted-foreground font-body max-w-md mx-auto">
-                We&rsquo;re between runs. Join the mailing list on the home page
-                and we&rsquo;ll tell you the moment the next show goes up.
+                Confirmed virtual sessions will appear here when ready. The physical
+                venue is planned for 2027; the opening date is still to be confirmed.
               </p>
               <div className="mt-6">
                 <Button variant="outline" asChild>

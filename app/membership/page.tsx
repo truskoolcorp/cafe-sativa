@@ -167,6 +167,7 @@ function MembershipInner() {
   const [isSignedIn, setIsSignedIn] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
   const [membership, setMembership] = useState<MembershipState | null>(null)
+  const [isContentAdmin, setIsContentAdmin] = useState(false)
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -185,6 +186,7 @@ function MembershipInner() {
         const user = data.user
         setIsSignedIn(Boolean(user))
         setEmail(user?.email ?? null)
+        setIsContentAdmin(user?.app_metadata?.cafe_sativa_admin === true)
 
         if (user) {
           const { data: memberRow } = await supabase
@@ -208,6 +210,7 @@ function MembershipInner() {
           if (!mounted) return
           setIsSignedIn(Boolean(session?.user))
           setEmail(session?.user?.email ?? null)
+          setIsContentAdmin(session?.user?.app_metadata?.cafe_sativa_admin === true)
         })
 
         unsub = () => subscription.unsubscribe()
@@ -235,6 +238,7 @@ function MembershipInner() {
   }, [successTier])
 
   async function startCheckout(tier: Tier) {
+    if (isContentAdmin) { router.push('/admin/content'); return }
     setError(null)
 
     // Not signed in: bounce through signin and come back here.
@@ -288,13 +292,13 @@ function MembershipInner() {
   // param persists through Supabase's auth flow via the redirect URL.
   useEffect(() => {
     const intent = searchParams.get('intent') as Tier | null
-    if (authLoaded && isSignedIn && (intent === 'regular' || intent === 'vip')) {
+    if (authLoaded && isSignedIn && !isContentAdmin && (intent === 'regular' || intent === 'vip')) {
       // Drop the intent param so refresh doesn't re-trigger
       router.replace('/membership')
       startCheckout(intent)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoaded, isSignedIn])
+  }, [authLoaded, isSignedIn, isContentAdmin])
 
   const currentTierLabel =
     membership?.tier === 'vip'
@@ -338,6 +342,7 @@ function MembershipInner() {
   // the conditional logic is getting knotty (current tier vs
   // downgrade vs upgrade vs first purchase).
   function tierCTA(tier: TierCard) {
+    if (isContentAdmin) return <Button variant="outline" asChild><Link href="/admin/content">Open content review</Link></Button>
     if (tier.id === 'explorer') {
       if (isSignedIn) {
         return (
@@ -451,9 +456,9 @@ function MembershipInner() {
                 {email || 'Authenticated user'}
               </p>
               <p className="text-sm text-muted-foreground font-body mt-2">
-                Current tier:{' '}
+                {isContentAdmin ? 'Access: ' : 'Current tier: '}
                 <span className="font-semibold text-primary">
-                  {currentTierLabel}
+                  {isContentAdmin ? 'Administrator — no membership purchase required' : currentTierLabel}
                 </span>
                 {membership?.status === 'past_due' && (
                   <span className="ml-2 text-destructive">

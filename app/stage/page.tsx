@@ -15,9 +15,10 @@ export default async function StagePage() {
 
   return (
     <CategoryPage
+      category="stage"
       title="The Stage"
       tagline="Where the house lights dim."
-      description="Interviews, acoustic sets, comedy, and spoken word — performed live with a real audience room. Most shows are free with membership."
+      description="Explore the virtual Stage: interviews, music, comedy and spoken word. Confirmed sessions and their access details appear in the schedule."
       heroImage="/rooms/stage.webp"
       events={events}
     />

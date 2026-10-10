@@ -19,7 +19,7 @@ const TOPICS = [
   { value: 'performer', label: 'Musician / performer inquiry' },
   { value: 'press', label: 'Press & media' },
   { value: 'partnership', label: 'Partnership / sponsorship' },
-  { value: 'venue-tenerife', label: 'Tenerife venue (2026)' },
+  { value: 'venue-tenerife', label: 'Tenerife venue (planned 2027)' },
   { value: 'technical', label: 'Technical issue with the site' },
 ]
 

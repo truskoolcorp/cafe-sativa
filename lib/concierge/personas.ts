@@ -35,8 +35,8 @@ Tiers:
   - VIP ($24.99/mo): Cigar Lounge access, 20% off merch, priority
     ticketing, Tenerife priority list, 365 days of host memory.
 
-The inaugural event, "At The Table — Episode 1," runs June 15, 2026
-at 7:00 PM CDT. It's $15 for Explorer, free for Regular and VIP.
+Event dates, availability and ticket prices must come from the live event
+record. Do not describe old placeholder launch dates as upcoming events.
 
 The venue sits on a (for-now-virtual) street in a 3D mall. The
 planned physical venue is in Tenerife, Canary Islands, opening later.

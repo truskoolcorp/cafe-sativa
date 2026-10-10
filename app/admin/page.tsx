@@ -1,17 +1,13 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import ContentReview from './content/ContentReview';
+import SiteContentPanel from './SiteContentPanel';
+import ReferencePanel from './ReferencePanel';
+import styles from './dashboard.module.css';
 
 // All Airtable calls go through /api/admin/airtable — PAT never exposed client-side
 async function atGet(table: string, params = '') {
   const r = await fetch(`/api/admin/airtable?table=${table}&params=${encodeURIComponent(params)}`);
-  return r.json();
-}
-async function atPatch(table: string, recordId: string, fields: Record<string, unknown>) {
-  const r = await fetch(`/api/admin/airtable?table=${table}&recordId=${recordId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields }),
-  });
   return r.json();
 }
 
@@ -52,6 +48,13 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
 
 export default function AdminPage() {
   const [tab, setTab]         = useState('calendar');
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [draftCopy, setDraftCopy] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [detailMessage, setDetailMessage] = useState('');
+  const [current, setCurrent] = useState<any>(null);
+  const [loadError, setLoadError] = useState('');
   const [records, setRecords] = useState<any[]>([]);
   const [genLog, setGenLog]   = useState<any[]>([]);
   const [pubLog, setPubLog]   = useState<any[]>([]);
@@ -65,48 +68,85 @@ export default function AdminPage() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const [cal, gen, pub, br] = await Promise.all([
+    setLoadError('');
+    try {
+    const [cal, gen, pub, br, live] = await Promise.all([
       atGet('calendar',   '?maxRecords=50&sort[0][field]=Title&sort[0][direction]=asc'),
       atGet('genLog',     '?maxRecords=20&sort[0][field]=Run+Date&sort[0][direction]=desc'),
       atGet('publishLog', '?maxRecords=20&sort[0][field]=Published+At&sort[0][direction]=desc'),
       atGet('brief',      '?maxRecords=10&sort[0][field]=Week+Of&sort[0][direction]=desc'),
+      fetch('/api/content/review', { cache: 'no-store' }).then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b.error || 'Unable to load current content'); return b; }),
     ]);
+    if ([cal, gen, pub, br].some(r => r.error)) throw new Error('Some historical records could not be loaded. Refresh or sign in again.');
+    setCurrent(live);
     setRecords(cal.records || []);
     setGenLog(gen.records  || []);
     setPubLog(pub.records  || []);
     setBrief(br.records    || []);
-    setLoading(false);
+    } catch (e) { setLoadError(e instanceof Error ? e.message : 'Unable to load dashboard'); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const approve = async (rec: any) => {
-    setActing(rec.id);
-    const res = await atPatch('calendar', rec.id, { Status: 'approved' });
-    if (res.id) { setRecords(p => p.map(r => r.id === rec.id ? { ...r, fields: { ...r.fields, Status: 'approved' } } : r)); showToast(`✓ Approved`); }
-    else showToast('Failed', false);
-    setActing(null);
-  };
-  const reject = async (rec: any) => {
-    setActing(rec.id);
-    const res = await atPatch('calendar', rec.id, { Status: 'pending_approval' });
-    if (res.id) { setRecords(p => p.map(r => r.id === rec.id ? { ...r, fields: { ...r.fields, Status: 'pending_approval' } } : r)); showToast('Returned to pending'); }
-    else showToast('Failed', false);
-    setActing(null);
-  };
-
+  useEffect(() => {
+    if (detail) dialogRef.current?.showModal();
+    else dialogRef.current?.close();
+  }, [detail]);
+  useEffect(() => {
+    const timer = setInterval(() => { if (!document.hidden && !detail && !acting) void loadAll(); }, 60000);
+    return () => clearInterval(timer);
+  }, [detail, acting, loadAll]);
+  function openDraft(rec:any) { setDetail({ kind:'draft', record:rec }); setDraftCopy(rec.fields['Copy Draft'] || ''); setConfirmed(false); setDetailMessage(''); }
+  async function saveDraft(action:string) {
+    setActing(detail.record.id); setDetailMessage('Saving…');
+    try {
+      const response = await fetch(`/api/admin/airtable?table=calendar&recordId=${detail.record.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ action, copy:draftCopy, expectedCopy:detail.record.fields['Copy Draft'] || '', confirmAccuracy:confirmed }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to save');
+      setDetail({ kind:'draft', record:body }); setDraftCopy(body.fields['Copy Draft']); setConfirmed(false);
+      setDetailMessage(action==='approve' ? 'Copy approved. Scheduling is still pending; no post was sent by this action.' : action==='return' ? 'Returned for revision.' : 'Draft saved. Review it before approval.');
+      await loadAll();
+    } catch(e) { setDetailMessage(e instanceof Error ? e.message : 'Unable to save'); }
+    finally { setActing(null); }
+  }
+  const liveJobs = current?.jobs || [];
+  const totalPending = records.filter(r=>r.fields.Status==='pending_approval').length + liveJobs.filter((j:any)=>j.status==='pending_qa').length;
   const counts = records.reduce((a: Record<string,number>, r) => { const s = r.fields?.Status || 'unknown'; a[s] = (a[s]||0)+1; return a; }, {});
   const pending  = records.filter(r => r.fields?.Status === 'pending_approval');
-  const filtered = filter === 'all' ? records : records.filter(r => r.fields?.Status === filter);
+  const filtered = tab==='approvals' ? pending : filter === 'all' ? records : records.filter(r => r.fields?.Status === filter);
+  const shownJobs = liveJobs.filter((j:any)=>tab==='approvals' ? j.status==='pending_qa' : filter==='all' || (filter==='pending_approval' ? j.status==='pending_qa' : j.status===filter));
 
   const btn = (label: string, key: string) => (
     <button key={key} onClick={() => setTab(key)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '12px 16px', fontSize: 12, fontWeight: tab===key ? 700 : 400, color: tab===key ? C.accent : C.textDim, borderBottom: tab===key ? `2px solid ${C.accent}` : '2px solid transparent', letterSpacing: '0.03em' }}>{label}</button>
   );
 
   return (
-    <div style={{ background: C.bg, color: C.text, minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif", fontSize: 13 }}>
+    <div className={styles.dashboard} style={{ background: C.bg, color: C.text, minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif", fontSize: 13 }}>
       {toast && <div style={{ position:'fixed', top:16, right:16, zIndex:9999, background: toast.ok?'#0a2010':'#2a0a08', border:`1px solid ${toast.ok?C.green:C.red}`, color:toast.ok?C.green:C.red, padding:'10px 16px', borderRadius:6, fontSize:12, fontWeight:600 }}>{toast.msg}</div>}
 
+      <dialog ref={dialogRef} className={styles.dialog} onCancel={e=>{if(acting){e.preventDefault();return;}setDetail(null);}} onClose={()=>{if(!acting)setDetail(null);}}>
+        <button className={styles.secondary} disabled={!!acting} onClick={()=>setDetail(null)}>← Back to overview</button>
+        {detail?.kind==='video' && <ContentReview jobId={detail.id} embedded onChanged={()=>void loadAll()}/>}
+        {detail?.kind==='draft' && <div style={{padding:20}}>
+          <h2>{detail.record.fields.Title}</h2><Badge status={detail.record.fields.Status}/>
+          <p>{detail.record.fields.Agent} · {detail.record.fields.Channel}</p>
+          <label htmlFor="draft-copy"><strong>Full draft copy</strong></label>
+          <textarea id="draft-copy" className={styles.copyEditor} value={draftCopy} maxLength={15000} disabled={!!acting || ['scheduled','published'].includes(detail.record.fields.Status)} onChange={e=>{setDraftCopy(e.target.value);setConfirmed(false);}}/>
+          {detail.record.fields['Media URL'] && (/\.(mp4|webm|mov)/i.test(detail.record.fields['Media URL']) ? <video src={detail.record.fields['Media URL']} controls style={{maxWidth:'100%',maxHeight:350}}/> : <img src={detail.record.fields['Media URL']} alt="Draft attachment" style={{maxWidth:'100%',maxHeight:350}}/>)}
+          <p><strong>Delivery:</strong> {detail.record.fields['Media URL']?'Media attached; final media approval and channel scheduling still need verification.':'No media attached. Copy approval does not create an image or video.'} No verified scheduler receipt is linked to this draft.</p>
+          {!['scheduled','published'].includes(detail.record.fields.Status) && <>
+            <label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed this copy for current use, including future-venue wording and dates.</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:10}}>
+              <button className={styles.secondary} disabled={!!acting || !draftCopy.trim()} onClick={()=>saveDraft('save')}>Save edits</button>
+              <button className={styles.approve} disabled={!!acting || !confirmed || !draftCopy.trim()} onClick={()=>saveDraft('approve')}>✓ Approve copy</button>
+              <button className={styles.reject} disabled={!!acting || !draftCopy.trim()} onClick={()=>saveDraft('return')}>Return for revision</button>
+            </div>
+          </>}
+          {detailMessage && <p role="status" className={styles.feedback}>{detailMessage}</p>}
+          <details style={{marginTop:20}}><summary>Extended details &amp; activity</summary><dl>{Object.entries(detail.record.fields).filter(([key])=>key!=='Copy Draft').map(([key,value])=><div key={key} style={{marginTop:12}}><dt><strong>{key==='Scheduled At'?'Proposed schedule (unverified)':key}</strong></dt><dd style={{whiteSpace:'pre-wrap',margin:'4px 0',overflowWrap:'anywhere'}}>{typeof value==='string'?value:JSON.stringify(value)}</dd></div>)}</dl></details>
+        </div>}
+      </dialog>
       {/* Header */}
       <div style={{ borderBottom:`1px solid ${C.border}`, padding:'0 24px', display:'flex', alignItems:'center', justifyContent:'space-between', height:52, background:C.surface }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -115,110 +155,90 @@ export default function AdminPage() {
           <span style={{ color:C.muted, fontSize:12 }}>/ Content Engine</span>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          {pending.length > 0 && <span style={{ background:C.amber, color:'#0d0a07', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:10 }}>{pending.length} pending</span>}
+          {pending.length > 0 && <span style={{ background:C.amber, color:'#0d0a07', fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:10 }}>{totalPending} to review</span>}
           <button onClick={loadAll} style={{ background:'none', border:`1px solid ${C.border}`, color:C.textDim, padding:'5px 12px', borderRadius:5, cursor:'pointer', fontSize:11 }}>↻ Refresh</button>
         </div>
       </div>
 
+      <div style={{ padding:'20px 24px', display:'flex', flexWrap:'wrap', alignItems:'center', gap:12 }}>
+        <button className={styles.primary} onClick={()=>{setTab('approvals');setFilter('all');}}>Review &amp; approve ({totalPending})</button>
+        <a className={styles.secondary} href="https://app.metricool.com/planner/calendar?blogId=5373515" target="_blank" rel="noreferrer">Open social planner ↗</a>
+        <span style={{ color:C.textDim }}>Generation {current?.generationEnabled ? 'enabled' : 'paused'} · $25 monthly limit</span>
+      </div>
+      {loadError && <p role="alert" style={{ padding:20, color:'#ffb8b0' }}>{loadError}</p>}
       {/* Stats */}
       <div style={{ padding:'16px 24px', display:'flex', gap:10, flexWrap:'wrap', borderBottom:`1px solid ${C.border}` }}>
-        <Stat label="Total"     value={records.length}              />
-        <Stat label="Pending"   value={counts.pending_approval||0}  color={C.amber} />
-        <Stat label="Scheduled" value={counts.scheduled||0}         color="#5aa0d0" />
-        <Stat label="Published" value={counts.published||0}         color={C.green} />
-        <Stat label="Failed"    value={counts.failed||0}            color={C.red}   />
+        <Stat label="Total" value={records.length + liveJobs.length} />
+        <Stat label="Pending" value={totalPending} color={C.amber} />
+        <Stat label="Clips scheduled" value={current?.jobs.filter((j:any)=>j.status==='scheduled').length || 0} color="#5aa0d0" />
+        <Stat label="Clips published" value={current?.jobs.filter((j:any)=>j.status==='published').length || 0} color={C.green} />
+        <Stat label="Copy drafts" value={records.length} color={C.textDim} />
       </div>
 
       {/* Tabs */}
       <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, padding:'0 24px', background:C.surface }}>
         {btn('Content Calendar', 'calendar')}
-        {btn(`Approvals${pending.length ? ` (${pending.length})` : ''}`, 'approvals')}
+        {btn(`Approvals (${totalPending})`, 'approvals')}
         {btn('Generation Log', 'genlog')}
         {btn('Publish Log', 'publog')}
         {btn('Weekly Brief', 'brief')}
+        {btn('Website Programming', 'website')}
+        {btn('Master References', 'references')}
       </div>
 
+      <p style={{ padding:'8px 24px', color:C.textDim }}>Open a card to inspect, edit and approve. Dates in titles are original planning dates. Approval and scheduling are separate steps. Status refreshes every minute while this dashboard is open.</p>
+      {current?.operational && <section style={{margin:'12px 24px',padding:20,border:'1px solid #b8813a',borderRadius:8}} aria-label="Automation readiness">
+        <h2>Automation readiness</h2>
+        <p>Recurring media processing: <strong>{current.generationEnabled ? 'enabled' : 'paused'}</strong> · Monthly generation cap: <strong>${(current.monthlyLimitCents/100).toFixed(2)}</strong></p>
+        <p>{current.operational.voiceVerification}</p>
+        {!!current.operational.missingRooms.length && <p>Room references awaiting approval: <strong>{current.operational.missingRooms.join(', ')}</strong>.</p>}
+        {!current.operational.characterMediaReady && <p>Character media: approved image references have not been registered. Character generation remains held.</p>}
+        <p>Unattended social delivery: <strong>{current.operational.socialDispatchConfigured ? 'credential present; delivery verification required' : 'website connector not configured'}</strong>. Existing Metricool posts remain independently scheduled.</p>
+        <button className={styles.primary} onClick={()=>setTab('website')}>Review website program drafts →</button>
+      </section>}
       {/* Body */}
       <div style={{ padding:'20px 24px' }}>
         {loading ? <div style={{ textAlign:'center', padding:60, color:C.muted }}>Loading…</div> : (
           <>
-            {/* CALENDAR */}
-            {tab==='calendar' && (
-              <div>
-                <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
-                  {['all','pending_approval','approved','scheduled','published','failed'].map(s => (
-                    <button key={s} onClick={() => setFilter(s)} style={{ background:filter===s?C.accent:C.card, border:`1px solid ${filter===s?C.accent:C.border}`, color:filter===s?'#0d0a07':C.textDim, padding:'4px 12px', borderRadius:4, cursor:'pointer', fontSize:11, fontWeight:filter===s?700:400, textTransform:'capitalize' }}>
-                      {s==='all'?'All':(STATUS[s]?.label||s)}{s!=='all'&&counts[s]?` · ${counts[s]}`:''}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:12 }}>
-                  {filtered.map(rec => {
-                    const f = rec.fields||{}; const ag = f.Agent||'?'; const ia = acting===rec.id;
-                    return (
-                      <div key={rec.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:16, borderLeft:`3px solid ${AGENT_COLOR[ag]||C.muted}` }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <span style={{ background:C.surface, color:C.textDim, fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:3 }}>{CH_ICON[f.Channel]||'?'}</span>
-                            <Dot agent={ag}/><span style={{ fontSize:11, color:AGENT_COLOR[ag]||C.textDim, fontWeight:600 }}>{ag}</span>
-                          </div>
-                          <Badge status={f.Status}/>
-                        </div>
-                        <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:6, lineHeight:1.4 }}>{f.Title||'Untitled'}</div>
-                        {f['Copy Draft'] && <div style={{ fontSize:11, color:C.textDim, lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{f['Copy Draft']}</div>}
-                        {f['Media URL'] && (
-                          f['Media URL'].match(/\.(mp4|webm|mov)/i)
-                            ? <video src={f['Media URL']} controls muted style={{ width:'100%', borderRadius:4, maxHeight:160, background:'#000', marginBottom:8 }}/>
-                            : <img src={f['Media URL']} alt="" style={{ width:'100%', borderRadius:4, maxHeight:160, objectFit:'cover', marginBottom:8 }} onError={e=>(e.currentTarget.style.display='none')}/>
-                        )}
-                        {f.Status==='pending_approval' && (
-                          <div style={{ display:'flex', gap:6, marginTop:8 }}>
-                            <button onClick={()=>approve(rec)} disabled={ia} style={{ flex:1, background:'#0a2010', border:`1px solid ${C.green}`, color:C.green, padding:'6px 0', borderRadius:4, cursor:ia?'not-allowed':'pointer', fontSize:11, fontWeight:700, opacity:ia?0.5:1 }}>{ia?'…':'✓ Approve'}</button>
-                            <button onClick={()=>reject(rec)}  disabled={ia} style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, color:C.textDim, padding:'6px 0', borderRadius:4, cursor:ia?'not-allowed':'pointer', fontSize:11, opacity:ia?0.5:1 }}>Reject</button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {filtered.length===0 && <div style={{ gridColumn:'1/-1', textAlign:'center', color:C.muted, padding:40 }}>No posts in this status.</div>}
-                </div>
+            {tab==='website' && <SiteContentPanel onReviewReferences={()=>setTab('references')}/>}
+            {tab==='references' && <ReferencePanel onChanged={()=>void loadAll()}/>}
+            {['calendar','approvals'].includes(tab) && <>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+                {['all','pending_approval','approved','scheduled','published','failed'].map(status=><button key={status} onClick={()=>{setTab('calendar');setFilter(status);}} style={{background:filter===status?C.accent:C.card,color:filter===status?'#160d05':C.text}}>{status==='all'?'All':STATUS[status]?.label || status}</button>)}
               </div>
-            )}
-
-            {/* APPROVALS */}
-            {tab==='approvals' && (
-              <div>
-                {pending.length===0
-                  ? <div style={{ textAlign:'center', color:C.muted, padding:60 }}>All clear — nothing pending.</div>
-                  : pending.map(rec => {
-                    const f=rec.fields||{}; const ag=f.Agent||'?'; const ia=acting===rec.id;
-                    return (
-                      <div key={rec.id} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:8, padding:16, display:'flex', gap:16, marginBottom:10, borderLeft:`3px solid ${AGENT_COLOR[ag]||C.muted}` }}>
-                        {f['Media URL'] && <div style={{ width:100, flexShrink:0 }}>
-                          {f['Media URL'].match(/\.(mp4|webm|mov)/i)
-                            ? <video src={f['Media URL']} muted style={{ width:'100%', borderRadius:4, height:100, objectFit:'cover' }}/>
-                            : <img src={f['Media URL']} alt="" style={{ width:'100%', borderRadius:4, height:100, objectFit:'cover' }} onError={e=>(e.currentTarget.style.display='none')}/>}
-                        </div>}
-                        <div style={{ flex:1 }}>
-                          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:6 }}>
-                            <span style={{ background:C.surface, color:C.textDim, fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:3 }}>{CH_ICON[f.Channel]||'?'}</span>
-                            <Dot agent={ag}/><span style={{ fontSize:12, fontWeight:600, color:AGENT_COLOR[ag] }}>{ag}</span>
-                            <span style={{ fontSize:11, color:C.textDim }}>{f.Title}</span>
-                          </div>
-                          {f['Copy Draft'] && <div style={{ fontSize:12, color:C.text, lineHeight:1.5, marginBottom:6 }}>{f['Copy Draft']}</div>}
-                          {f.Hashtags && <div style={{ fontSize:11, color:C.accent, marginBottom:8 }}>{f.Hashtags}</div>}
-                          <div style={{ display:'flex', gap:6 }}>
-                            <button onClick={()=>approve(rec)} disabled={ia} style={{ background:'#0a2010', border:`1px solid ${C.green}`, color:C.green, padding:'6px 20px', borderRadius:4, cursor:ia?'not-allowed':'pointer', fontSize:12, fontWeight:700, opacity:ia?0.5:1 }}>{ia?'…':'✓ Approve'}</button>
-                            <button onClick={()=>reject(rec)}  disabled={ia} style={{ background:C.surface, border:`1px solid ${C.border}`, color:C.textDim, padding:'6px 20px', borderRadius:4, cursor:ia?'not-allowed':'pointer', fontSize:12, opacity:ia?0.5:1 }}>Return</button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                }
+              <div className={styles.cards}>
+                {shownJobs.map((job:any)=> {
+                  const asset=current.assets.find((a:any)=>a.id===job.canonical_asset_id);
+                  return <article className={styles.card} key={job.id}>
+                    {job.previewUrl && <video src={job.previewUrl} poster={asset?.url} controls preload="metadata"/>}
+                    <div className={styles.cardBody}>
+                      <Badge status={job.status}/><span style={{color:C.textDim}}> · Video</span>
+                      <button className={styles.cardTitle} onClick={()=>setDetail({kind:'video',id:job.id})}>{job.title}</button>
+                      <p>{job.caption}</p>
+                      <button className={job.status==='pending_qa'?styles.approve:styles.secondary} onClick={()=>setDetail({kind:'video',id:job.id})}>{job.status==='pending_qa'?'✓ Review & approve':'Open draft & details'}</button>
+                      {job.blocker && <p style={{color:C.textDim}}>{job.status==='scheduled'?'Scheduling receipt available.':job.blocker}</p>}
+                    </div>
+                  </article>;
+                })}
+                {filtered.map(rec=>{const f=rec.fields; return <article className={styles.card} key={rec.id} style={{borderLeft:`3px solid ${AGENT_COLOR[f.Agent]||C.accent}`}}>
+                  <div className={styles.cardBody}>
+                    <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:AGENT_COLOR[f.Agent]||C.textDim}}>{CH_ICON[f.Channel]||f.Channel} · {f.Agent}</span><Badge status={f.Status}/></div>
+                    <button className={styles.cardTitle} onClick={()=>openDraft(rec)}>{f.Title}</button>
+                    <p style={{display:'-webkit-box',WebkitLineClamp:3,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{f['Copy Draft']}</p>
+                    {/Jun.*2026/.test(f.Title||'') && <p style={{color:C.amber}}>June draft · review for current use</p>}
+                    {f['Media URL'] && <p>Media attached · open details to preview</p>}
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                      <button className={styles.secondary} onClick={()=>openDraft(rec)}>Open draft &amp; details</button>
+                      {f.Status==='pending_approval' && <button className={styles.approve} onClick={()=>openDraft(rec)}>✓ Approve</button>}
+                    </div>
+                    {f.Status==='approved' && <p style={{color:C.amber}}>Copy approved · scheduling pending</p>}
+                  </div>
+                </article>})}
               </div>
-            )}
-
+              {!shownJobs.length && !filtered.length && <p>No items in this view.</p>}
+            </>}
+            {tab==='genlog' && <div style={{marginBottom:24}}><h2>Current generation status</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status} · {j.blocker || 'No blocker recorded'}</p>)}</div>}
+            {tab==='publog' && <div style={{marginBottom:24}}><h2>Current video delivery</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status}<br/>{j.blocker || (j.status==='approved'?'Approved; awaiting scheduling':'No delivery receipt recorded')}</p>)}<p>Older delivery attempts below are retained with their original result notes.</p></div>}
             {/* GEN LOG */}
             {tab==='genlog' && (
               <table style={{ width:'100%', borderCollapse:'collapse' }}>
@@ -242,13 +262,13 @@ export default function AdminPage() {
             {tab==='publog' && (
               <table style={{ width:'100%', borderCollapse:'collapse' }}>
                 <thead><tr>{['Title','Channel','Format','Published','Status','Platform ID'].map(h=><th key={h} style={{ textAlign:'left', padding:'8px 10px', fontSize:10, color:C.textDim, borderBottom:`1px solid ${C.border}`, letterSpacing:'0.08em', textTransform:'uppercase' }}>{h}</th>)}</tr></thead>
-                <tbody>{pubLog.map(r=>{ const f=r.fields||{}; const ok=f['Publish Status']==='success'; return (
+                <tbody>{pubLog.map(r=>{ const f=r.fields||{}; const draft=/saved as draft|not queued/i.test(f['Error Message']||''); const ok=!draft && f['Publish Status']==='success'; return (
                   <tr key={r.id} style={{ borderBottom:`1px solid ${C.border}` }}>
                     <td style={{ padding:'10px', fontSize:12, color:C.text }}>{f['Content Title']||'—'}</td>
                     <td style={{ padding:'10px', fontSize:11, color:C.textDim }}>{CH_ICON[f.Channel]||f.Channel||'—'}</td>
                     <td style={{ padding:'10px', fontSize:11, color:C.muted }}>{f.Format||'—'}</td>
                     <td style={{ padding:'10px', fontSize:11, color:C.textDim }}>{f['Published At']?new Date(f['Published At']).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—'}</td>
-                    <td style={{ padding:'10px' }}><span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:4, background:ok?'#0a2010':'#2a0a08', color:ok?C.green:C.red }}>{f['Publish Status']||'—'}</span></td>
+                    <td style={{ padding:'10px' }}><span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:4, background:ok?'#0a2010':'#2a0a08', color:ok?C.green:C.red }}>{draft ? 'Draft only — not queued' : (f['Publish Status']||'—')}</span><p style={{whiteSpace:'normal'}}>{f['Error Message']}</p></td>
                     <td style={{ padding:'10px', fontSize:10, color:C.muted, maxWidth:160, overflow:'hidden', textOverflow:'ellipsis' }}>{f['Platform ID']||'—'}</td>
                   </tr>
                 );})}
@@ -260,7 +280,7 @@ export default function AdminPage() {
             {/* BRIEF */}
             {tab==='brief' && (
               brief.length===0
-                ? <div style={{ textAlign:'center', color:C.muted, padding:60 }}>No briefs yet. Anya fires Sunday 8pm CDT.</div>
+                ? <div style={{ textAlign:'center', color:C.muted, padding:60 }}>No historical briefs available.</div>
                 : brief.map(r=>{ const f=r.fields||{}; let posts: any[]=[];
                   try { posts=JSON.parse(f['Post Intents']||'[]'); } catch {}
                   return (

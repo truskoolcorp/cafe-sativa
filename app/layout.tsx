@@ -29,11 +29,11 @@ export const metadata: Metadata = {
     template: '%s | Café Sativa',
   },
   description:
-    'Café Sativa is a virtual-first cultural venue. Live events, cooking classes, cigar tastings, art, and community — where Nordic wellness meets Canary Island culture. Physical location opening Tenerife, Spain 2026.',
+    'Café Sativa is a virtual-first cultural venue. Live events, cooking classes, cigar tastings, art, and community — where Nordic wellness meets Canary Island culture. Physical venue planned for Tenerife, Spain in 2027; opening date to be confirmed.',
   openGraph: {
     title: 'Café Sativa — Where Culture Gathers',
     description:
-      'A virtual-first cultural venue. Live events, cooking classes, cigar tastings, art, and community. Tenerife 2026.',
+      'A virtual-first cultural venue. Live events, cooking classes, cigar tastings, art, and community. Physical venue planned for Tenerife in 2027; date to be confirmed.',
     type: 'website',
     url: 'https://www.cafe-sativa.com',
   },

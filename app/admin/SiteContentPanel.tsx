@@ -24,7 +24,12 @@ function ProgramDetails({item}:{item:Item}) {
     <p>Cover images illustrate the category. A cover does not approve its room geometry or any character for generation.</p>
   </details>
 }
-export default function SiteContentPanel() {
+type ReferenceStatus={category:string;referenceChecksPassed:boolean;missing:string[];episodeChecks:string[];productionStatus:string}
+function ReferenceChecks({status,onReview}:{status?:ReferenceStatus;onReview:()=>void}) {
+ return <div style={{borderTop:'1px solid #594635',paddingTop:12,marginTop:12}}><p><strong>{status?(status.referenceChecksPassed?'Reference checks passed':'Media preparation needs review'):'Reference checks unavailable'}</strong></p>{status && <><ul>{status.missing.map(text=><li key={text}>{text}</li>)}</ul><details className={styles.programDetails}><summary>Episode preparation checklist</summary><ul>{status.episodeChecks.map(text=><li key={text}>{text}</li>)}</ul><p>{status.productionStatus}</p><p>Passing reference checks does not approve an episode, announce a guest booking or start paid generation.</p></details></>}<button className={styles.secondary} onClick={onReview}>Review room and character references →</button></div>
+}
+export default function SiteContentPanel({onReviewReferences}:{onReviewReferences:()=>void}) {
+  const [readiness,setReadiness]=useState<ReferenceStatus[]>([])
   const [items,setItems]=useState<Item[]>([])
   const [selected,setSelected]=useState<Item|null>(null)
   const [copy,setCopy]=useState('')
@@ -33,7 +38,9 @@ export default function SiteContentPanel() {
   const [busy,setBusy]=useState(false)
   const [message,setMessage]=useState('')
   const load=useCallback(async()=>{
-    const response=await fetch('/api/content/site',{cache:'no-store'})
+    const [response,referenceResponse]=await Promise.all([fetch('/api/content/site',{cache:'no-store'}),fetch('/api/content/references',{cache:'no-store'})])
+    const referenceBody=await referenceResponse.json()
+    setReadiness(referenceResponse.ok?referenceBody.programmingReadiness || []:[])
     const body=await response.json()
     if(!response.ok) throw new Error(body.error || 'Unable to load website content')
     setItems(body.items || [])
@@ -74,6 +81,7 @@ export default function SiteContentPanel() {
       <img src={cover(selected.site_category)} alt={`${selected.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover}/>
       <p>{selected.site_category==='bar'?'Approved bar reference':'Existing site concept image — reference approval pending'}</p>
       <ProgramDetails item={selected}/>
+      <ReferenceChecks status={readiness.find(r=>r.category===selected.site_category)} onReview={onReviewReferences}/>
       <h3>{selected.title}</h3><p>{selected.site_category.replaceAll('_',' ')} · {selected.status}</p>
       <label htmlFor="site-copy">Full website copy</label>
       <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
@@ -88,7 +96,7 @@ export default function SiteContentPanel() {
       </div></>}
       {selected.published_at && <p>Website published: {new Date(selected.published_at).toLocaleString()}</p>}
       <p><a href={`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
-    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}><img src={cover(item.site_category)} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/><div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
+    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}><img src={cover(item.site_category)} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/><div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
     {!items.length && <p>No website drafts prepared yet.</p>}
   </section>
 }

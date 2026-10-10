@@ -200,7 +200,7 @@ export default function AdminPage() {
       <div style={{ padding:'20px 24px' }}>
         {loading ? <div style={{ textAlign:'center', padding:60, color:C.muted }}>Loading…</div> : (
           <>
-            {tab==='website' && <SiteContentPanel/>}
+            {tab==='website' && <SiteContentPanel onReviewReferences={()=>setTab('references')}/>}
             {tab==='references' && <ReferencePanel onChanged={()=>void loadAll()}/>}
             {['calendar','approvals'].includes(tab) && <>
               <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>

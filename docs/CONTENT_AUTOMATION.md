@@ -8,7 +8,8 @@ photorealism and accuracy. Owner-selected generation budget: **$25 per calendar 
 
 This checkpoint supersedes historical rollout notes below. The $25 monthly
 production generation cap, canonical checks, QA holds and approved-media reuse
-are active. The bar remains the only approved room; eight GLYPH characters pass
+are active. Fifteen venue references are approved, including the exact Community long table;
+eight GLYPH characters pass
 the current production readiness checks. Six program introductions await review.
 
 The website now has its own owner-authorized Metricool OAuth connection; it does
@@ -19,7 +20,10 @@ checks, atomic submission claims and durable receipts are implemented. Ambiguous
 submissions are held without automatic retries. See METRICOOL_OAUTH.md for current
 live verification/activation status and PUBLISHING_RECEIPTS.md for existing posts.
 
-Full character episode generation and remaining room approvals are unfinished.
+Full character episode generation remains unfinished. Gallery generation was
+observed in progress after the new room approvals. Worker polling now runs every
+15 minutes to collect completed outputs promptly; planning remains daily. Each
+paid submission still needs an existing planned slot and the atomic budget claim.
 The old malformed Zap is not the operating website pipeline and remains unfixed.
 
 ## Initial implementation — historical rollout

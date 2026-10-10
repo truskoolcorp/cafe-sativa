@@ -67,7 +67,7 @@ export async function getSiteContent(category?:string) {
     if (!item.copy_final || !await siteMediaApproved(item)) return null
     const releaseAt=item.scheduled_at || item.published_at
     const released=Boolean(releaseAt && new Date(releaseAt).getTime()<=Date.now())
-    return {...item,copy_final:released?item.copy_final:'This content will be available at its scheduled release time.',release_at:releaseAt,released,media_url:released?item.media_url:null}
+    return {...item,copy_final:item.copy_final,release_at:releaseAt,released,media_url:released?item.media_url:null}
   }))
   return visible.filter((item): item is NonNullable<typeof item> => item !== null)
 }

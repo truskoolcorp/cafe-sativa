@@ -26,14 +26,26 @@ different authenticated encryption contexts. The cs_social_connections table has
 RLS enabled, no browser-role grants, and explicit service-role grants. Its schema
 is recorded in METRICOOL_OAUTH_SCHEMA.sql and the remote migration history.
 
-Current stage: authorization prepared, not yet owner-authorized or tested against
-live private MCP tools. Automatic dispatch remains disabled. Free-plan limits
-still apply. The callback requires refreshable bearer tokens; unexpected provider
-responses fail without exposing credentials or claiming connection success.
+Owner authorization succeeded on 10 October 2026 at 04:35 UTC. The saved connection
+verified the exact permitted brand and networks. Dispatch stays disabled until
+server-side refresh and the live scheduling-tool contracts are verified.
 
-Remaining work after authorization: verify the live MCP tool schemas and token
-refresh, implement atomic delivery claims and persistent scheduler receipts,
-reconcile existing posts before scheduling anything, and test an approved delivery
-without duplicates. Character episode creation remains a separate workstream.
+SOCIAL_DELIVERY_SCHEMA.sql records the service-only delivery ledger and the atomic
+connection lock. The server refreshes tokens without exposing credentials, checks
+that the connection owner remains an administrator, and verifies tool schemas.
+Only an explicit social-sharing checkbox on an approved website clip queues its
+exact caption and release time for Facebook and Threads. Current media QA and
+room canon are checked again before submission. Submission is atomically claimed;
+an interrupted or ambiguous result is held for manual review, never retried
+silently. Existing posts are imported as scheduler receipts without inventing a
+new owner approval. Pending-queue disappearance never means publication success.
 
-No new subscription was purchased. Existing Metricool queued posts are unchanged.
+The administrator's Test connection action is read-only. The cron-authorized
+social probe performs the same verification and receipt reconciliation while
+dispatch is disabled. A temporary daily probe schedule is removed after validation.
+The ordinary daily content cron then performs these checks.
+
+No new subscription was purchased. Free-plan limits still apply. Character episode
+creation and unapproved room references remain separate blockers. The actual
+create-post transaction still needs an explicitly approved future clip to exercise
+it end to end; no synthetic test post is created.

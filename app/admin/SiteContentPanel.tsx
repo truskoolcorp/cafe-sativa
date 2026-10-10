@@ -36,6 +36,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const [copy,setCopy]=useState('')
   const [schedule,setSchedule]=useState('')
   const [confirmed,setConfirmed]=useState(false)
+  const [publishSocial,setPublishSocial]=useState(false)
   const [busy,setBusy]=useState(false)
   const [message,setMessage]=useState('')
   const load=useCallback(async()=>{
@@ -48,17 +49,20 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
     return body.items as Item[]
   },[])
   useEffect(()=>{void load().catch(e=>setMessage(e.message))},[load])
-  function open(item:Item) {setSelected(item);setCopy(item.copy_draft || '');setSchedule(item.scheduled_at || '');setConfirmed(false);setMessage('')}
+  function open(item:Item) {setSelected(item);setCopy(item.copy_draft || '');setSchedule(item.scheduled_at || '');setConfirmed(false);setPublishSocial(false);setMessage('')}
   async function act(action:string) {
     setBusy(true);setMessage('Saving…')
     try {
-      const response=await fetch('/api/content/site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:selected?.id,copy,expectedUpdatedAt:selected?.updated_at,scheduledAt:schedule,confirmAccuracy:confirmed})})
+      const response=await fetch('/api/content/site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:selected?.id,copy,expectedUpdatedAt:selected?.updated_at,scheduledAt:schedule,confirmAccuracy:confirmed,publishSocial:action==='approve' && publishSocial})})
       const body=await response.json()
       if(!response.ok) throw new Error(body.error || 'Website action failed')
       const fresh=await load()
       if(selected){const item=fresh.find(i=>i.id===selected.id);if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
       setConfirmed(false)
+      setPublishSocial(false)
       setMessage(action==='approve' ? (body.published ? 'Published to the website. Open the category page to view it.' : 'Approved. The daily publisher will release it when its schedule is due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='prepare_clips' ? `${body.planned} approved clip drafts prepared. Existing cards and schedules were preserved.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
+      if(body.socialWarning)setMessage(body.socialWarning)
+      else if(body.socialQueued)setMessage(`Website approved. Social delivery status: ${body.socialDeliveryStatus || 'queued'}. Check its receipt in Social delivery connection; publication is not confirmed yet.`)
     }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
     finally{setBusy(false)}
   }
@@ -92,6 +96,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       <input id="site-schedule" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={schedule} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value);setConfirmed(false)}}/>
       <p>{selected.approval_notes}</p>{selected.media_url && <p>This item uses a clip that passed accuracy review. You can review its website caption and release time here. Changing the clip requires a separate accuracy review.</p>}
       {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
+      {selected.media_url && <label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={publishSocial} onChange={e=>setPublishSocial(e.target.checked)}/>Also schedule this approved clip and this exact caption on Tru Skool Facebook and Threads at the release time above. Maximum 500 characters; choose a time at least 30 minutes ahead.</label>}
       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
         <button className={styles.secondary} disabled={busy || !copy.trim()} onClick={()=>act('save')}>Save edits</button>
         <button className={styles.approve} disabled={busy || !confirmed || !copy.trim()} onClick={()=>act('approve')}>✓ Approve website publication</button>

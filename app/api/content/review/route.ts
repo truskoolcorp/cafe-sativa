@@ -14,12 +14,13 @@ export async function GET() {
   if (!await isContentAdmin()) return response({ error: 'Sign in with an authorized content administrator account.' }, 401)
   try {
     const db = createAdminClient()
-    const [jobs, assets, budget] = await Promise.all([
+    const [jobs, assets, budget, social] = await Promise.all([
       db.from('cs_content_jobs').select('*').order('created_at', { ascending: false }).limit(50),
       db.from('cs_canonical_assets').select('*').order('subject').limit(100),
       db.from('cs_content_budget').select('*').order('month', { ascending: false }).limit(12),
+      db.from('cs_social_connections').select('status,dispatch_enabled,capabilities_verified').eq('provider','metricool').maybeSingle(),
     ])
-    if (jobs.error || assets.error || budget.error) throw new Error('Unavailable')
+    if (jobs.error || assets.error || budget.error || social.error) throw new Error('Unavailable')
     const previews = await Promise.all((jobs.data || []).map(async job => {
       let previewUrl: string | null = null
       if (/^[0-9a-f-]{36}\.mp4$/i.test(job.output_url || '')) {
@@ -33,7 +34,7 @@ export async function GET() {
     const operational = {
       missingRooms,
       characterMediaReady: (assets.data || []).some(asset => asset.kind === 'character' && approvedAsset(asset)),
-      socialDispatchConfigured: Boolean(process.env.METRICOOL_API_TOKEN),
+      socialDispatchConfigured: Boolean(social.data?.status==='verified' && social.data.dispatch_enabled && social.data.capabilities_verified),
       voiceVerification: 'Owner reported all three Ask voices working on October 9, 2026. Visual identity approval is separate.',
     }
     return response({ operational, jobs: previews, assets: assets.data, budget: budget.data, generationEnabled: process.env.CS_CONTENT_GENERATION_ENABLED === 'true', monthlyLimitCents: CONTENT_POLICY.monthlyBudgetCents })

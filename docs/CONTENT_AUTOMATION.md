@@ -3,7 +3,26 @@
 Owner instruction, 7 October 2026: maximum automation, actual canonical references,
 photorealism and accuracy. Owner-selected generation budget: **$25 per calendar month**.
 
-## Implemented in this branch
+
+## Latest status — 10 October 2026
+
+This checkpoint supersedes historical rollout notes below. The $25 monthly
+production generation cap, canonical checks, QA holds and approved-media reuse
+are active. The bar remains the only approved room; eight GLYPH characters pass
+the current production readiness checks. Six program introductions await review.
+
+The website now has its own owner-authorized Metricool OAuth connection; it does
+not need an Advanced REST API subscription or ChatGPT's credentials. Explicit
+social-sharing approval queues the exact approved clip caption and release time
+for Tru Skool Facebook and Threads. Server token refresh, exact destination/tool
+checks, atomic submission claims and durable receipts are implemented. Ambiguous
+submissions are held without automatic retries. See METRICOOL_OAUTH.md for current
+live verification/activation status and PUBLISHING_RECEIPTS.md for existing posts.
+
+Full character episode generation and remaining room approvals are unfinished.
+The old malformed Zap is not the operating website pipeline and remains unfixed.
+
+## Initial implementation — historical rollout
 
 - Cron plans Monday/Wednesday/Friday venue shots. Slot keys prevent duplicate plans.
 - Worker submits only a versioned, approved, checksum-verified room keyframe.

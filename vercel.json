@@ -7,10 +7,6 @@
     {
       "path": "/api/content/worker",
       "schedule": "30 5 * * *"
-    },
-    {
-      "path": "/api/content/social/probe",
-      "schedule": "36 13 * * *"
     }
   ]
 }

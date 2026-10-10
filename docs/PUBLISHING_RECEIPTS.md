@@ -33,3 +33,13 @@ Planner: https://app.metricool.com/planner/calendar?blogId=5373515&openWithPostU
 Verified again October 8 around 00:57 Chicago. Supabase job status reconciled to scheduled. This is not confirmation of publication. October 14 and 16 posts remain text/link posts.
 
 A proposed daily delivery-monitoring ChatGPT task was NOT created: all five active task slots are occupied. Existing tasks were left intact. Continuous generation-to-social dispatch is not implemented.
+
+## Website delivery ledger — 10 October 2026
+
+All three posts were retrieved again from Metricool: Facebook and Threads PENDING,
+autoPublish true and draft false. Existing scheduler receipts were imported into
+cs_social_deliveries without attributing a new approval or creating another post.
+The approved video retains post ID 390856410 and its stable UUID. Website copy and
+platform copy are tracked separately. These receipts appear in Website programming.
+The unattended OAuth-backed delivery operator is implemented; its verification and
+activation status is recorded in METRICOOL_OAUTH.md. Scheduling is not publication.

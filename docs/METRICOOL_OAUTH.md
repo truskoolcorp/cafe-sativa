@@ -27,8 +27,10 @@ RLS enabled, no browser-role grants, and explicit service-role grants. Its schem
 is recorded in METRICOOL_OAUTH_SCHEMA.sql and the remote migration history.
 
 Owner authorization succeeded on 10 October 2026 at 04:35 UTC. The saved connection
-verified the exact permitted brand and networks. Dispatch stays disabled until
-server-side refresh and the live scheduling-tool contracts are verified.
+verified the exact permitted brand and networks. Server-side refresh and the live scheduling-tool contracts were verified at
+13:36 UTC. All three existing receipts reconciled without new posts. Dispatch is
+now enabled for explicitly approved future clip deliveries; no new clip was
+submitted during this verification.
 
 SOCIAL_DELIVERY_SCHEMA.sql records the service-only delivery ledger and the atomic
 connection lock. The server refreshes tokens without exposing credentials, checks
@@ -42,7 +44,7 @@ new owner approval. Pending-queue disappearance never means publication success.
 
 The administrator's Test connection action is read-only. The cron-authorized
 social probe performs the same verification and receipt reconciliation while
-dispatch is disabled. A temporary daily probe schedule is removed after validation.
+dispatch is disabled. The temporary daily probe schedule was removed after successful validation.
 The ordinary daily content cron then performs these checks.
 
 No new subscription was purchased. Free-plan limits still apply. Character episode

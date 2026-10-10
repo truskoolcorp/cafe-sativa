@@ -1,5 +1,6 @@
 import { approvedAsset, CONTENT_POLICY } from '@/lib/content/policy'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { approvedMediaJob } from '@/lib/content/approved-media'
 
 export const SITE_CATEGORIES = ['stage','kitchen','cigar_lounge','bar','gallery','community'] as const
 export const SITE_BRIEFS = [
@@ -27,8 +28,9 @@ export async function planSiteContent(now = new Date()) {
 }
 
 // Only the explicitly released bar pilot can be embedded publicly at this stage.
-export async function siteMediaApproved(item: {media_url?:string|null; source_job_id?:string|null}) {
+export async function siteMediaApproved(item: {id?:string;site_category?:string|null;media_url?:string|null; source_job_id?:string|null}) {
   if (!item.media_url) return true
+  if (item.media_url !== '/api/content/media/approved-bar.mp4') return Boolean(await approvedMediaJob(item))
   if (!item.source_job_id || item.media_url !== '/api/content/media/approved-bar.mp4') return false
   const db = createAdminClient()
   const result = await db.from('cs_content_jobs').select('canonical_asset_id,output_url,qa_approved_by,qa_approved_at,policy_version,status')

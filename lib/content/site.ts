@@ -59,10 +59,15 @@ export async function publishDueSiteContent(now = new Date()) {
 
 export async function getSiteContent(category?:string) {
   const db = createAdminClient()
-  let query = db.from('content_items').select('id,title,copy_final,site_category,published_at,media_url,source_job_id').eq('status','published').not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).lte('published_at',new Date().toISOString()).order('published_at',{ascending:false}).limit(30)
+  let query = db.from('content_items').select('id,title,copy_final,site_category,status,scheduled_at,published_at,media_url,source_job_id').in('status',['approved','scheduled','published']).not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).order('published_at',{ascending:false}).limit(30)
   if (category) query=query.eq('site_category',category)
   const result=await query
   if (result.error) throw new Error('Website features are temporarily unavailable')
-  const visible = await Promise.all((result.data || []).map(async item => await siteMediaApproved(item) ? item : null))
+  const visible = await Promise.all((result.data || []).map(async item => {
+    if (!item.copy_final || !await siteMediaApproved(item)) return null
+    const releaseAt=item.scheduled_at || item.published_at
+    const released=Boolean(releaseAt && new Date(releaseAt).getTime()<=Date.now())
+    return {...item,copy_final:released?item.copy_final:'This content will be available at its scheduled release time.',release_at:releaseAt,released,media_url:released?item.media_url:null}
+  }))
   return visible.filter((item): item is NonNullable<typeof item> => item !== null)
 }

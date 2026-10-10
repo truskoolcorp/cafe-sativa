@@ -10,6 +10,8 @@ export async function GET(req:NextRequest) {
   if(download && !await canDownloadContentMedia())return new NextResponse('Downloads require an administrator or manager account',{status:403,headers:{'Cache-Control':'private, no-store'}})
   try {
     const db = createAdminClient()
+    const release=await db.from('content_items').select('scheduled_at,approved_at,approved_by').eq('site_key','approved-pilot:bar:2026-10-07').in('status',['approved','scheduled','published']).maybeSingle()
+    if(release.error || !release.data?.approved_at || !release.data.approved_by || !release.data.scheduled_at || new Date(release.data.scheduled_at).getTime()>Date.now())return new NextResponse('Not released yet',{status:404,headers:{'Cache-Control':'private, no-store'}})
     const {data: job,error} = await db.from('cs_content_jobs').select('*').eq('id',PILOT).maybeSingle()
     if (error || !job || !['approved','scheduled','published'].includes(job.status) || !job.qa_approved_by || !job.qa_approved_at || job.policy_version !== CONTENT_POLICY.version || job.output_url !== PILOT+'.mp4') return new NextResponse('Unavailable',{status:404})
     const {data:asset,error:assetError} = await db.from('cs_canonical_assets').select('id').eq('id',job.canonical_asset_id).eq('active',true).eq('kind','venue').eq('subject',job.room).not('approved_at','is',null).not('approved_by','is',null).maybeSingle()

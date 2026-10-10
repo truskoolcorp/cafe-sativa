@@ -3,6 +3,27 @@ import { useCallback, useEffect, useState } from 'react'
 import styles from './dashboard.module.css'
 
 type Item = {id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null; media_url:string|null}
+const PROGRAM_DETAILS: Record<string,{host:string;format:string;reference:string}> = {
+  stage:{host:'Ahnika Merlot / Laviche',format:'Three-minute open mic, music and Comedy Night Open Floor.',reference:'Approved Stage layout plus the exact image and voice reference for each appearing host.'},
+  kitchen:{host:'Featured chefs / approved After Dark cast',format:'Featured-chef programming and MUKBANG After Dark formats.',reference:'Approved Kitchen layout, chef/cast identities and the actual recipe or episode brief.'},
+  cigar_lounge:{host:'Laviche',format:'Blind tastings, guided pairings and VIP Craft Roundtable.',reference:'Approved Cigar Lounge layout, Laviche identity and verified product/session details.'},
+  bar:{host:'Venue-only preview',format:'Approved virtual bar concept preview; future physical venue planned for 2027.',reference:'The empty-room bar pilot is approved. A host appearance requires separate character references.'},
+  gallery:{host:'THE Verse Alkemist — official Media Curator',format:'Art and curator features; exhibition dates remain unconfirmed.',reference:'Approved Gallery layout and the actual artwork, artist attribution and usage permission.'},
+  community:{host:'Keith Ingram with Laviche',format:'At the Table: a 90-minute long-table conversation.',reference:'Approved long-table setting and both character identities. A new session needs a confirmed brief/date.'},
+}
+function cover(category:string) {
+  return category==='bar' ? 'https://nwfxvhqbjtfvoopcadff.supabase.co/storage/v1/object/public/cafe-sativa-canon/bar-pilot-2026-10-07.png' : `/rooms/${category}.webp`
+}
+function ProgramDetails({item}:{item:Item}) {
+  const info=PROGRAM_DETAILS[item.site_category]
+  return <details className={styles.programDetails}><summary title="Show hosts, format, reference requirements and publication timing">ⓘ Program details</summary>
+    <p><strong>Hosts / assignment:</strong> {info?.host || 'To be confirmed'}</p>
+    <p><strong>Format:</strong> {info?.format || item.title}</p>
+    <p><strong>Required references:</strong> {info?.reference}</p>
+    <p><strong>Publication:</strong> {item.published_at ? new Date(item.published_at).toLocaleString() : item.scheduled_at ? `${new Date(item.scheduled_at).toLocaleString()} — approval required before release` : 'Not scheduled'}</p>
+    <p>Cover images illustrate the category. A cover does not approve its room geometry or any character for generation.</p>
+  </details>
+}
 export default function SiteContentPanel() {
   const [items,setItems]=useState<Item[]>([])
   const [selected,setSelected]=useState<Item|null>(null)
@@ -42,9 +63,17 @@ export default function SiteContentPanel() {
       <button className={styles.secondary} disabled={busy} onClick={()=>act('publish_due')}>Publish approved due items</button>
       <button className={styles.secondary} disabled={busy} onClick={()=>void load().catch(e=>setMessage(e.message))}>Refresh status</button>
     </div>
+    <details className={styles.programDetails}><summary>How references and recurring programming work</summary>
+      <p>Approve each master room and character reference once, with its source and version. Future briefs reuse those references; a changed layout, identity or voice requires a new version.</p>
+      <p>The daily worker checks registered references, reuses approved media before spending and holds missing-reference jobs. New clips and captions still enter accuracy review.</p>
+      <p>Website publishing releases approved items when due. The current planner prepares initial program introductions; recurring episode creation and unattended social delivery are not yet connected.</p>
+    </details>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {selected ? <div className={styles.card} style={{padding:24}}>
       <button className={styles.secondary} disabled={busy} onClick={()=>{setSelected(null);setMessage('')}}>← Back to website overview</button>
+      <img src={cover(selected.site_category)} alt={`${selected.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover}/>
+      <p>{selected.site_category==='bar'?'Approved bar reference':'Existing site concept image — reference approval pending'}</p>
+      <ProgramDetails item={selected}/>
       <h3>{selected.title}</h3><p>{selected.site_category.replaceAll('_',' ')} · {selected.status}</p>
       <label htmlFor="site-copy">Full website copy</label>
       <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
@@ -59,7 +88,7 @@ export default function SiteContentPanel() {
       </div></>}
       {selected.published_at && <p>Website published: {new Date(selected.published_at).toLocaleString()}</p>}
       <p><a href={`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
-    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}><div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
+    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}><img src={cover(item.site_category)} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/><div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
     {!items.length && <p>No website drafts prepared yet.</p>}
   </section>
 }

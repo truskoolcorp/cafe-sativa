@@ -23,3 +23,9 @@
 .reject {background:#4a1715!important;color:#ffd1ca!important;border:2px solid #d57c72!important;cursor:pointer;}
 .dashboard button:disabled {opacity:.45;cursor:not-allowed;}
 .feedback {padding:16px;border:1px solid #c49a5c;border-radius:8px;background:#322513;}
+
+.card .programCover {height:210px;object-fit:cover;display:block;}
+.programDetails {margin:14px 0;padding:12px;background:#120e09;border:1px solid #8b693c;border-radius:8px;}
+.programDetails summary {cursor:pointer;min-height:44px;display:list-item;padding:10px;color:#ffe0a1;font-weight:700;}
+.programDetails summary:focus-visible {outline:3px solid #ffe09b;outline-offset:3px;}
+.programDetails p {line-height:1.6;margin:10px 0;}

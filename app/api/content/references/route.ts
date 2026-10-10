@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { approvedAsset } from '@/lib/content/policy'
 import { REFERENCE_CANDIDATES } from '@/lib/content/reference-candidates'
+import { GLYPH_CHARACTER_SNAPSHOT } from '@/lib/content/glyph-characters'
 export const dynamic='force-dynamic'
 export const maxDuration=60
 const respond=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'private, no-store'}})
@@ -12,7 +13,7 @@ export async function GET() {
   if(!await isContentAdmin())return respond({error:'Unauthorized'},401)
   const {data,error}=await createAdminClient().from('cs_canonical_assets').select('*').eq('active',true)
   if(error)return respond({error:'Reference registry unavailable'},503)
-  return respond({candidates:REFERENCE_CANDIDATES.map(candidate=>({...candidate,approved:(data || []).find(asset=>asset.kind===candidate.kind && asset.subject===candidate.subject && approvedAsset(asset)) || null})),missingCandidateRooms:[]})
+  return respond({candidates:REFERENCE_CANDIDATES.map(candidate=>({...candidate,approved:(data || []).find(asset=>asset.kind===candidate.kind && asset.subject===candidate.subject && approvedAsset(asset)) || null})),missingCandidateRooms:[],glyphCharacters:GLYPH_CHARACTER_SNAPSHOT})
 }
 export async function POST(req:NextRequest) {
   if(!await isContentAdmin())return respond({error:'Unauthorized'},401)

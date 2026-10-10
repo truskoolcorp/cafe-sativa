@@ -166,26 +166,5 @@ export const REFERENCE_CANDIDATES = [
     "subject": "community",
     "path": "/rooms/community.webp",
     "sha256": "1d4875a813858028fb1ac971ce087815967a146d95dd9448527841a091564990"
-  },
-  {
-    "key": "character:laviche",
-    "kind": "character",
-    "subject": "laviche",
-    "path": "/hosts/laviche.png",
-    "sha256": "6d87a9328a776d4e5226ecd9b4871c478d41a6627a8cbf89d37eb20a957a648a"
-  },
-  {
-    "key": "character:ginger",
-    "kind": "character",
-    "subject": "ginger",
-    "path": "/hosts/ginger.png",
-    "sha256": "a24a061860c192fa36317a22e5091a9b097b37e79c4055fd52573b60e28b5452"
-  },
-  {
-    "key": "character:ahnika",
-    "kind": "character",
-    "subject": "ahnika",
-    "path": "/hosts/ahnika.png",
-    "sha256": "582ec94ae9273514f0e9a02deb4d15ef1136fa52618785f56e81f1e78266334b"
   }
 ] as const

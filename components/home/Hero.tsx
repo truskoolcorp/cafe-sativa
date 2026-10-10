@@ -24,7 +24,7 @@ import { formatEventDate } from '@/lib/events'
  *
  *   3. Tenerife is coming. Hence the subtle italic footer line.
  *      It disarms the "virtual-only" skepticism without
- *      overpromising — we say 2026, not "now."
+ *      overpromising — we give the planned year with the exact date still unconfirmed.
  */
 
 export function Hero({ featured }: { featured: EventRow | null }) {
@@ -120,10 +120,10 @@ export function Hero({ featured }: { featured: EventRow | null }) {
                 visible on tall viewports */}
             <div className="pt-8 border-t border-border/40 max-w-md">
               <p className="text-xs tracking-widest uppercase text-muted-foreground font-body">
-                Physical Venue Opening
+                Physical Venue Planned
               </p>
               <p className="font-heading italic text-lg text-foreground/90 mt-1">
-                Tenerife, Spain · 2026
+                Tenerife, Spain · 2027 · date to be confirmed
               </p>
             </div>
           </div>

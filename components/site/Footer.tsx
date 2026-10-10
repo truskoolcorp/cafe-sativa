@@ -5,7 +5,7 @@ import Link from 'next/link'
  *
  * Copy follows the Base44 PDF. The tagline "Where Nordic wellness
  * meets Canary Island culture" is the brand positioning — it appears
- * above the copyright line. The "Physical location coming 2026"
+ * above the copyright line. The "Physical location planned 2027"
  * anchors the Tenerife story and differentiates from pure-virtual
  * venues.
  *
@@ -52,7 +52,7 @@ export function Footer() {
               Where Nordic wellness meets Canary Island culture.
             </p>
             <p className="text-xs text-muted-foreground/70 font-body mt-2">
-              Virtual venue • Physical location opening Tenerife, Spain 2026
+              Virtual venue • Physical venue planned for Tenerife, Spain in 2027; opening date to be confirmed
             </p>
           </div>
 

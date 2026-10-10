@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ContentReview from './content/ContentReview';
 import SiteContentPanel from './SiteContentPanel';
+import ReferencePanel from './ReferencePanel';
 import styles from './dashboard.module.css';
 
 // All Airtable calls go through /api/admin/airtable — PAT never exposed client-side
@@ -182,6 +183,7 @@ export default function AdminPage() {
         {btn('Publish Log', 'publog')}
         {btn('Weekly Brief', 'brief')}
         {btn('Website Programming', 'website')}
+        {btn('Master References', 'references')}
       </div>
 
       <p style={{ padding:'8px 24px', color:C.textDim }}>Open a card to inspect, edit and approve. Dates in titles are original planning dates. Approval and scheduling are separate steps. Status refreshes every minute while this dashboard is open.</p>
@@ -199,6 +201,7 @@ export default function AdminPage() {
         {loading ? <div style={{ textAlign:'center', padding:60, color:C.muted }}>Loading…</div> : (
           <>
             {tab==='website' && <SiteContentPanel/>}
+            {tab==='references' && <ReferencePanel onChanged={()=>void loadAll()}/>}
             {['calendar','approvals'].includes(tab) && <>
               <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
                 {['all','pending_approval','approved','scheduled','published','failed'].map(status=><button key={status} onClick={()=>{setTab('calendar');setFilter(status);}} style={{background:filter===status?C.accent:C.card,color:filter===status?'#160d05':C.text}}>{status==='all'?'All':STATUS[status]?.label || status}</button>)}

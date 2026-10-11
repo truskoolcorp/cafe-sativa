@@ -27,6 +27,11 @@ export async function processContent(req: NextRequest, pilot = false) {
     const pending = await db.from('cs_content_jobs').select('*').eq('status', 'generating').limit(5)
     if (pending.error) throw pending.error
     for (const job of pending.data || []) {
+      const holdCollection = async (reason: string) => {
+        const saved = await db.from('cs_content_jobs').update({ blocker: `${reason}; existing provider task retained, no paid resubmission.` }).eq('id',job.id).eq('status','generating')
+        if (saved.error) throw saved.error
+      }
+      try {
       const response = await fetch(`${BASE}/tasks/${encodeURIComponent(job.provider_task_id)}`, { headers, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
       if (!response.ok) {
         const held=await db.from('cs_content_jobs').update({blocker:`Task collection returned HTTP ${response.status}; the existing provider task is retained, with no paid resubmission.`}).eq('id',job.id).eq('status','generating')
@@ -36,18 +41,19 @@ export async function processContent(req: NextRequest, pilot = false) {
       const task = await response.json()
       if (task.status === 'SUCCEEDED' && typeof task.output?.[0] === 'string') {
         const output = new URL(task.output[0])
-        if (output.protocol !== 'https:') continue
+        if (output.protocol !== 'https:') { await holdCollection('Provider output is not HTTPS'); continue }
         const media = await fetch(output, { signal: AbortSignal.timeout(15_000) })
-        if (!media.ok || Number(media.headers.get('content-length')) > 50_000_000) continue
+        if (!media.ok) { await holdCollection(`Generated media download returned HTTP ${media.status}`); continue }
+        if (Number(media.headers.get('content-length')) > 50_000_000) { await holdCollection('Generated media exceeds 50 MB'); continue }
         // Bound the stream before buffering provider media.
-        if (!media.body) continue
+        if (!media.body) { await holdCollection('Generated media response has no body'); continue }
         const reader = media.body.getReader(), chunks: Uint8Array[] = []
         let size = 0
         while (true) {
           const part = await reader.read()
           if (part.done) break
           size += part.value.byteLength
-          if (size > 50_000_000) { await reader.cancel(); throw new Error('Output too large') }
+          if (size > 50_000_000) { await reader.cancel(); throw new Error('OUTPUT_TOO_LARGE') }
           chunks.push(part.value)
         }
         const path = `${job.id}.mp4`
@@ -60,9 +66,16 @@ export async function processContent(req: NextRequest, pilot = false) {
         // Private storage path, not an expiring provider URL. QA must approve before publication.
         const changed = await db.from('cs_content_jobs').update({ status: 'pending_qa', output_url: path, blocker:null, updated_at: new Date().toISOString() }).eq('id', job.id).eq('status', 'generating')
         if (changed.error) throw changed.error
+      } else if (task.status === 'SUCCEEDED') {
+        await holdCollection('Succeeded provider task has no downloadable output')
       } else if (task.status === 'FAILED' || task.status === 'CANCELED') {
         const changed = await db.from('cs_content_jobs').update({ status: 'failed', blocker: `Provider task ${task.status}; no automatic paid retry` }).eq('id', job.id)
         if (changed.error) throw changed.error
+      }
+      } catch (error) {
+        const name = error instanceof Error ? error.name : ''
+        const reason = error instanceof Error && error.message === 'OUTPUT_TOO_LARGE' ? 'Generated media stream exceeds 50 MB' : ['TimeoutError','AbortError'].includes(name) ? 'Provider task or media collection timed out' : 'Provider task or media collection failed; inspect provider and storage availability'
+        await holdCollection(reason)
       }
     }
     // Missing references must not starve another room with an approved keyframe.

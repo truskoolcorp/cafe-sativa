@@ -14,4 +14,5 @@ result=check([asset('stage')],{...glyph,live:false});assert.equal(result.find(p=
 result=check([asset('kitchen')],{live:true,characters:[{id:'chef-v',name:'Chef V',production_ready:false,blockers:['approvedRightsConsent']}]});assert.equal(result.find(p=>p.category==='kitchen').referenceChecksPassed,false);
 result=check([{...asset('bar'),active:false}],glyph);assert.equal(result.find(p=>p.category==='bar').referenceChecksPassed,false);
 assert.ok(check([asset('gallery')],glyph).find(p=>p.category==='gallery').episodeChecks.includes('Actual artwork, attribution and usage permission'));
+result=check([asset('stage'),{...asset('stage'),id:'second-stage'}],glyph);assert.equal(result.find(p=>p.category==='stage').referenceChecksPassed,false);assert.equal(result.find(p=>p.category==='stage').roomApproved,false);assert.match(result.find(p=>p.category==='stage').missing[0],/multiple approved/);
 console.log('PASS: exact category rooms required; retired rooms/stale registry/blocked cast held; gallery permissions remain separate; lounge cannot substitute for long-table setting');

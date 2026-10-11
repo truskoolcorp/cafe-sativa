@@ -11,9 +11,11 @@ export const PROGRAM_REFERENCES=[
 ] as const
 export function programReferenceStatus(assets:CanonicalAsset[],glyph:Glyph){
  return PROGRAM_REFERENCES.map(program=>{
-  const room=assets.find(a=>a.kind==='venue'&&a.subject===program.room&&approvedAsset(a))
+  const matches=assets.filter(a=>a.kind==='venue'&&a.subject===program.room&&approvedAsset(a))
+  const room=matches.length===1?matches[0]:null
   const missing:string[]=[]
-  if(!room)missing.push(`Approve the ${program.room.replaceAll('_',' ')} room master`)
+  if(matches.length>1)missing.push(`Resolve multiple approved ${program.room.replaceAll('_',' ')} masters; select one current canonical reference`)
+  else if(!room)missing.push(`Approve the ${program.room.replaceAll('_',' ')} room master`)
   const cast=program.cast.map(id=>{
    const c=glyph.live===true?glyph.characters.find(c=>c.id===id):null
    if(!c)missing.push(`Verify ${id.replaceAll('-',' ')} in the live GLYPH registry`)

@@ -2,6 +2,7 @@
 const nextConfig = {
   experimental: {
     outputFileTracingIncludes: {
+      '/api/content/pilot': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
       '/api/content/social/delivery': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
       '/api/content/site': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
       '/api/content/cron': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],

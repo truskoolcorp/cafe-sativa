@@ -417,18 +417,17 @@ function MembershipInner() {
                 <Sparkles className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
-                    Welcome in.
+                    Check your membership status.
                   </p>
                   <p className="text-sm text-foreground font-body mt-1">
-                    Your {successTier === 'vip' ? 'VIP' : 'Regular'} membership
-                    is active. Head to your{' '}
+                    Checkout has returned you to Café Sativa. Payment confirmation may take a moment. Open your{' '}
                     <Link
                       href="/account"
                       className="underline hover:text-primary transition-colors"
                     >
                       account
                     </Link>{' '}
-                    to see the details.
+                    to see your confirmed plan and access.
                   </p>
                 </div>
               </div>
@@ -441,8 +440,7 @@ function MembershipInner() {
                 Checkout canceled
               </p>
               <p className="text-sm text-foreground font-body mt-1">
-                No charge was made. You can still join below whenever
-                you&rsquo;re ready.
+                Checkout was closed. Check your account for payment and membership status before trying again.
               </p>
             </div>
           )}

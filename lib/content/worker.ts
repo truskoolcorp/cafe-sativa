@@ -1,3 +1,4 @@
+import { prepareVenueFrame } from '@/lib/content/venue-frame'
 import { planReferencePreviews } from '@/lib/content/reference-previews'
 import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
@@ -160,9 +161,13 @@ export async function processContent(req: NextRequest, pilot = false, collectOnl
     }
     const bytes = Buffer.concat(parts)
     if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) return block('Canonical checksum changed')
+    let landscape: Buffer
+    try { landscape = await prepareVenueFrame(bytes) }
+    catch { return block('Could not prepare the complete canonical composition in 16:9. No paid generation submitted.') }
     const body = compileShot(asset, job.camera_action)
-    // Submit the exact verified bytes so the provider cannot fetch a changed reference later.
-    body.promptImage = `data:${mime};base64,${bytes.toString('base64')}`
+    // The complete checksum-verified source is fitted into 16:9 before submission.
+    // Neutral padding supplies no invented room geometry; QA still gates every take.
+    body.promptImage = `data:image/png;base64,${landscape.toString('base64')}`
     const claim = await db.rpc('cs_claim_generation', { job_id: job.id, cost_cents: quote, asset_id: asset.id })
     if (claim.error) throw claim.error
     if (claim.data !== true) return NextResponse.json({ submitted: 0, reason: 'Budget, canonical, or concurrent-claim guard blocked submission' })

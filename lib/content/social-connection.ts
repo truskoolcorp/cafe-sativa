@@ -9,6 +9,10 @@ export async function withSocialConnection<T>(operation:(context:{db:ReturnType<
   if(claim.error)throw claim.error
   const connection=claim.data?.[0]
   if(!connection)throw new Error('Social connection unavailable or busy')
+  if(connection.last_error?.includes('OAuth invalid_grant') || connection.last_error?.includes('OAuth invalid_client')) {
+    await db.from('cs_social_connections').update({lock_until:null}).eq('provider','metricool').eq('lock_until',connection.lock_until)
+    throw new Error('Metricool reconnection required before delivery checks can resume')
+  }
   let stage='administrator verification'
   try {
     const owner=await db.auth.admin.getUserById(connection.owner_id)

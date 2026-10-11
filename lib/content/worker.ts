@@ -28,7 +28,11 @@ export async function processContent(req: NextRequest, pilot = false) {
     if (pending.error) throw pending.error
     for (const job of pending.data || []) {
       const response = await fetch(`${BASE}/tasks/${encodeURIComponent(job.provider_task_id)}`, { headers, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-      if (!response.ok) continue
+      if (!response.ok) {
+        const held=await db.from('cs_content_jobs').update({blocker:`Task collection returned HTTP ${response.status}; the existing provider task is retained, with no paid resubmission.`}).eq('id',job.id).eq('status','generating')
+        if(held.error)throw held.error
+        continue
+      }
       const task = await response.json()
       if (task.status === 'SUCCEEDED' && typeof task.output?.[0] === 'string') {
         const output = new URL(task.output[0])
@@ -48,9 +52,13 @@ export async function processContent(req: NextRequest, pilot = false) {
         }
         const path = `${job.id}.mp4`
         const saved = await db.storage.from('cafe-sativa-content').upload(path, Buffer.concat(chunks), { contentType: 'video/mp4', upsert: true })
-        if (saved.error) continue
+        if (saved.error) {
+          const held=await db.from('cs_content_jobs').update({blocker:'Generated clip collection could not save private media. Existing provider task retained; no paid resubmission.'}).eq('id',job.id).eq('status','generating')
+          if(held.error)throw held.error
+          continue
+        }
         // Private storage path, not an expiring provider URL. QA must approve before publication.
-        const changed = await db.from('cs_content_jobs').update({ status: 'pending_qa', output_url: path, updated_at: new Date().toISOString() }).eq('id', job.id).eq('status', 'generating')
+        const changed = await db.from('cs_content_jobs').update({ status: 'pending_qa', output_url: path, blocker:null, updated_at: new Date().toISOString() }).eq('id', job.id).eq('status', 'generating')
         if (changed.error) throw changed.error
       } else if (task.status === 'FAILED' || task.status === 'CANCELED') {
         const changed = await db.from('cs_content_jobs').update({ status: 'failed', blocker: `Provider task ${task.status}; no automatic paid retry` }).eq('id', job.id)

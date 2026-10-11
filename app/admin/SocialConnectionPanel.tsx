@@ -7,7 +7,7 @@ export default function SocialConnectionPanel() {
     const response=await fetch('/api/content/social/status',{cache:'no-store'}),body=await response.json()
     if(!response.ok)throw Error(body.error)
     setConnected(body.connected);setReceipts(body.receipts || [])
-    setMessage(body.connected?`${body.brand}: ${body.automaticDispatchEnabled?'approved delivery is enabled':body.deliveryConfigured?'delivery is configured; run the read-only test':'automatic delivery is disabled'}. ${body.lastError || ''}`:'A dedicated Metricool authorization is needed for the website operator. Existing queued posts are unaffected.')
+    setMessage(body.requiresReconnect?'Metricool authorization needs reconnecting. Automatic delivery is held; existing provider schedules have not been removed.':body.connected?`${body.brand}: ${body.automaticDispatchEnabled?'approved delivery is enabled':body.deliveryConfigured?'delivery is configured; run the read-only test':'automatic delivery is disabled'}. ${body.lastError || ''}`:'A dedicated Metricool authorization is needed for the website operator. Existing queued posts are unaffected.')
   }
   useEffect(()=>{void load().catch(()=>setMessage('Sign in as a content administrator to check the connection.'))},[])
   async function test() {

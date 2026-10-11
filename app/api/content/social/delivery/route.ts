@@ -8,6 +8,9 @@ export async function GET(req:NextRequest) {
   if(!cronAuthorized(req.headers.get('authorization')))return NextResponse.json({error:'Unauthorized'},{status:401})
   try {
     const db=createAdminClient(),now=Date.now()
+    const connection=await db.from('cs_social_connections').select('last_error').eq('provider','metricool').maybeSingle()
+    if(connection.error)throw connection.error
+    if(connection.data?.last_error?.includes('OAuth invalid_grant') || connection.data?.last_error?.includes('OAuth invalid_client'))return NextResponse.json({status:'reconnect_required',reason:'Metricool authorization must be renewed. Existing schedules remain recorded; no token refresh or post submission attempted.'},{headers:{'Cache-Control':'no-store'}})
     const [queued,stale,receipt]=await Promise.all([
       db.from('cs_social_deliveries').select('id').eq('state','queued').limit(1),
       db.from('cs_social_deliveries').select('id').eq('state','submitting').lt('submitted_at',new Date(now-600000).toISOString()).limit(1),

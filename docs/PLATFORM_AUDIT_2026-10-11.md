@@ -59,3 +59,7 @@ Stripe checkout fulfillment ignores unpaid sessions and supports delayed-payment
 Eight missing public-room previews are planned, with Stage generating and Gallery awaiting QA. The live budget currently reserves $3 of $25. The website introductions return HTTP 200 in all six categories. The payment correction deployed READY at commit a8be271602c0c07c537c5b75fb2986dbdd26defe.
 
 The recurring social worker is configured but its connection check currently fails. Existing three provider schedules remain recorded; refreshed receipts and actual publication are not established. Safe stage/error-code diagnostics identify the failure without token exposure. The current browser lacks an authenticated administrator session, so the dashboard connection test/reconnect remains access-dependent. Do not equate dispatch_enabled with a healthy connection.
+
+## Follow-up at 22:52 Chicago
+
+The real worker diagnostics establish OAuth invalid_grant (HTTP 400), not a guessed credential or publishing error. Reconnect the existing dedicated Metricool authorization from an authenticated content-admin session; automatic refresh is held until then. Provider schedules were not deleted or resubmitted. Dashboard and API readiness no longer label an errored connection as healthy. Sign-in reads submitted form values, honors the administrator return destination, and rejects external/backslash redirects. Generation collection records task HTTP/storage failures without a paid resubmission.

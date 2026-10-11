@@ -18,7 +18,7 @@ export async function GET() {
       db.from('cs_content_jobs').select('*').order('created_at', { ascending: false }).limit(50),
       db.from('cs_canonical_assets').select('*').order('subject').limit(100),
       db.from('cs_content_budget').select('*').order('month', { ascending: false }).limit(12),
-      db.from('cs_social_connections').select('status,dispatch_enabled,capabilities_verified').eq('provider','metricool').maybeSingle(),
+      db.from('cs_social_connections').select('status,dispatch_enabled,capabilities_verified,last_error').eq('provider','metricool').maybeSingle(),
       db.from('content_items').select('id,title,site_category,status,copy_draft,scheduled_at,source_job_id').not('site_category','is',null).order('created_at',{ascending:false}).limit(100),
     ])
     if (jobs.error || assets.error || budget.error || social.error || website.error) throw new Error('Unavailable')
@@ -36,7 +36,7 @@ export async function GET() {
       missingRooms,
       approvedRoomCount: approvedRooms.length,
       characterSource: 'GLYPH Master References holds the current approved portraits and voices. Character episode production remains unfinished.',
-      socialDispatchConfigured: Boolean(social.data?.status==='verified' && social.data.dispatch_enabled && social.data.capabilities_verified),
+      socialDispatchConfigured: Boolean(social.data?.status==='verified' && social.data.dispatch_enabled && social.data.capabilities_verified && !social.data.last_error),
       voiceVerification: 'Owner reported all three Ask voices working on October 9, 2026. Visual identity approval is separate.',
     }
     return response({ operational, jobs: previews, websiteItems:website.data, assets: assets.data, budget: budget.data, generationEnabled: process.env.CS_CONTENT_GENERATION_ENABLED === 'true', monthlyLimitCents: CONTENT_POLICY.monthlyBudgetCents,monthlyReservedCents:budget.data?.find(row=>row.month===`${localDate(new Date()).slice(0,7)}-01`)?.reserved_cents || 0 })

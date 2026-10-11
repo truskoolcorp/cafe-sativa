@@ -54,6 +54,7 @@ function SignInForm() {
 
   async function handleSignIn(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const submitted = new FormData(e.currentTarget)
     setLoading(true)
     setError(null)
 
@@ -67,8 +68,8 @@ function SignInForm() {
 
     try {
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: String(submitted.get('email') || email),
+        password: String(submitted.get('password') || password),
       })
 
       if (signInError) {
@@ -80,7 +81,8 @@ function SignInForm() {
       // Redirect target comes from the upstream page — /membership
       // and /events/[slug] both pass along an `intent` param so the
       // action auto-resumes on return.
-      const redirectTo = searchParams.get('redirect') || '/account'
+      const requestedRedirect = searchParams.get('redirect') || searchParams.get('next') || '/account'
+      const redirectTo = requestedRedirect.startsWith('/') && !requestedRedirect.startsWith('//') && !requestedRedirect.includes('\\') ? requestedRedirect : '/account'
       router.push(redirectTo)
       router.refresh()
     } catch (err: any) {
@@ -113,6 +115,7 @@ function SignInForm() {
           </label>
           <Input
             id="email"
+            name="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -137,6 +140,7 @@ function SignInForm() {
           </div>
           <Input
             id="password"
+            name="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

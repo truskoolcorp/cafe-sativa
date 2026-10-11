@@ -13,10 +13,11 @@ export async function POST(req: Request) {
   try {
     const { data: auth, error: authError } = await createClient().auth.getUser()
     if (authError || !auth.user) return reply({ error: 'Sign in to manage your membership.' }, 401)
+    const userId = auth.user.id
     const key = process.env.STRIPE_SECRET_KEY
     if (!key) return reply({ error: 'Membership billing is temporarily unavailable.' }, 503)
     const { data: member, error } = await createAdminClient().from('memberships')
-      .select('stripe_customer_id, stripe_subscription_id').eq('user_id', auth.user.id).maybeSingle()
+      .select('stripe_customer_id, stripe_subscription_id').eq('user_id', userId).maybeSingle()
     if (error) return reply({ error: 'Could not verify your membership. Please retry.' }, 503)
     if (!member?.stripe_customer_id || !member.stripe_subscription_id) {
       return reply({ error: 'No paid subscription is linked to your account.' }, 409)
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
     const stripe = new Stripe(key)
     const sub = await stripe.subscriptions.retrieve(member.stripe_subscription_id)
     const customer = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
-    const ownSubscription = (entry: Stripe.Subscription) => entry.metadata.user_id === auth.user.id &&
+    const ownSubscription = (entry: Stripe.Subscription) => entry.metadata.user_id === userId &&
       entry.items.data.length === 1 && PRICES.has(entry.items.data[0].price.id)
     if (customer !== member.stripe_customer_id || !ownSubscription(sub)) {
       return reply({ error: 'Your billing link needs support verification.' }, 409)

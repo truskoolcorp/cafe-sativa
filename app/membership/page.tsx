@@ -56,7 +56,7 @@ type MembershipState = {
 // we only edit once.
 const FEATURES = [
   {
-    label: 'Walk the 3D venue',
+    label: 'Explore the virtual venue',
     explorer: true,
     regular: true,
     vip: true,
@@ -74,34 +74,34 @@ const FEATURES = [
     vip: true,
   },
   {
-    label: 'Most events free',
+    label: 'Eligible confirmed events included',
     explorer: false,
     regular: true,
     vip: true,
   },
   {
-    label: 'Every event free',
+    label: 'VIP access to eligible confirmed events',
     explorer: false,
     regular: false,
     vip: true,
   },
   {
-    label: 'Priority Q&A seating at guest events',
+    label: 'Guest Q&A priority (when offered)',
     explorer: false,
     regular: false,
     vip: true,
   },
   {
-    label: 'Cigar Lounge master blender sessions',
+    label: 'Cigar Lounge sessions (when confirmed)',
     explorer: false,
     regular: false,
     vip: true,
   },
   {
-    label: 'Tenerife opening-week priority list',
+    label: 'Physical opening access (not yet confirmed)',
     explorer: false,
-    regular: 'Waitlist',
-    vip: 'Reserved',
+    regular: 'To be announced',
+    vip: 'To be announced',
   },
 ] as const
 
@@ -125,7 +125,7 @@ const TIERS: TierCard[] = [
     cadence: 'forever',
     description: 'Browse the venue. Buy tickets à la carte.',
     highlights: [
-      'Walk the 3D venue',
+      'Explore the virtual venue',
       'Purchase tickets to any event',
       'Chat with our AI hosts',
     ],
@@ -135,10 +135,10 @@ const TIERS: TierCard[] = [
     name: 'Regular',
     price: '$9.99',
     cadence: 'per month',
-    description: 'Free events every week. Priority access to the rest.',
+    description: 'A monthly virtual membership with extended host memory.',
     highlights: [
-      'Most events included free',
-      'Cooking classes at member rates',
+      'Eligible confirmed events included',
+      'Event availability announced separately',
       '90-day conversation memory',
     ],
     featured: true,
@@ -148,11 +148,11 @@ const TIERS: TierCard[] = [
     name: 'VIP',
     price: '$24.99',
     cadence: 'per month',
-    description: 'Everything. Plus backstage.',
+    description: 'Extended host memory and eligible VIP programming.',
     highlights: [
-      'Every event included free',
-      'Priority guest Q&A seating',
-      '365-day memory + VIP-only rooms',
+      'Eligible confirmed VIP events included',
+      'Guest Q&A priority when offered',
+      '365-day conversation memory',
     ],
   },
 ]
@@ -502,7 +502,7 @@ function MembershipInner() {
               {tier.featured && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <span className="inline-block px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-body font-semibold tracking-widest uppercase">
-                    Most Popular
+                    Regular Membership
                   </span>
                 </div>
               )}
@@ -550,7 +550,7 @@ function MembershipInner() {
               What&rsquo;s in each tier.
             </h2>
             <p className="text-sm text-muted-foreground font-body mt-3">
-              Every detail, laid out. Manage billing or request a plan change from your account.
+              Events, guest sessions and physical opening benefits depend on confirmed programming. No upcoming event or physical reservation is included by this page. Manage billing from your account.
             </p>
           </div>
 

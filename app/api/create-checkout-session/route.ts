@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { CAFE_MEMBERSHIP_PRICES } from '@/lib/membership-prices'
 
 type Tier = 'regular' | 'vip'
 
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
         ? process.env.STRIPE_PRICE_VIP_MONTHLY || process.env.STRIPE_PRICE_FOUNDING
         : process.env.STRIPE_PRICE_REGULAR_MONTHLY || process.env.STRIPE_PRICE_INSIDER
 
-    if (!priceId) {
+    if (!priceId || CAFE_MEMBERSHIP_PRICES[priceId] !== tier) {
       return NextResponse.json(
         { error: 'This membership plan is temporarily unavailable.' },
         { status: 503 }
@@ -122,6 +123,15 @@ export async function POST(req: Request) {
     const existingCustomerId = existingMembership?.stripe_customer_id || null
 
     const stripe = new Stripe(stripeSecretKey)
+
+    // Verify the live offer against the amount displayed to customers.
+    // A legacy founding or annual price must never silently replace monthly checkout.
+    const price = await stripe.prices.retrieve(priceId)
+    if (!price.active || price.currency !== 'usd' || price.type !== 'recurring' ||
+        price.unit_amount !== (tier === 'regular' ? 999 : 2499) ||
+        price.recurring?.interval !== 'month' || price.recurring.interval_count !== 1) {
+      return NextResponse.json({ error: 'This membership plan is temporarily unavailable.' }, { status: 503 })
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',

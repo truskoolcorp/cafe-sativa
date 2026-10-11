@@ -1,5 +1,5 @@
 export const CONTENT_POLICY = {
-  version: '2026-10-07',
+  version: '2026-10-11',
   monthlyBudgetCents: 2500,
   timezone: 'America/Chicago',
   venueStatus: 'virtual-first; future physical Tenerife venue',
@@ -35,8 +35,10 @@ export function compileShot(venue: CanonicalAsset, action: string) {
   if (!approvedAsset(venue) || venue.kind !== 'venue') throw new Error('Approved venue keyframe required')
   if (!action.trim() || action.length > 300) throw new Error('Invalid camera action')
   return {
-    model: 'gen4.5', promptImage: venue.url, ratio: '720:1280', duration: 5,
-    promptText: `Photorealistic live-action cinematography of this exact virtual Café Sativa venue. ${action.trim()} Preserve the exact room geometry, furnishings, materials and lighting of the reference. Natural motion and physically accurate shadows. No added people, no altered signage, no new objects.`,
+    model: 'gen4.5', promptImage: venue.url, ratio: '1280:720', duration: 5,
+    // Existing drafts may request movement. Until a new take passes canonical QA,
+    // do not reveal unseen geometry or synthesize portrait framing from landscape masters.
+    promptText: 'A single uninterrupted locked-off shot of this exact empty virtual Café Sativa venue. The camera stays completely stationary throughout. Preserve the reference composition, exact room geometry, furnishings, materials, artwork and lighting. No cuts, transitions, camera movement, new viewpoints, added people, altered signage or new objects.',
   }
 }
 

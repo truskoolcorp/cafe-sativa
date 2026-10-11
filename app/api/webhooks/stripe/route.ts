@@ -108,45 +108,41 @@ export async function POST(req: Request) {
             console.warn('[stripe-webhook] gallery session missing metadata', { sessionId: session.id })
             break
           }
-          const { data: existing } = await admin.from('orders').select('id').eq('stripe_checkout_session_id', session.id).maybeSingle()
-          if (existing) { console.log(`[stripe-webhook] gallery order already exists session=${session.id}, ack`); break }
+          if (session.payment_status !== 'paid' || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) throw Error('Invalid gallery payment')
           const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id ?? null
+          if(!paymentIntentId)throw Error('Payment intent required')
+          const [lines,intent]=await Promise.all([
+            stripe.checkout.sessions.listLineItems(session.id,{limit:2}),
+            stripe.paymentIntents.retrieve(paymentIntentId),
+          ])
+          if(lines.has_more || lines.data.length!==1 || lines.data[0].quantity!==quantity)throw Error('Checkout line mismatch')
+          const line=lines.data[0],lineTotal=line.amount_subtotal
+          const applicationFee=intent.application_fee_amount
+          if(!Number.isInteger(lineTotal)||lineTotal<=0||lineTotal%quantity!==0||applicationFee===null)throw Error('Invalid paid line')
           const shipping = session.collected_information?.shipping_details ?? null
           const addr = shipping?.address ?? null
-          const { data: product } = await admin.from('products').select('id,title,price_cents,kind,digital_delivery_url,stock_count').eq('id', productId).maybeSingle()
-          if (!product) { console.error('[stripe-webhook] unknown product', productId); break }
-          const { data: artist } = await admin.from('artists').select('stripe_account_id').eq('id', artistId).maybeSingle()
-          const lineTotal = product.price_cents * quantity
-          const applicationFee = Math.floor(lineTotal * 0.1)
-          const fulfillmentState = product.kind === 'physical' ? 'pending' : 'delivered'
-          const { data: order, error: orderError } = await admin.from('orders').insert({
-            user_id: userId, buyer_email: session.customer_details?.email || session.customer_email || '',
-            stripe_checkout_session_id: session.id, stripe_payment_intent_id: paymentIntentId,
-            subtotal_cents: lineTotal, shipping_cents: session.shipping_cost?.amount_total ?? 0,
-            tax_cents: session.total_details?.amount_tax ?? 0, total_cents: session.amount_total ?? lineTotal,
-            currency: session.currency || 'usd', shipping_name: shipping?.name ?? null,
-            shipping_line1: addr?.line1 ?? null, shipping_line2: addr?.line2 ?? null,
-            shipping_city: addr?.city ?? null, shipping_state: addr?.state ?? null,
-            shipping_postal_code: addr?.postal_code ?? null, shipping_country: addr?.country ?? null,
-            fulfillment_state: fulfillmentState, paid_at: new Date().toISOString(),
-            delivered_at: fulfillmentState === 'delivered' ? new Date().toISOString() : null,
-          }).select('id').single()
-          if (orderError || !order) return NextResponse.json({ error: 'Order write failed.' }, { status: 500 })
-          await admin.from('order_items').insert({
-            order_id: order.id, product_id: productId, artist_id: artistId,
-            title_snapshot: product.title, price_cents: product.price_cents, quantity,
-            line_total_cents: lineTotal, application_fee_cents: applicationFee,
-            transfer_destination: artist?.stripe_account_id ?? null,
+          const { data: product,error:productError } = await admin.from('products').select('id,title,kind,digital_delivery_url').eq('id', productId).maybeSingle()
+          if(productError || !product)throw Error('Paid product unavailable')
+          const fulfillmentState='pending'
+          const {data:recorded,error:recordError}=await admin.rpc('cs_record_gallery_payment',{
+            product_uuid:productId,artist_uuid:artistId,quantity,
+            receipt:{session_id:session.id,payment_status:session.payment_status,user_id:userId,
+              payment_intent_id:paymentIntentId,email:session.customer_details?.email || session.customer_email || '',
+              subtotal_cents:lineTotal,total_cents:session.amount_total,currency:session.currency || 'usd',
+              application_fee_cents:applicationFee,title:line.description,
+              shipping_cents:session.shipping_cost?.amount_total || 0,tax_cents:session.total_details?.amount_tax || 0,
+              shipping_name:shipping?.name,shipping_line1:addr?.line1,shipping_line2:addr?.line2,
+              shipping_city:addr?.city,shipping_state:addr?.state,shipping_postal_code:addr?.postal_code,shipping_country:addr?.country},
           })
-          if (product.stock_count !== null && product.stock_count !== undefined) {
-            await admin.from('products').update({ stock_count: Math.max(0, product.stock_count - quantity) }).eq('id', productId)
-          }
+          if(recordError || !recorded?.id)throw Error('Atomic paid order write failed')
+          if(!recorded.created)break
+          const order={id:recorded.id}
           try {
             const { sendOrderConfirmation } = await import('@/lib/email/send-order-confirmation')
             await sendOrderConfirmation({
               to: session.customer_details?.email || session.customer_email || '',
               orderId: order.id, productTitle: product.title, productKind: product.kind,
-              priceCents: product.price_cents, quantity, totalCents: session.amount_total ?? lineTotal,
+              priceCents: lineTotal / quantity, quantity, totalCents: session.amount_total ?? lineTotal,
               digitalDeliveryUrl: product.digital_delivery_url ?? null, fulfillmentState,
             })
           } catch (emailErr) { console.error('[stripe-webhook] order confirmation email failed', emailErr) }
@@ -206,9 +202,12 @@ export async function POST(req: Request) {
         const charge = event.data.object as Stripe.Charge
         const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
         if (!paymentIntentId || !charge.refunded) break
+        const {error:orderRefundError}=await admin.from('orders').update({fulfillment_state:'refunded',updated_at:new Date().toISOString()}).eq('stripe_payment_intent_id',paymentIntentId)
+        if(orderRefundError)throw orderRefundError
         const { data: ticket } = await admin.from('tickets').select('id,state').eq('stripe_payment_intent_id', paymentIntentId).maybeSingle()
         if (!ticket || ticket.state === 'refunded') break
-        await admin.from('tickets').update({ state: 'refunded' }).eq('id', ticket.id)
+        const {error:ticketRefundError}=await admin.from('tickets').update({ state: 'refunded' }).eq('id', ticket.id)
+        if(ticketRefundError)throw ticketRefundError
         console.log(`[stripe-webhook] Ticket ${ticket.id} refunded`)
         break
       }

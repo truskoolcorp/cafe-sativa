@@ -18,7 +18,8 @@ https://docs.livekit.io/agents/server/agent-dispatch/
 ## Commerce
 Gallery checkout now rejects cross-origin requests, invalid product IDs and non-integer/out-of-range quantities. It blocks non-positive prices and nonphysical products without a delivery asset, and returns a generic provider error.
 Production gallery currently has zero products and zero orders. A gallery purchase and fulfillment cannot be honestly marked verified.
-Existing webhook issues requiring further work: gallery order and line item/inventory writes are separate; retry after a partial order write can be acknowledged without completion; mutable catalog price is used after payment; digital delivered status does not prove successful delivery; gallery refund reconciliation needs coverage. Do not claim checkout hardening completes these.
+Gallery paid orders now use a service-role-only atomic database function: order, line item and stock decrement commit together, with product locking and session idempotency. Webhook prices and application fees are read from Stripe's paid line/payment intent rather than mutable catalog prices. Digital fulfillment stays pending. Full-refund webhooks update gallery orders; inventory is not restored without an actual return decision. Rollback-only database tests passed for replay, single inventory decrement, paid-price snapshots, insufficient stock and RPC permissions; no test data or financial transaction remains.
+Remaining fulfillment work: concurrent checkout reservations, reliable email/digital-delivery retries and receipt tracking, physical fulfillment, actual Connect checkout, and full/partial refund end-to-end tests. Existing scheduled callbacks must be observed; code and rollback tests alone do not complete fulfillment.
 Mocked gallery checkout, Stripe entitlements, download access and scoped memory-grant checks pass. No financial transaction, refund or outbound message performed.
 
 ## Content and publishing

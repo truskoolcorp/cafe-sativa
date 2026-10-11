@@ -25,19 +25,22 @@ type Tier = 'regular' | 'vip'
  *   5. Return { url } for the client to redirect to.
  */
 export async function POST(req: Request) {
+  if (req.headers.get('origin') !== new URL(req.url).origin) {
+    return NextResponse.json({ error: 'Invalid origin.' }, { status: 403 })
+  }
   try {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
 
     if (!stripeSecretKey) {
       return NextResponse.json(
-        { error: 'Missing STRIPE_SECRET_KEY' },
+        { error: 'Membership checkout is temporarily unavailable.' },
         { status: 500 }
       )
     }
     if (!siteUrl) {
       return NextResponse.json(
-        { error: 'Missing NEXT_PUBLIC_SITE_URL' },
+        { error: 'Membership checkout is temporarily unavailable.' },
         { status: 500 }
       )
     }
@@ -64,13 +67,9 @@ export async function POST(req: Request) {
         : process.env.STRIPE_PRICE_REGULAR_MONTHLY || process.env.STRIPE_PRICE_INSIDER
 
     if (!priceId) {
-      const expectedVar =
-        tier === 'vip' ? 'STRIPE_PRICE_VIP_MONTHLY' : 'STRIPE_PRICE_REGULAR_MONTHLY'
       return NextResponse.json(
-        {
-          error: `Missing Stripe price for ${tier}. Set ${expectedVar} in Vercel env vars.`,
-        },
-        { status: 500 }
+        { error: 'This membership plan is temporarily unavailable.' },
+        { status: 503 }
       )
     }
 
@@ -100,11 +99,25 @@ export async function POST(req: Request) {
     // If they've never subscribed before there won't be a row yet — that's fine,
     // we pass customer_email and Stripe will create a new Customer.
     const admin = createAdminClient()
-    const { data: existingMembership } = await admin
+    const { data: existingMembership, error: membershipError } = await admin
       .from('memberships')
-      .select('stripe_customer_id')
+      .select('stripe_customer_id, stripe_subscription_id')
       .eq('user_id', user.id)
       .maybeSingle()
+
+    if (membershipError) {
+      return NextResponse.json({ error: 'Could not verify your membership. Please retry.' }, { status: 503 })
+    }
+    // Never start a second subscription while the recorded one can still bill.
+    if (existingMembership?.stripe_subscription_id) {
+      const current = await new Stripe(stripeSecretKey).subscriptions.retrieve(existingMembership.stripe_subscription_id)
+      if (!['canceled', 'incomplete_expired'].includes(current.status)) {
+        return NextResponse.json({
+          error: 'You already have a subscription. Contact support to change your plan or resolve payment; do not purchase another membership.',
+          code: 'existing_subscription',
+        }, { status: 409 })
+      }
+    }
 
     const existingCustomerId = existingMembership?.stripe_customer_id || null
 
@@ -151,11 +164,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        error:
-          error?.message ||
-          error?.raw?.message ||
-          error?.code ||
-          'Checkout failed',
+        error: 'Could not start membership checkout. Please retry.',
       },
       { status: 500 }
     )

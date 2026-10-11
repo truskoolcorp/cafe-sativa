@@ -164,18 +164,18 @@ export default function AdminPage() {
       <div style={{ padding:'20px 24px', display:'flex', flexWrap:'wrap', alignItems:'center', gap:12 }}>
         <button className={styles.primary} onClick={()=>{setTab('approvals');setFilter('all');}}>Review &amp; approve ({totalPending})</button>
         <a className={styles.secondary} href="https://app.metricool.com/planner/calendar?blogId=5373515" target="_blank" rel="noreferrer">Open social planner ↗</a>
-        <span style={{ color:C.textDim }}>Generation {current?.generationEnabled ? 'enabled' : 'paused'} · $25 monthly limit</span>
+        <span style={{ color:C.textDim }}>Generation {current ? (current.generationEnabled ? 'enabled' : 'paused') : 'status unavailable'} · $25 monthly limit</span>
       </div>
-      {loadError && <p role="alert" style={{ padding:20, color:'#ffb8b0' }}>{loadError}</p>}
+      {loadError && <p role="alert" style={{ padding:20, color:'#ffb8b0' }}>{loadError} {!current && <a className={styles.secondary} href="/auth/signin?next=/admin">Sign in to administration</a>}</p>}
       {/* Stats */}
-      <div style={{ padding:'16px 24px', display:'flex', gap:10, flexWrap:'wrap', borderBottom:`1px solid ${C.border}` }}>
+      {current && <div style={{ padding:'16px 24px', display:'flex', gap:10, flexWrap:'wrap', borderBottom:`1px solid ${C.border}` }}>
         <Stat label="Total" value={records.length + liveJobs.length + (current?.websiteItems?.length || 0)} />
         <Stat label="Pending" value={totalPending} color={C.amber} />
         <Stat label="Clips scheduled" value={current?.jobs.filter((j:any)=>j.status==='scheduled').length || 0} color="#5aa0d0" />
         <Stat label="Clips published" value={current?.jobs.filter((j:any)=>j.status==='published').length || 0} color={C.green} />
         <Stat label="Program drafts" value={current?.websiteItems?.filter((i:any)=>i.status==='pending_approval').length || 0} color={C.amber} />
         <Stat label="Approved rooms" value={current?.operational?.approvedRoomCount || 0} color={C.green} />
-      </div>
+      </div>}
 
       {/* Tabs */}
       <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, padding:'0 24px', background:C.surface }}>

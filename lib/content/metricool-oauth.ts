@@ -39,7 +39,12 @@ export function validateOAuthState(cookie:string,state:string|null,ownerId:strin
 export async function providerJson(path:'/oauth/token',body:object|URLSearchParams) {
   const form=body instanceof URLSearchParams
   const response=await fetch(METRICOOL_ORIGIN+path,{method:'POST',headers:{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'},body:form?body.toString():JSON.stringify(body),redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)})
-  if(!response.ok)throw new Error('Metricool authorization service rejected the request')
+  if(!response.ok) {
+    const errorBody=await response.json().catch(()=>null)
+    const allowed=['invalid_grant','invalid_client','invalid_request','unauthorized_client','invalid_scope','temporarily_unavailable','server_error']
+    const code=allowed.includes(errorBody?.error)?errorBody.error:'authorization_rejected'
+    throw new Error(`Metricool OAuth ${code} (HTTP ${response.status})`)
+  }
   const text=await response.text()
   if(text.length>50000)throw new Error('Invalid Metricool response')
   return JSON.parse(text)

@@ -53,3 +53,9 @@ Commit 0dda45f26d7171f0727c22dcbc969c205b68eb08 deployed READY on the existing d
 ## Payment correction
 
 Stripe checkout fulfillment ignores unpaid sessions and supports delayed-payment success. Membership access uses current provider subscription status, and failed database writes return a retryable error. Partial ticket refunds no longer invalidate the entire ticket. Mocked event tests pass; real checkout, refunds and gallery inventory transactions still require end-to-end verification. Official basis: https://docs.stripe.com/checkout/fulfillment.md?payment-ui=stripe-hosted.
+
+## Current background jobs and connection limitation
+
+Eight missing public-room previews are planned, with Stage generating and Gallery awaiting QA. The live budget currently reserves $3 of $25. The website introductions return HTTP 200 in all six categories. The payment correction deployed READY at commit a8be271602c0c07c537c5b75fb2986dbdd26defe.
+
+The recurring social worker is configured but its connection check currently fails. Existing three provider schedules remain recorded; refreshed receipts and actual publication are not established. Safe stage/error-code diagnostics identify the failure without token exposure. The current browser lacks an authenticated administrator session, so the dashboard connection test/reconnect remains access-dependent. Do not equate dispatch_enabled with a healthy connection.

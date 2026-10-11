@@ -47,9 +47,11 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
     finally { setBusy(false) }
   }
   async function review(id: string, action: string) {
+    const job=data?.jobs.find((item:any)=>item.id===id)
+    const asset=data?.assets.find((item:any)=>item.id===job?.canonical_asset_id)
     setBusy(true); setError(''); setMessage('Saving your review…')
     try {
-      const r = await fetch('/api/content/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, checks: selected[id] }) })
+      const r = await fetch('/api/content/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, checks: selected[id], canonicalSnapshot:asset?{id:asset.id,sha256:asset.sha256,version:asset.version}:null }) })
       const body = await r.json()
       if (!r.ok) throw new Error(body.error)
       setSelected({}); setMessage(action === 'approve' ? body.websiteDraftWarning || 'Clip accuracy approved. Open Website programming to review its caption, release time and optional social delivery.' : 'Clip rejected. No automatic paid retry will run.'); await load(); onChanged?.()
@@ -75,7 +77,8 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
       {data.jobs.filter((job: any) => !jobId || job.id === jobId).map((job: any) => {
         const asset = data.assets.find((a: any) => a.id === job.canonical_asset_id)
         const count = Object.keys(checks).filter(key => selected[job.id]?.[key]).length
-        const canApprove = !!job.previewUrl && count === Object.keys(checks).length
+        const currentReference=Boolean(asset?.active && asset.approved_by && asset.approved_at && asset.version && /^[a-f0-9]{64}$/.test(asset.sha256 || ''))
+        const canApprove = currentReference && !!job.previewUrl && count === Object.keys(checks).length
         return <article id={`job-${job.id}`} key={job.id} className={styles.card}>
           <div className={styles.cardTitle}><h3>{job.title}</h3><span className={`${styles.badge} ${['approved','scheduled','published'].includes(job.status) ? styles.success : ''}`}>{job.status.replaceAll('_', ' ')}</span></div>
           <p className={styles.meta}>{job.slot_key}</p><p>{job.caption}</p>
@@ -88,14 +91,14 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
           {job.blocker && <details className={styles.details}><summary>{job.status === 'scheduled' ? 'Show delivery receipt' : 'Show setup details'}</summary><p>{job.blocker}</p></details>}
           <div className={styles.mediaGrid}>
             {job.previewUrl && <section><h4>Video preview</h4><video src={job.previewUrl} controls preload="metadata" className={styles.media} /><a className={styles.textLink} href={job.previewUrl} target="_blank" rel="noreferrer">Open video in a new tab ↗</a></section>}
-            {asset && <section><h4>Approved reference</h4><img src={asset.url} alt={`Approved ${asset.subject} reference`} className={styles.media} /><a className={styles.textLink} href={asset.url} target="_blank" rel="noreferrer">Open full-size reference ↗</a></section>}
+            {asset && <section><h4>{currentReference?'Approved reference':'Reference requires attention'}</h4><p className={styles.meta}>Version {asset.version} · {currentReference?'Current approved master':'Approval is blocked; refresh Master References'}</p><img src={asset.url} alt={`Approved ${asset.subject} reference`} className={styles.media} /><a className={styles.textLink} href={asset.url} target="_blank" rel="noreferrer">Open full-size reference ↗</a></section>}
           </div>
           {job.status === 'pending_qa' && <fieldset id={`review-${job.id}`} className={styles.checklist} disabled={locked}>
             <legend>Accuracy review · {count} of {Object.keys(checks).length} complete</legend>
             <p>Check each statement after watching the whole clip.</p>
             {Object.entries(checks).map(([key, label]) => <label key={key} className={styles.check}><input type="checkbox" checked={selected[job.id]?.[key] || false} onChange={e => setSelected(p => ({ ...p, [job.id]: { ...p[job.id], [key]: e.target.checked } }))} /><span>{label}</span></label>)}
             <div className={styles.actions}><button className={`${styles.button} ${styles.approve}`} disabled={locked || !canApprove} aria-describedby={`approve-help-${job.id}`} onClick={() => review(job.id, 'approve')}>{busy ? 'Saving…' : '✓ Approve for reuse'}</button><button className={`${styles.button} ${styles.reject}`} disabled={locked} onClick={() => review(job.id, 'reject')}>Reject clip</button></div>
-            <p id={`approve-help-${job.id}`} className={styles.meta}>{!job.previewUrl ? 'Refresh previews to load the video before approval.' : canApprove ? 'Ready to save your approval.' : `Complete all ${Object.keys(checks).length} checks to enable approval.`}</p>
+            <p id={`approve-help-${job.id}`} className={styles.meta}>{!currentReference ? 'A current approved room reference is required before approval.' : !job.previewUrl ? 'Refresh previews to load the video before approval.' : canApprove ? 'Ready to save your approval.' : `Complete all ${Object.keys(checks).length} checks to enable approval.`}</p>
           </fieldset>}
         </article>
       })}

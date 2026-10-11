@@ -60,9 +60,11 @@ export async function POST(req: NextRequest) {
     if (!job || job.status !== 'pending_qa') return response({ error: 'This job is no longer awaiting review.' }, 409)
     if (body.action === 'approve') {
       if (!/^[0-9a-f-]{36}\.mp4$/i.test(job.output_url || '') || job.policy_version !== CONTENT_POLICY.version) return response({ error: 'Current policy and stored video required.' }, 409)
-      const asset = await db.from('cs_canonical_assets').select('id').eq('id', job.canonical_asset_id).eq('active', true).eq('kind', 'venue').eq('subject', job.room).not('approved_by', 'is', null).not('approved_at', 'is', null).maybeSingle()
+      const asset = await db.from('cs_canonical_assets').select('*').eq('id', job.canonical_asset_id).eq('active', true).eq('kind', 'venue').eq('subject', job.room).not('approved_by', 'is', null).not('approved_at', 'is', null).maybeSingle()
       if (asset.error) throw asset.error
-      if (!asset.data) return response({ error: 'The venue reference is no longer approved.' }, 409)
+      if (!approvedAsset(asset.data)) return response({ error: 'The venue reference is no longer approved.' }, 409)
+      const snapshot=body.canonicalSnapshot
+      if (!snapshot || snapshot.id!==asset.data.id || snapshot.sha256!==asset.data.sha256 || snapshot.version!==asset.data.version) return response({error:'The room reference changed or the review is outdated. Refresh and compare the clip against the current master.'},409)
       const media = await db.storage.from('cafe-sativa-content').createSignedUrl(job.output_url, 60)
       if (media.error || !media.data) return response({ error: 'Stored video unavailable.' }, 409)
     }

@@ -27,7 +27,7 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
       if(!Array.isArray(posts))throw new Error('Invalid social receipt response')
       for(const row of receipts.data) {
         const post=posts.find((post:any)=>String(post.uuid)===row.provider_uuid)
-        const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),...(post?{provider_post_id:post.id,receipt:{uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,observation:'Still present in the scheduled-post queue'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
+        const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),...(post?{provider_post_id:post.id,receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,observation:'Still present in the scheduled-post queue'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
         if(update.error)throw update.error
       }
     }

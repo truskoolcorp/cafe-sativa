@@ -16,8 +16,12 @@ function mapStripeStatus(s: string): MembershipStatus {
 
 function extractPeriodEnd(sub: Stripe.Subscription): string | null {
   const fi = sub.items?.data?.[0]
-  if (!fi?.current_period_end) return null
-  return new Date(fi.current_period_end * 1000).toISOString()
+  // The existing webhook uses Stripe's 2020 event schema, which places
+  // this value on the subscription. Current SDK retrievals use items.
+  const end = fi?.current_period_end ?? (sub as unknown as {current_period_end?: number}).current_period_end
+  if (typeof end !== 'number' || !Number.isFinite(end) || end <= 0) return null
+  const date = new Date(end * 1000)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 export async function POST(req: Request) {

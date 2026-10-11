@@ -24,6 +24,17 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [socialPreviews, setSocialPreviews] = useState<Record<string,string>>({})
+  async function prepareSocialPreview(jobId: string) {
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const res=await fetch('/api/content/video-export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId})})
+      const result=await res.json()
+      if(!res.ok || !result.url)throw new Error(result.error || 'Preview unavailable')
+      setSocialPreviews(current=>({...current,[jobId]:result.url})); setMessage(result.message)
+    } catch(err) {setError(err instanceof Error?err.message:'Preview unavailable')}
+    finally {setBusy(false)}
+  }
   const reviewedSources=useRef<Record<string,string>>({})
   const [selected, setSelected] = useState<Record<string, Record<string, boolean>>>({})
   async function load() {
@@ -95,6 +106,8 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
             {job.slot_key === pilotSlot && ['planned','blocked','generating'].includes(job.status) && <button className={`${styles.button} ${styles.primary}`} disabled={locked} onClick={pilot}>{busy ? 'Working…' : job.status === 'generating' ? 'Check pilot result →' : 'Run approved 5-second pilot · $1 reserved →'}</button>}
             {job.slot_key === pilotSlot && ['scheduled','published'].includes(job.status) && <a className={`${styles.button} ${styles.primary}`} href={plannerUrl} target="_blank" rel="noreferrer">View scheduled post ↗</a>}
             {job.status === 'approved' && <Link className={`${styles.button} ${styles.primary}`} href="/admin?view=website">Review caption and release time →</Link>}
+            {['approved','scheduled','published'].includes(job.status) && <button className={styles.button} disabled={locked} onClick={()=>prepareSocialPreview(job.id)}>Prepare social preview · 4:5</button>}
+            {socialPreviews[job.id] && <a className={`${styles.button} ${styles.primary}`} href={socialPreviews[job.id]} target="_blank" rel="noreferrer">Open social preview ↗</a>}
             {job.status === 'pending_qa' && <a className={`${styles.button} ${styles.primary}`} href={`#review-${job.id}`}>Complete review below ↓</a>}
           </div>
           {job.blocker && <details className={styles.details}><summary>{job.status === 'scheduled' ? 'Show delivery receipt' : 'Show setup details'}</summary><p>{job.blocker}</p></details>}

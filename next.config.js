@@ -1,5 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    outputFileTracingIncludes: {
+      '/api/content/social/delivery': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
+      '/api/content/site': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
+      '/api/content/cron': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
+    },
+  },
   images: {
     // Remote patterns for image sources. Unsplash is used for the
     // visual hero + room cards while we build out the photography

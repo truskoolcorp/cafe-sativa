@@ -3,6 +3,8 @@ import { approvedMediaJob } from '@/lib/content/approved-media'
 import { siteMediaApproved } from '@/lib/content/site'
 import { captionHash,socialCreateArguments,socialPostMatches,validSocialApproval } from '@/lib/content/social-contract'
 import { withSocialConnection } from '@/lib/content/social-connection'
+import { prepareVideoVariant } from '@/lib/content/video-variants'
+import { videoFormatFor } from '@/lib/content/video-formats'
 
 export async function queueSocialFeature(item:any,userId:string) {
   if(!item.media_url || !item.source_job_id || !await siteMediaApproved(item) || Array.from(item.copy_final || '').length>500 || new Date(item.scheduled_at).getTime()<Date.now()+1800000)throw new Error('Approved clip, caption up to 500 characters and future release time required')
@@ -45,18 +47,23 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
     const posts=Array.isArray(before)?before:before.data
     if(!Array.isArray(posts))throw new Error('Invalid scheduled-post response')
     if(posts.some((post:any)=>socialPostMatches(post,row,brand.timezone)))return fail('A matching caption and time already exist in Metricool. Review instead of creating a duplicate.')
-    const media=await db.storage.from('cafe-sativa-content').createSignedUrl(job.output_url,3600)
-    if(media.error || !media.data)throw new Error('Approved media unavailable')
+    // Both currently authorized destinations use our 4:5 feed preset.
+    // A new placement must resolve its own preset before enabling that destination.
+    const format=videoFormatFor('facebook','feed')
+    if(format!==videoFormatFor('threads','feed'))return fail('Destinations need separate media exports')
+    let media
+    try { media=await prepareVideoVariant(db,job,format) }
+    catch { return fail('Social export failed before submission. Review master and processing status; no post was sent.') }
     const claim=await db.from('cs_social_deliveries').update({state:'submitting',submitted_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',row.id).eq('state','queued').select('id').maybeSingle()
     if(claim.error)throw claim.error
     if(!claim.data)return {status:'already_claimed'}
     try {
-      await session.call('createScheduledPost',socialCreateArguments(row,brand.timezone,media.data.signedUrl))
+      await session.call('createScheduledPost',socialCreateArguments(row,brand.timezone,media.url))
       const after=await session.call('getScheduledPosts',window)
       const saved=(Array.isArray(after)?after:after.data)?.filter((post:any)=>socialPostMatches(post,row,brand.timezone) && post.autoPublish===true && post.draft===false && post.media?.length>0 && post.media.every((url:unknown)=>typeof url==='string' && url.startsWith('https://static.metricool.com/')) && post.uuid && post.id)
       if(!Array.isArray(saved) || saved.length!==1)return fail('Submission result is ambiguous. Inspect Metricool; no automatic retry.','submission_unknown')
       const post=saved[0]
-      const receipt=await db.from('cs_social_deliveries').update({state:'scheduled',provider_post_id:post.id,provider_uuid:String(post.uuid),receipt:{uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,observation:'Scheduling confirmed, not publication'},error:null,checked_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',row.id).eq('state','submitting')
+      const receipt=await db.from('cs_social_deliveries').update({state:'scheduled',provider_post_id:post.id,provider_uuid:String(post.uuid),receipt:{uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,mediaExport:{format:media.format,sourceSha256:media.sourceSha256,version:media.version},observation:'Scheduling confirmed, not publication'},error:null,checked_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',row.id).eq('state','submitting')
       if(receipt.error)throw receipt.error
       return {status:'scheduled',deliveryId:row.id,postId:post.id}
     }catch{return fail('Submission may have reached Metricool. Inspect before any manual retry.','submission_unknown')}

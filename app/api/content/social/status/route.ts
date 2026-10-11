@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { isContentAdmin } from '@/lib/content/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { processSocialDelivery } from '@/lib/content/social-delivery'
+export const maxDuration=60
 export const dynamic='force-dynamic'
 export async function GET() {
   if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
@@ -12,4 +14,13 @@ export async function GET() {
     if(receipts.error)throw receipts.error
     return NextResponse.json({connected:data?.status==='verified',brand:data?.brand_label || null,verifiedAt:data?.verified_at || null,automaticDispatchEnabled:Boolean(data?.dispatch_enabled && data.capabilities_verified && !data.last_error),requiresReconnect:Boolean(data?.last_error?.includes('OAuth invalid_grant') || data?.last_error?.includes('OAuth invalid_client')),deliveryConfigured:Boolean(data?.dispatch_enabled),lastCheckAt:data?.last_check_at,lastError:data?.last_error,receipts:receipts.data,allowedNetworks:['facebook','threads'],configured:Boolean(process.env.CS_SOCIAL_ENCRYPTION_KEY && process.env.CS_METRICOOL_OAUTH_CLIENT_ID)},{headers:{'Cache-Control':'private, no-store'}})
   }catch{return NextResponse.json({error:'Social connection status unavailable'},{status:503})}
+}
+
+export async function POST(req:NextRequest) {
+  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
+  if(req.headers.get('origin')!==req.nextUrl.origin)return NextResponse.json({error:'Invalid origin'},{status:403})
+  try {
+    const result=await processSocialDelivery({readOnly:true})
+    return NextResponse.json({...result,postsSent:0},{headers:{'Cache-Control':'private, no-store'}})
+  }catch{return NextResponse.json({error:'Receipt verification failed. No posts were sent; inspect the connection status.'},{status:503})}
 }

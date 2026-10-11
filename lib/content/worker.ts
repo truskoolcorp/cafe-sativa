@@ -10,17 +10,16 @@ const BASE = 'https://api.dev.runwayml.com/v1'
 export async function processContent(req: NextRequest, pilot = false, collectOnly = false) {
   if (collectOnly && req.headers.get('origin') !== req.nextUrl.origin) return NextResponse.json({error:'Invalid origin'},{status:403})
   if (collectOnly ? !await isContentAdmin() : !cronAuthorized(req.headers.get('authorization'))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!collectOnly && !pilot && process.env.CS_CONTENT_GENERATION_ENABLED !== 'true') return NextResponse.json({ mode: 'paused', reason: 'Generation not enabled' })
+  const generationPaused = !pilot && process.env.CS_CONTENT_GENERATION_ENABLED !== 'true'
   const key = process.env.RUNWAYML_API_SECRET
   // Operator sets an all-in conservative quote after verifying provider pricing; no guessed rate.
   const quote = Number(process.env.CS_RUNWAY_FIVE_SECOND_QUOTE_CENTS)
-  if (!key || (!collectOnly && (!Number.isInteger(quote) || quote <= 0 || quote > CONTENT_POLICY.monthlyBudgetCents))) {
+  if (!key || (!collectOnly && !generationPaused && (!Number.isInteger(quote) || quote <= 0 || quote > CONTENT_POLICY.monthlyBudgetCents))) {
     return NextResponse.json({ error: 'Verified Runway credential and cost quote required' }, { status: 503 })
   }
   const headers = { Authorization: `Bearer ${key}`, 'X-Runway-Version': '2024-11-06', 'Content-Type': 'application/json' }
   try {
     const db = createAdminClient()
-    if (!collectOnly) await planReferencePreviews()
     // Recover jobs left in submitting by a runtime interruption. Never resubmit a paid call automatically.
     const stale = new Date(Date.now() - 10 * 60_000).toISOString()
     const recovered = await db.from('cs_content_jobs').update({ status: 'submission_unknown', blocker: 'Interrupted submission; reconcile provider before retrying' }).eq('status', 'submitting').lt('updated_at', stale)
@@ -84,6 +83,8 @@ export async function processContent(req: NextRequest, pilot = false, collectOnl
       }
     }
     if (collectOnly) return NextResponse.json({checked:pending.data?.length || 0,submitted:0})
+    if (generationPaused) return NextResponse.json({mode:'paused',reason:'New generation is paused; existing provider tasks were checked.',checked:pending.data?.length || 0,submitted:0})
+    await planReferencePreviews()
     // Missing references must not starve another room with an approved keyframe.
     const references = await db.from('cs_canonical_assets').select('*').eq('kind', 'venue').eq('active', true)
     if (references.error) throw references.error

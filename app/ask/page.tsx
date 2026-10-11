@@ -295,6 +295,13 @@ function AskInner() {
       const data = await res.json().catch(() => ({}))
       if (!mountedRef.current || turn !== voiceTurnRef.current) return
 
+      if (res.status === 403) {
+        conversationIdRef.current = null
+        localStorage.removeItem(CONV_KEY_PREFIX + activeHost)
+        setError('That conversation has ended or belongs to another session. Send your message again to start a new conversation.')
+        return
+      }
+
       if (res.status === 429 && data?.rate_limited) {
         setRateLimited(data.error || 'You have hit the message limit.')
         setSending(false)

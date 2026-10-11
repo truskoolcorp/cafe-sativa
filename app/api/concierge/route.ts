@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getHost, type HostId } from '@/lib/concierge/personas'
 import { checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
 import { getMemoryContext } from '@/lib/concierge/memory'
+import { conversationMatchesRequester } from '@/lib/concierge/conversation-access'
 import { jsonWithCors, preflight } from '@/lib/cors'
 
 /**
@@ -153,6 +154,18 @@ export async function POST(req: Request) {
   // continues the same conversation.
   let conversationId = body.conversation_id ?? null
 
+  if (conversationId) {
+    if (typeof conversationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversationId)) {
+      return jsonWithCors({error:'Invalid conversation.'},{status:400,request:req})
+    }
+    const {data:conversation,error:conversationError}=await admin.from('host_conversations')
+      .select('user_id,session_id,host_agent,ended_at').eq('id',conversationId).maybeSingle()
+    if (conversationError) return jsonWithCors({error:'Conversation is temporarily unavailable.'},{status:503,request:req})
+    if (!conversationMatchesRequester(conversation,{userId,sessionId,host:host.id})) {
+      return jsonWithCors({error:'This conversation is unavailable for this host and session.'},{status:403,request:req})
+    }
+  }
+
   if (!conversationId) {
     // Look for an active conversation from the last 4 hours
     const fourHoursAgo = new Date(Date.now() - 4 * 3600 * 1000).toISOString()
@@ -168,7 +181,7 @@ export async function POST(req: Request) {
     if (userId) {
       activeQuery = activeQuery.eq('user_id', userId)
     } else {
-      activeQuery = activeQuery.eq('session_id', sessionId!)
+      activeQuery = activeQuery.eq('session_id', sessionId!).is('user_id',null)
     }
 
     const { data: existingConv } = await activeQuery.maybeSingle()
@@ -212,10 +225,10 @@ export async function POST(req: Request) {
     .select('role, content, created_at')
     .eq('conversation_id', conversationId)
     .in('role', ['user', 'assistant'])
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(30)
 
-  const currentMessages = currentConvMessages ?? []
+  const currentMessages = (currentConvMessages ?? []).reverse()
 
   // Build the Messages API request
   const anthropic = new Anthropic({ apiKey: anthropicKey,timeout:25000,maxRetries:0 })

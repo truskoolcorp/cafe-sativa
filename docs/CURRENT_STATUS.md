@@ -7,7 +7,7 @@ This dated status supersedes older status claims, not approved canonical materia
 - Only the Bar pilot clip is approved. Stage, Gallery, Kitchen, Cigar Lounge and Community clips failed review. Four untouched room jobs remain planned on the current policy. An unbound duplicate Community draft is blocked because the current master already has a rejected take.
 - Generation is paused, with a $25 monthly ceiling and $6 reserved. No new paid rendering is authorized by this reconciliation.
 - Chef V permissions were confirmed by the owner; all Café Sativa use remains on owner hold. CHEF SAYS is a separate project.
-- The dedicated LiveKit worker and conversation-memory endpoints are implemented. Live production audio remains unverified; required LiveKit production configuration is absent.
+- Dedicated LiveKit worker source and conversation-memory endpoints are implemented. A server-only bridge secret and agent name are provisioned; live mode stays disabled. LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET remain absent. No dedicated Café Sativa worker is deployed, and the website RTC client is not connected. Existing browser voice mode remains separate from LiveKit.
 - Three social posts are scheduled for October 12, 14 and 16 at 7pm Chicago. Scheduled status is not proof of delivery. Website Metricool OAuth reported invalid_grant; reconnect and actual delivery verification remain open.
 - The selected Stripe live account is the shared Tru Skool account. Café Sativa has six verified subscription prices. No actual paid purchase/refund/fulfillment verification has completed.
 - Historical event rows are in the past and are not valid upcoming programming. Product catalog is empty.
@@ -27,3 +27,6 @@ Real paid ticket checkout/receipt/refund verification; corrected room clips; can
 
 ## Ticket reservation validation
 Rollback-only database checks passed for reuse, held and free capacity, missing receipt rejection, payment replay, refunded repurchase, expired holds and late-settlement reconciliation. API mock tests passed for quotes, immutable checkout expiry, Stripe idempotency and session binding. These checks do not prove a real paid transaction or email delivery. Admin payment exceptions are visible at `/admin/tickets`; no refund is issued automatically.
+
+## Canonical voice verification
+Live Studio records reconfirm Keith, Laviche, Ahnika and Ginger use their canonical ElevenLabs voice IDs. Approved portraits and voices do not constitute an approved episode script, composite scene, or completed render. Chef V remains excluded.

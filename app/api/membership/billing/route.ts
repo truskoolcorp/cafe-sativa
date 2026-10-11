@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { CAFE_MEMBERSHIP_PRICES } from '@/lib/membership-prices'
 
 export const dynamic = 'force-dynamic'
 const PORTAL_CONFIGURATION = 'bpc_1UPOC2IDc7LlvDW9P3m45ZQR'
-const PRICES = new Set(['price_1TNFwCIDc7LlvDW9siOcRvdd', 'price_1TNFx1IDc7LlvDW9KZvLsnsl'])
+const PRICES = new Set(Object.keys(CAFE_MEMBERSHIP_PRICES))
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } })
 
 export async function POST(req: Request) {
@@ -46,3 +47,4 @@ export async function POST(req: Request) {
     return reply({ error: 'Could not open membership billing. Please retry or contact support.' }, 503)
   }
 }
+

@@ -31,19 +31,20 @@ import { createAdminClient } from '@/lib/supabase/admin'
  */
 export async function POST(req: Request) {
   try {
+    if (req.headers.get('origin') !== new URL(req.url).origin) return NextResponse.json({error:'Request origin not allowed.'},{status:403})
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
 
     if (!stripeSecretKey) {
-      return NextResponse.json({ error: 'Missing STRIPE_SECRET_KEY' }, { status: 500 })
+      return NextResponse.json({ error: 'Ticket checkout is unavailable.' }, { status: 500 })
     }
     if (!siteUrl) {
-      return NextResponse.json({ error: 'Missing NEXT_PUBLIC_SITE_URL' }, { status: 500 })
+      return NextResponse.json({ error: 'Ticket checkout is unavailable.' }, { status: 500 })
     }
 
     const body = await req.json().catch(() => null)
     const eventId = body?.event_id as string | undefined
-    if (!eventId || typeof eventId !== 'string') {
+    if (!eventId || typeof eventId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId)) {
       return NextResponse.json(
         { error: 'Missing or invalid event_id.' },
         { status: 400 }
@@ -92,14 +93,19 @@ export async function POST(req: Request) {
       )
     }
 
+    if (!event.starts_at || !Number.isFinite(Date.parse(event.starts_at)) || Date.parse(event.starts_at) <= Date.now()) return NextResponse.json({error:'Ticket sales for this event are closed.'},{status:409})
+    // Until atomic inventory reservations are installed, fail closed on capacity-limited sales.
+    if (event.capacity !== null && event.capacity !== undefined) return NextResponse.json({error:'Ticket availability is being confirmed. Please try again later.'},{status:503})
+
     // Check for existing ticket (prevents double-issue)
-    const { data: existingTicket } = await admin
+    const { data: existingTicket, error: ticketReadError } = await admin
       .from('tickets')
       .select('id, state')
       .eq('event_id', eventId)
       .eq('user_id', userId)
       .maybeSingle()
 
+    if (ticketReadError) throw ticketReadError
     if (existingTicket && existingTicket.state !== 'refunded') {
       // The UI shouldn't ask if user is already ticketed, but if something
       // races or the user opens two tabs, respond cleanly.
@@ -113,12 +119,13 @@ export async function POST(req: Request) {
     }
 
     // Look up user's tier to decide the path
-    const { data: membership } = await admin
+    const { data: membership, error: membershipReadError } = await admin
       .from('memberships')
       .select('tier, status, stripe_customer_id')
       .eq('user_id', userId)
       .maybeSingle()
 
+    if (membershipReadError) throw membershipReadError
     const userTier = membership?.tier ?? 'explorer'
     const membershipActive = !membership || membership.status === 'active'
     const tierIncludes =
@@ -213,9 +220,10 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(
       {
-        error: error?.message || 'Ticket checkout failed',
+        error: 'Ticket checkout is temporarily unavailable.',
       },
       { status: 500 }
     )
   }
 }
+

@@ -135,11 +135,13 @@ export async function POST(req: Request) {
       allow_promotion_codes: true,
       // Attach identifiers to BOTH the session and the subscription it creates.
       metadata: {
+        site: 'cafe-sativa',
         user_id: user.id,
         tier,
       },
       subscription_data: {
         metadata: {
+          site: 'cafe-sativa',
           user_id: user.id,
           tier,
         },
@@ -170,3 +172,4 @@ export async function POST(req: Request) {
     )
   }
 }
+

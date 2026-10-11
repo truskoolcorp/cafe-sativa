@@ -3,7 +3,9 @@ let user={id:'user-one'},member={stripe_customer_id:'cus_one',stripe_subscriptio
 const sub={customer:'cus_one',metadata:{user_id:'user-one'},items:{data:[{price:{id:'price_1TNFwCIDc7LlvDW9siOcRvdd'}}]}};
 let subscriptions={data:[sub],has_more:false};
 class Stripe{constructor(){this.subscriptions={retrieve:async()=>sub,list:async()=>subscriptions};this.billingPortal={sessions:{create:async params=>{calls++;assert.equal(params.customer,'cus_one');assert.equal(params.configuration,'bpc_1UPOC2IDc7LlvDW9P3m45ZQR');assert.equal(params.return_url,'https://www.cafe-sativa.com/account');if(fail)throw Error('private-provider-detail');return {url:'https://billing.stripe.com/p/session-test'}}}}}}
+const helper={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/membership-prices.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,helper);
 const scope={exports:{},URL,Set,process:{env:{STRIPE_SECRET_KEY:'test'}},require:n=>{
+ if(n==='@/lib/membership-prices')return helper.exports;
  if(n==='next/server')return {NextResponse:{json:(body,options)=>({body,status:options?.status||200})}};
  if(n==='stripe')return {default:Stripe};
  if(n.endsWith('/server'))return {createClient:()=>({auth:{getUser:async()=>({data:{user}})}})};
@@ -27,3 +29,4 @@ const own=()=>req('https://www.cafe-sativa.com');
  fail=true;const result=await scope.exports.POST(own());assert.equal(result.status,503);assert(!JSON.stringify(result).includes('private-provider-detail'));
  console.log('PASS: portal origin/auth/owner/customer gates, missing membership, database failure, other-project subscription, pagination and safe provider errors');
 })().catch(e=>{console.error(e);process.exitCode=1});
+

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { cafeSubscriptionTier } from '@/lib/membership-prices'
 
 type MembershipTier = 'regular' | 'vip'
 type MembershipStatus = 'active' | 'canceled' | 'past_due' | 'incomplete'
@@ -166,6 +167,9 @@ export async function POST(req: Request) {
         if (!['regular','vip'].includes(tier) || !stripeSubscriptionId) throw new Error('Invalid membership checkout metadata')
         // Fetch current state: webhook delivery order does not establish entitlement.
         const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId)
+        const verifiedTier=cafeSubscriptionTier(subscription)
+        const subscriptionCustomer=typeof subscription.customer==='string'?subscription.customer:subscription.customer.id
+        if(!verifiedTier || verifiedTier!==tier || subscription.metadata?.user_id!==userId || subscriptionCustomer!==stripeCustomerId || (session.metadata?.site && session.metadata.site!=='cafe-sativa')) break
         const currentPeriodEnd = extractPeriodEnd(subscription)
         const { error: membershipError } = await admin.from('memberships').upsert({
           user_id: userId, tier, status: mapStripeStatus(subscription.status),
@@ -182,11 +186,15 @@ export async function POST(req: Request) {
         const receivedSub = event.data.object as Stripe.Subscription
         const sub = event.type === 'customer.subscription.deleted' ? receivedSub : await stripe.subscriptions.retrieve(receivedSub.id)
         const userId = sub.metadata?.user_id
-        const tier = sub.metadata?.tier as MembershipTier | undefined
+        const tier = cafeSubscriptionTier(sub)
+        // This account is shared with other projects. Foreign prices never confer access.
+        if(!tier)break
         const status = event.type === 'customer.subscription.deleted' ? 'canceled' : mapStripeStatus(sub.status)
-        if (!userId || !tier) {
+        if (!userId) {
           const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
-          const { data: existing } = await admin.from('memberships').select('user_id,tier').eq('stripe_customer_id', customerId).maybeSingle()
+          const { data: existing,error:existingError } = await admin.from('memberships').select('user_id,tier,stripe_subscription_id').eq('stripe_customer_id', customerId).maybeSingle()
+          if(existingError)throw existingError
+          if(existing?.stripe_subscription_id!==sub.id)break
           if (!existing) { console.warn('[stripe-webhook] subscription event for unknown customer'); break }
           const { error: updateError } = await admin.from('memberships').update({ status, current_period_end: extractPeriodEnd(sub) }).eq('user_id', existing.user_id)
           if (updateError) throw updateError
@@ -239,3 +247,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Webhook handler failed; retry required.' }, { status: 500 })
   }
 }
+

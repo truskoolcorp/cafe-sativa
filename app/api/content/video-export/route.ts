@@ -14,6 +14,8 @@ export async function POST(req: NextRequest) {
   try {
     const body=await req.json()
     if(!MEDIA_UUID.test(body.jobId || '')) return respond({error:'Invalid clip'},400)
+    const format=body.format || 'feed'
+    if(!['feed','landscape'].includes(format))return respond({error:'Unsupported preview format'},400)
     const db=createAdminClient()
     const found=await db.from('cs_content_jobs').select('*').eq('id',body.jobId).maybeSingle()
     if(found.error)throw found.error
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
     const asset=await db.from('cs_canonical_assets').select('*').eq('id',job.canonical_asset_id).eq('kind','venue').eq('subject',job.room).maybeSingle()
     if(asset.error)throw asset.error
     if(!approvedAsset(asset.data))return respond({error:'Current room approval required'},409)
-    const variant=await prepareVideoVariant(db,job,'feed')
-    return respond({url:variant.url,format:'4:5',width:1080,height:1350,message:'Preview prepared from the approved master. No social post was submitted.'})
+    const variant=await prepareVideoVariant(db,job,format)
+    return respond({url:variant.url,format:format==='feed'?'4:5':'16:9',width:format==='feed'?1080:1280,height:format==='feed'?1350:720,message:'Preview prepared from the approved master. No social post was submitted.'})
   } catch { return respond({error:'Preview export failed. The master and existing schedules are unchanged.'},503) }
 }

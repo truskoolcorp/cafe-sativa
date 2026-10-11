@@ -6,6 +6,11 @@ const check=context.exports.programReferenceStatus;
 const asset=subject=>({id:subject,kind:'venue',subject,url:'https://canon.example/'+subject,sha256:'a'.repeat(64),version:'v1',approved_by:'owner',approved_at:'2026-10-10T00:00:00Z',active:true});
 const glyph={live:true,characters:['ahnika-merlot','laviche-fea','chef-v','keith'].map(id=>({id,name:id,production_ready:true}))};
 let result=check([asset('bar'),asset('main-lounge')],glyph);
+const held=check([asset('kitchen')],glyph).find(p=>p.category==='kitchen');
+assert.equal(held.roomApproved,true);
+assert.equal(held.referenceChecksPassed,false);
+assert.equal(held.cast[0].ready,false);
+assert.match(held.missing.join(' '),/owner hold/);
 assert.equal(result.find(p=>p.category==='bar').referenceChecksPassed,true);
 assert.equal(result.find(p=>p.category==='stage').referenceChecksPassed,false);
 assert.equal(result.find(p=>p.category==='community').roomApproved,false); // lounge does not establish long-table setting

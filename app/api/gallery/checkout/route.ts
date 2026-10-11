@@ -43,6 +43,9 @@ type Body = {
 }
 
 export async function POST(req: Request) {
+  if (req.headers.get('origin') !== new URL(req.url).origin) {
+    return NextResponse.json({ error: 'Invalid origin.' }, { status: 403 })
+  }
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
   if (!stripeSecretKey) {
     return NextResponse.json(
@@ -84,14 +87,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 })
   }
 
-  if (!body.product_id) {
+  if (!body || typeof body.product_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.product_id)) {
     return NextResponse.json(
       { error: 'product_id is required.' },
       { status: 400 }
     )
   }
 
-  const quantity = Math.max(1, Math.min(body.quantity ?? 1, 10))
+  const quantity = body.quantity ?? 1
+  if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+    return NextResponse.json({ error: 'Quantity must be a whole number from 1 to 10.' }, { status: 400 })
+  }
 
   const admin = createAdminClient()
 
@@ -125,6 +131,10 @@ export async function POST(req: Request) {
       { error: 'This product is not available for purchase.' },
       { status: 400 }
     )
+  }
+  if (!Number.isInteger(product.price_cents) || product.price_cents <= 0 ||
+      (product.kind !== 'physical' && !product.digital_delivery_url)) {
+    return NextResponse.json({ error: 'This item is not ready for checkout.' }, { status: 409 })
   }
 
   // The PostgREST embed returns artist as an array in some shapes and
@@ -234,7 +244,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error('[gallery/checkout] session create failed', err)
     return NextResponse.json(
-      { error: err?.message || 'Could not start checkout.' },
+      { error: 'Could not start checkout. Please retry.' },
       { status: 500 }
     )
   }

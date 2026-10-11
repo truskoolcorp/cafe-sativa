@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isContentAdmin } from '@/lib/content/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import { planSiteContent, publishDueSiteContent, siteMediaApproved } from '@/lib/content/site'
+import { planSiteContent, publishDueSiteContent, siteMediaApproved, siteCover } from '@/lib/content/site'
 import { planApprovedClipFeatures } from '@/lib/content/clip-features'
 import { processSocialDelivery, queueSocialFeature } from '@/lib/content/social-delivery'
 export const dynamic='force-dynamic'
@@ -10,7 +10,7 @@ export const maxDuration=60
 export async function GET() {
   if (!await isContentAdmin()) return NextResponse.json({error:'Unauthorized'},{status:401})
   const {data,error}=await createAdminClient().from('content_items').select('*').not('site_category','is',null).order('created_at',{ascending:false}).limit(100)
-  return error ? NextResponse.json({error:'Website content unavailable'},{status:503}) : NextResponse.json({items:data},{headers:{'Cache-Control':'private, no-store'}})
+  return error ? NextResponse.json({error:'Website content unavailable'},{status:503}) : NextResponse.json({items:await Promise.all((data || []).map(async item=>({...item,cover_url:await siteCover(item)})))},{headers:{'Cache-Control':'private, no-store'}})
 }
 export async function POST(req:NextRequest) {
   if (!await isContentAdmin()) return NextResponse.json({error:'Unauthorized'},{status:401})

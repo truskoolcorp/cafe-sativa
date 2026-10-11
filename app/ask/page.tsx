@@ -80,9 +80,9 @@ const HOSTS: HostMeta[] = [
     role: "Maître d'",
     tagline: 'Runs the floor and the looks. Concrete Rose is hers.',
     icon: Rose,
-    avatar: '/hosts/laviche.png',
+    avatar: '/api/hosts/portrait?host=laviche',
     suggestions: [
-      'What\u2019s coming up this summer?',
+      'What\u2019s the vision for Café Sativa?',
       'How do I get into the cigar lounge?',
       'Show me something from Concrete Rose.',
     ],
@@ -93,7 +93,7 @@ const HOSTS: HostMeta[] = [
     role: 'Travel concierge',
     tagline: 'Adventure travel. Dallasite on Tour and Wanderlust are hers.',
     icon: Compass,
-    avatar: '/hosts/ginger.png',
+    avatar: '/api/hosts/portrait?host=ginger',
     suggestions: [
       'Tell me about Tenerife.',
       'Tell me about Wanderlust.',
@@ -106,7 +106,7 @@ const HOSTS: HostMeta[] = [
     role: 'Alignment + wellness',
     tagline: 'Alignment, movement, and feeling good in your body.',
     icon: Sparkles,
-    avatar: '/hosts/ahnika.png',
+    avatar: '/api/hosts/portrait?host=ahnika',
     suggestions: [
       'How do I get back in alignment?',
       'Tell me about Faithfully Faded.',
@@ -194,6 +194,7 @@ function AskInner() {
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
   // Voice — layered on top of the text concierge, fully optional.
+  const [portraitFailures,setPortraitFailures]=useState<Record<string,boolean>>({})
   const [voiceMode, setVoiceMode] = useState(false) // speak replies aloud
   const [voiceSupported, setVoiceSupported] = useState(true) // server TTS (flips off on 503)
   const [sttSupported, setSttSupported] = useState(false) // browser speech-to-text
@@ -501,7 +502,7 @@ function AskInner() {
   const ActiveHostIcon = activeHostMeta.icon
 
   const hostMark = (size: 'sm' | 'md') => {
-    if (activeHostMeta.avatar) {
+    if (activeHostMeta.avatar && !portraitFailures[activeHost]) {
       return (
         <span
           className={cn(
@@ -511,6 +512,8 @@ function AskInner() {
         >
           <Image
             src={activeHostMeta.avatar}
+            onError={()=>setPortraitFailures(previous=>({...previous,[activeHost]:true}))}
+            unoptimized
             alt=""
             width={24}
             height={24}
@@ -573,9 +576,11 @@ function AskInner() {
                           : 'bg-muted border-border'
                     )}
                   >
-                    {h.avatar ? (
+                    {h.avatar && !portraitFailures[h.id] ? (
                       <Image
                         src={h.avatar}
+                        onError={()=>setPortraitFailures(previous=>({...previous,[h.id]:true}))}
+                        unoptimized
                         alt=""
                         width={36}
                         height={36}

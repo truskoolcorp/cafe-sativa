@@ -8,13 +8,12 @@ interface Message { id:string; role:MsgRole; speaker:string; text:string; ts:Dat
 interface Pipeline { claude:'idle'|'thinking'|'done'|'error'; tts:'idle'|'generating'|'playing'|'error'; avatar:'idle'|'connecting'|'ready'|'speaking'|'error' }
 
 const VOICES = { keith: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_KEITH||'P4TR6ShrGvF741Gei86A', laviche: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_LAVICHE||'oNYzGfXKQJfjG1yEuJe9' }
-const HEYGEN_AVATARS = { keith: process.env.NEXT_PUBLIC_HEYGEN_AVATAR_KEITH||'e9a45c47c2514c4f899cc00460c981a2', laviche: process.env.NEXT_PUBLIC_HEYGEN_AVATAR_LAVICHE||'b320213eeaf94f16a3ec32ca4fd99574' }
+const HEYGEN_AVATARS = { keith: process.env.NEXT_PUBLIC_HEYGEN_AVATAR_KEITH||'', laviche: process.env.NEXT_PUBLIC_HEYGEN_AVATAR_LAVICHE||'' }
 const PERSONAS = {
   keith: `You are Keith Ingram — founder and CEO of Café Sativa, Dallas-born, Gulf War veteran, IT specialist turned cultural architect. You host At The Table, an intimate live conversation series. Tone: warm, direct, thoughtful, occasionally funny. Speak in complete sentences. No filler words. 2-4 sentences unless the moment calls for more.`,
   laviche: `You are Laviche Cárdenas — co-host of At The Table and the heartbeat of Café Sativa. Warmth, depth, poetic sensibility. Occasional Spanish endearments (amores, mija/mijo, corazón). Center the emotional truth in what guests say. Tone: luminous, curious, grounding. 2-4 sentences. Hold space before pivoting. Never rush.`,
 }
 const C = { bg:'#0a0705',surface:'#130e08',card:'#1a1208',border:'#2c1e0c',borderBright:'#4a3218',gold:'#b8813a',goldDim:'#7a5526',green:'#3d9e6a',red:'#9e3d3d',amber:'#d4902a',text:'#e8ddd0',textDim:'#9e8870',muted:'#5a4535',keith:'#6ab8d4',keithBg:'#0d2535',laviche:'#d4729a',lavicheBg:'#2d0f1e' }
-const ALLOWED = ['truskoolcorp@truskool.net','kingram292@gmail.com']
 const ZOOM_START = 'https://us04web.zoom.us/s/5967487696'
 function uid() { return Math.random().toString(36).slice(2) }
 function fmt(d:Date) { return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) }
@@ -36,7 +35,7 @@ export default function AvatarHostPage() {
 
   useEffect(()=>{
     createClient().auth.getUser().then(({data})=>{
-      setAuthed(ALLOWED.includes(data?.user?.email??''))
+      setAuthed(data?.user?.app_metadata?.cafe_sativa_admin===true)
     })
   },[])
 
@@ -329,9 +328,9 @@ export default function AvatarHostPage() {
           <div style={{padding:12,borderBottom:`1px solid ${C.border}`}}>
             <div style={{fontSize:9,fontWeight:700,color:C.muted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:7}}>Live Avatar</div>
             {!avatarConnected ? (
-              <button onClick={connectAvatar} disabled={pipe.avatar==='connecting'}
+              <button onClick={connectAvatar} disabled title="Provider video identity requires canonical verification"
                 style={{width:'100%',padding:'9px 0',borderRadius:5,border:'none',background:pipe.avatar==='connecting'?C.goldDim:C.gold,color:'#0a0705',fontSize:11,fontWeight:700}}>
-                {pipe.avatar==='connecting'?'Connecting…':'⬤ Connect Avatar'}
+                Video held · canonical verification required
               </button>
             ) : (
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
@@ -339,7 +338,7 @@ export default function AvatarHostPage() {
                 <button onClick={disconnectAvatar} style={{padding:'8px 0',borderRadius:5,border:`1px solid ${C.red}`,background:'transparent',color:C.red,fontSize:11,fontWeight:700}}>Disconnect</button>
               </div>
             )}
-            {!avatarConnected && <div style={{fontSize:9,color:C.muted,marginTop:5,textAlign:'center'}}>Connect to stream avatar video into OBS</div>}
+            {!avatarConnected && <div style={{fontSize:9,color:C.muted,marginTop:5,textAlign:'center'}}>Use /ask for the working host voice conversations</div>}
           </div>
 
           {/* Host selector */}

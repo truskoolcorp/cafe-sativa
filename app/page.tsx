@@ -1,3 +1,4 @@
+import { SiteFeatures } from '@/components/events/SiteFeatures'
 import { Hero } from '@/components/home/Hero'
 import { ExploreVenue } from '@/components/home/ExploreVenue'
 import { ThisWeek } from '@/components/home/ThisWeek'
@@ -22,6 +23,7 @@ export default async function HomePage() {
     <>
       <Hero featured={featured} />
       <ExploreVenue />
+      <div className="max-w-7xl mx-auto px-4 pb-12"><SiteFeatures category="venue" /></div>
       <ThisWeek events={upcoming} />
       <MembershipTeaser />
       <NeverMiss />

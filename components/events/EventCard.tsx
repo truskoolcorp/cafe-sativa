@@ -1,3 +1,4 @@
+import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Badge } from '@/components/ui/badge'
@@ -30,24 +31,11 @@ function accessLabel(access: EventRow['access'], price: number): string {
   return formatPrice(price)
 }
 
-// Fallback image if event has no hero — each category gets a
-// different mood photo so the page still feels curated.
-const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  stage: '/rooms/stage.webp',
-  kitchen: '/rooms/kitchen.webp',
-  cigar_lounge:
-    '/rooms/cigar_lounge.webp',
-  bar: '/rooms/bar.webp',
-  gallery:
-    '/rooms/gallery.webp',
-  community:
-    '/rooms/community.webp',
-}
-
-export function EventCard({ event, vipGated }: Props) {
+export async function EventCard({ event, vipGated }: Props) {
+  const covers=await approvedVenueCovers()
   const date = formatEventDate(event.starts_at)
   const fallback = event.category
-    ? CATEGORY_FALLBACK_IMAGES[event.category]
+    ? covers[event.category]
     : undefined
   const image = event.hero_image_url || fallback
 

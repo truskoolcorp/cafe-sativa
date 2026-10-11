@@ -1,3 +1,4 @@
+import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import { SiteFeatures } from '@/components/events/SiteFeatures'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -44,7 +45,7 @@ type CategoryPageProps = {
   afterContent?: React.ReactNode
 }
 
-export function CategoryPage({
+export async function CategoryPage({
   category,
   title,
   tagline,
@@ -55,18 +56,20 @@ export function CategoryPage({
   intro,
   afterContent,
 }: CategoryPageProps) {
+  const covers=await approvedVenueCovers()
+  const approvedHero=covers[category]
   return (
     <>
       {/* Hero band */}
       <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden">
-        <Image
-          src={heroImage}
+        {approvedHero && <Image
+          src={approvedHero}
           alt=""
           fill
           priority
           className="object-cover"
           sizes="100vw"
-        />
+        />}
         <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/40 to-background" />
         <div className="relative z-10 h-full flex items-end pb-16 md:pb-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">

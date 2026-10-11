@@ -70,24 +70,24 @@ export default function AdminPage() {
     setLoading(true);
     setLoadError('');
     try {
-    const [cal, gen, pub, br, live] = await Promise.all([
+    const results = await Promise.allSettled([
       atGet('calendar',   '?maxRecords=50&sort[0][field]=Title&sort[0][direction]=asc'),
       atGet('genLog',     '?maxRecords=20&sort[0][field]=Run+Date&sort[0][direction]=desc'),
       atGet('publishLog', '?maxRecords=20&sort[0][field]=Published+At&sort[0][direction]=desc'),
       atGet('brief',      '?maxRecords=10&sort[0][field]=Week+Of&sort[0][direction]=desc'),
       fetch('/api/content/review', { cache: 'no-store' }).then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b.error || 'Unable to load current content'); return b; }),
     ]);
-    if ([cal, gen, pub, br].some(r => r.error)) throw new Error('Some historical records could not be loaded. Refresh or sign in again.');
-    setCurrent(live);
-    setRecords(cal.records || []);
-    setGenLog(gen.records  || []);
-    setPubLog(pub.records  || []);
-    setBrief(br.records    || []);
+    const [cal,gen,pub,br,live]=results.map(result=>result.status==='fulfilled'?result.value:{error:'Source unavailable'});
+    if(!live.error)setCurrent(live);
+    setRecords(cal.records || []);setGenLog(gen.records || []);setPubLog(pub.records || []);setBrief(br.records || []);
+    if(live.error)throw new Error('Current workflow is unavailable. Sign in or refresh before acting.');
+    if([cal,gen,pub,br].some(source=>source.error))setLoadError('Some recovered records could not load. Current website, references and video workflows are available.');
     } catch (e) { setLoadError(e instanceof Error ? e.message : 'Unable to load dashboard'); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(()=>{const view=new URL(window.location.href).searchParams.get('view');if(view && ['calendar','approvals','website','references','genlog','publog','brief'].includes(view))setTab(view)},[]);
 
   useEffect(() => {
     if (detail) dialogRef.current?.showModal();
@@ -111,14 +111,15 @@ export default function AdminPage() {
     finally { setActing(null); }
   }
   const liveJobs = current?.jobs || [];
-  const totalPending = records.filter(r=>r.fields.Status==='pending_approval').length + liveJobs.filter((j:any)=>j.status==='pending_qa').length;
+  const totalPending = records.filter(r=>r.fields.Status==='pending_approval').length + liveJobs.filter((j:any)=>j.status==='pending_qa').length + (current?.websiteItems || []).filter((i:any)=>i.status==='pending_approval').length;
   const counts = records.reduce((a: Record<string,number>, r) => { const s = r.fields?.Status || 'unknown'; a[s] = (a[s]||0)+1; return a; }, {});
   const pending  = records.filter(r => r.fields?.Status === 'pending_approval');
   const filtered = tab==='approvals' ? pending : filter === 'all' ? records : records.filter(r => r.fields?.Status === filter);
   const shownJobs = liveJobs.filter((j:any)=>tab==='approvals' ? j.status==='pending_qa' : filter==='all' || (filter==='pending_approval' ? j.status==='pending_qa' : j.status===filter));
 
+  const shownSiteItems=(current?.websiteItems || []).filter((item:any)=>tab==='approvals'?item.status==='pending_approval':filter==='all'||item.status===filter);
   const btn = (label: string, key: string) => (
-    <button key={key} onClick={() => setTab(key)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '12px 16px', fontSize: 12, fontWeight: tab===key ? 700 : 400, color: tab===key ? C.accent : C.textDim, borderBottom: tab===key ? `2px solid ${C.accent}` : '2px solid transparent', letterSpacing: '0.03em' }}>{label}</button>
+    <button key={key} aria-pressed={tab===key} onClick={() => {setTab(key);const url=new URL(window.location.href);url.searchParams.set('view',key);window.history.replaceState(null,'',url)}} style={{ background: tab===key?C.accent:C.card, border: `1px solid ${tab===key?C.accent:C.border}`, cursor: 'pointer', padding: '12px 16px', margin:'4px', fontSize: 12, fontWeight: 700, color: tab===key?'#160d05':C.text, letterSpacing: '0.03em' }}>{label}</button>
   );
 
   return (
@@ -168,11 +169,12 @@ export default function AdminPage() {
       {loadError && <p role="alert" style={{ padding:20, color:'#ffb8b0' }}>{loadError}</p>}
       {/* Stats */}
       <div style={{ padding:'16px 24px', display:'flex', gap:10, flexWrap:'wrap', borderBottom:`1px solid ${C.border}` }}>
-        <Stat label="Total" value={records.length + liveJobs.length} />
+        <Stat label="Total" value={records.length + liveJobs.length + (current?.websiteItems?.length || 0)} />
         <Stat label="Pending" value={totalPending} color={C.amber} />
         <Stat label="Clips scheduled" value={current?.jobs.filter((j:any)=>j.status==='scheduled').length || 0} color="#5aa0d0" />
         <Stat label="Clips published" value={current?.jobs.filter((j:any)=>j.status==='published').length || 0} color={C.green} />
-        <Stat label="Copy drafts" value={records.length} color={C.textDim} />
+        <Stat label="Program drafts" value={current?.websiteItems?.filter((i:any)=>i.status==='pending_approval').length || 0} color={C.amber} />
+        <Stat label="Approved rooms" value={current?.operational?.approvedRoomCount || 0} color={C.green} />
       </div>
 
       {/* Tabs */}
@@ -190,10 +192,11 @@ export default function AdminPage() {
       {current?.operational && <section style={{margin:'12px 24px',padding:20,border:'1px solid #b8813a',borderRadius:8}} aria-label="Automation readiness">
         <h2>Automation readiness</h2>
         <p>Recurring media processing: <strong>{current.generationEnabled ? 'enabled' : 'paused'}</strong> · Monthly generation cap: <strong>${(current.monthlyLimitCents/100).toFixed(2)}</strong></p>
+        <p>Generation reservations this month: <strong>${((current.monthlyReservedCents || 0)/100).toFixed(2)}</strong>. This is the budget reservation total, not a provider invoice.</p>
         <p>{current.operational.voiceVerification}</p>
         {!!current.operational.missingRooms.length && <p>Room references awaiting approval: <strong>{current.operational.missingRooms.join(', ')}</strong>.</p>}
-        {!current.operational.characterMediaReady && <p>Character media: approved image references have not been registered. Character generation remains held.</p>}
-        <p>Unattended social delivery: <strong>{current.operational.socialDispatchConfigured ? 'credential present; delivery verification required' : 'website connector not configured'}</strong>. Existing Metricool posts remain independently scheduled.</p>
+        <p>{current.operational.characterSource}</p>
+        <p>Unattended social delivery: <strong>{current.operational.socialDispatchConfigured ? 'enabled for explicitly approved clips' : 'connection needs verification'}</strong>. Existing Metricool posts remain independently scheduled.</p>
         <button className={styles.primary} onClick={()=>setTab('website')}>Review website program drafts →</button>
       </section>}
       {/* Body */}
@@ -207,6 +210,11 @@ export default function AdminPage() {
                 {['all','pending_approval','approved','scheduled','published','failed'].map(status=><button key={status} onClick={()=>{setTab('calendar');setFilter(status);}} style={{background:filter===status?C.accent:C.card,color:filter===status?'#160d05':C.text}}>{status==='all'?'All':STATUS[status]?.label || status}</button>)}
               </div>
               <div className={styles.cards}>
+                {shownSiteItems.map((item:any)=>{
+                  const itemRoom=current.jobs.find((job:any)=>job.id===item.source_job_id)?.room || item.site_category;
+                  const master=current.assets.find((asset:any)=>asset.kind==='venue' && asset.subject===itemRoom && asset.active && asset.approved_by && asset.approved_at);
+                  return <article className={styles.card} key={item.id}>{master && <img src={master.url} alt={`${item.site_category.replaceAll('_',' ')} approved room`} loading="lazy"/>}<div className={styles.cardBody}><Badge status={item.status}/><span> · Website program</span><h3>{item.title}</h3><p>{item.copy_draft?.slice(0,180)}</p><a className={item.status==='pending_approval'?styles.approve:styles.secondary} href={`/admin?view=website&item=${encodeURIComponent(item.id)}`}>Open program draft &amp; release details →</a></div></article>
+                })}
                 {shownJobs.map((job:any)=> {
                   const asset=current.assets.find((a:any)=>a.id===job.canonical_asset_id);
                   return <article className={styles.card} key={job.id}>
@@ -235,7 +243,7 @@ export default function AdminPage() {
                   </div>
                 </article>})}
               </div>
-              {!shownJobs.length && !filtered.length && <p>No items in this view.</p>}
+              {!shownJobs.length && !filtered.length && !shownSiteItems.length && <p>No items in this view.</p>}
             </>}
             {tab==='genlog' && <div style={{marginBottom:24}}><h2>Current generation status</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status} · {j.blocker || 'No blocker recorded'}</p>)}</div>}
             {tab==='publog' && <div style={{marginBottom:24}}><h2>Current video delivery</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status}<br/>{j.blocker || (j.status==='approved'?'Approved; awaiting scheduling':'No delivery receipt recorded')}</p>)}<p>Older delivery attempts below are retained with their original result notes.</p></div>}

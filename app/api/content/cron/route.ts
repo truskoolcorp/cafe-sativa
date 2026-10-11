@@ -1,3 +1,4 @@
+import { planReferencePreviews } from '@/lib/content/reference-previews'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { cronAuthorized } from '@/lib/content/auth'
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
   if (!cronAuthorized(req.headers.get('authorization'))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const now = new Date()
   try {
+    const referencePreviewsPlanned=await planReferencePreviews()
     const sitePlanned = await planSiteContent(now)
     const clipFeaturesPlanned = await planApprovedClipFeatures(now)
     const sitePublished = await publishDueSiteContent(now)
@@ -36,7 +38,7 @@ export async function GET(req: NextRequest) {
     // A schedule plans work; the separate worker handles approved media and metered generation.
     let social:unknown
     try {social=await processSocialDelivery()}catch{social={status:'unavailable',error:'Social connection check failed; no automatic submission retry'}}
-    return NextResponse.json({ sitePlanned, clipFeaturesPlanned, sitePublished, social, planned_slots: jobs.length, jobs: data, policy: CONTENT_POLICY.version })
+    return NextResponse.json({ referencePreviewsPlanned, sitePlanned, clipFeaturesPlanned, sitePublished, social, planned_slots: jobs.length, jobs: data, policy: CONTENT_POLICY.version })
   } catch {
     return NextResponse.json({ error: 'Content operation failed; inspect website and generation status before retrying' }, { status: 503 })
   }

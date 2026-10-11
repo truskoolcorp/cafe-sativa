@@ -3,8 +3,9 @@ import { useCallback, useEffect, useState } from 'react'
 import styles from './dashboard.module.css'
 import SocialConnectionPanel from './SocialConnectionPanel'
 
-type Item = {id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null; media_url:string|null}
+type Item = {cover_url?:string|null;id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null; media_url:string|null}
 const PROGRAM_DETAILS: Record<string,{host:string;format:string;reference:string}> = {
+  venue:{host:'Venue-only tours',format:'Approved Main Lounge, Courtyard and Cold Stoned concept previews.',reference:'The exact room master used by this clip. No character appearance or operational menu is implied.'},
   stage:{host:'Ahnika Merlot / Laviche',format:'Three-minute open mic, music and Comedy Night Open Floor.',reference:'Approved Stage layout plus the exact image and voice reference for each appearing host.'},
   kitchen:{host:'Featured chefs / approved After Dark cast',format:'Featured-chef programming and MUKBANG After Dark formats.',reference:'Approved Kitchen layout, chef/cast identities and the actual recipe or episode brief.'},
   cigar_lounge:{host:'Laviche',format:'Blind tastings, guided pairings and VIP Craft Roundtable.',reference:'Approved Cigar Lounge layout, Laviche identity and verified product/session details.'},
@@ -12,9 +13,7 @@ const PROGRAM_DETAILS: Record<string,{host:string;format:string;reference:string
   gallery:{host:'THE Verse Alkemist — official Media Curator',format:'Art and curator features; exhibition dates remain unconfirmed.',reference:'Approved Gallery layout and the actual artwork, artist attribution and usage permission.'},
   community:{host:'Keith Ingram with Laviche',format:'At the Table: a 90-minute long-table conversation.',reference:'Approved long-table setting and both character identities. A new session needs a confirmed brief/date.'},
 }
-function cover(category:string) {
-  return category==='bar' ? 'https://nwfxvhqbjtfvoopcadff.supabase.co/storage/v1/object/public/cafe-sativa-canon/bar-pilot-2026-10-07.png' : `/rooms/${category}.webp`
-}
+function localSchedule(iso:string) {const d=new Date(iso);if(!Number.isFinite(d.getTime()))return '';const pad=(n:number)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}
 function ProgramDetails({item}:{item:Item}) {
   const info=PROGRAM_DETAILS[item.site_category]
   return <details className={styles.programDetails}><summary title="Show hosts, format, reference requirements and publication timing">ⓘ Program details</summary>
@@ -22,7 +21,7 @@ function ProgramDetails({item}:{item:Item}) {
     <p><strong>Format:</strong> {info?.format || item.title}</p>
     <p><strong>Required references:</strong> {info?.reference}</p>
     <p><strong>Publication:</strong> {item.published_at ? new Date(item.published_at).toLocaleString() : item.scheduled_at ? `${new Date(item.scheduled_at).toLocaleString()} — approval required before release` : 'Not scheduled'}</p>
-    <p>Cover images illustrate the category. A cover does not approve its room geometry or any character for generation.</p>
+    <p>Cover images illustrate the category. The room cover comes from its approved master. An appearing character still requires its own exact canonical reference.</p>
   </details>
 }
 type ReferenceStatus={category:string;referenceChecksPassed:boolean;missing:string[];episodeChecks:string[];productionStatus:string}
@@ -30,6 +29,7 @@ function ReferenceChecks({status,onReview}:{status?:ReferenceStatus;onReview:()=
  return <div style={{borderTop:'1px solid #594635',paddingTop:12,marginTop:12}}><p><strong>{status?(status.referenceChecksPassed?'Reference checks passed':'Media preparation needs review'):'Reference checks unavailable'}</strong></p>{status && <><ul>{status.missing.map(text=><li key={text}>{text}</li>)}</ul><details className={styles.programDetails}><summary>Episode preparation checklist</summary><ul>{status.episodeChecks.map(text=><li key={text}>{text}</li>)}</ul><p>{status.productionStatus}</p><p>Passing reference checks does not approve an episode, announce a guest booking or start paid generation.</p></details></>}<button className={styles.secondary} onClick={onReview}>Review room and character references →</button></div>
 }
 export default function SiteContentPanel({onReviewReferences}:{onReviewReferences:()=>void}) {
+  const [covers,setCovers]=useState<Record<string,string>>({})
   const [readiness,setReadiness]=useState<ReferenceStatus[]>([])
   const [items,setItems]=useState<Item[]>([])
   const [selected,setSelected]=useState<Item|null>(null)
@@ -42,13 +42,14 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const load=useCallback(async()=>{
     const [response,referenceResponse]=await Promise.all([fetch('/api/content/site',{cache:'no-store'}),fetch('/api/content/references',{cache:'no-store'})])
     const referenceBody=await referenceResponse.json()
+    setCovers(Object.fromEntries((referenceBody.candidates || []).filter((c:any)=>c.kind==='venue' && c.approved).map((c:any)=>[c.subject,c.approved.url])))
     setReadiness(referenceResponse.ok?referenceBody.programmingReadiness || []:[])
     const body=await response.json()
     if(!response.ok) throw new Error(body.error || 'Unable to load website content')
     setItems(body.items || [])
     return body.items as Item[]
   },[])
-  useEffect(()=>{void load().catch(e=>setMessage(e.message))},[load])
+  useEffect(()=>{void load().then(rows=>{const id=new URL(window.location.href).searchParams.get('item');const item=rows.find(row=>row.id===id);if(item)open(item)}).catch(e=>setMessage(e.message))},[load])
   function open(item:Item) {setSelected(item);setCopy(item.copy_draft || '');setSchedule(item.scheduled_at || '');setConfirmed(false);setPublishSocial(false);setMessage('')}
   async function act(action:string) {
     setBusy(true);setMessage('Saving…')
@@ -79,21 +80,22 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
     </div>
     <details className={styles.programDetails}><summary>How references and recurring programming work</summary>
       <p>Approve each master room and character reference once, with its source and version. Future briefs reuse those references; a changed layout, identity or voice requires a new version.</p>
-      <p>The daily worker checks registered references, reuses approved media before spending and holds missing-reference jobs. New clips and captions still enter accuracy review.</p>
-      <p>Approved venue clips automatically receive website review cards after accuracy review. Review their captions and choose release times here. The daily planner also recovers missing cards without replacing your edits. Recurring character episode creation and unattended social delivery are not yet connected.</p>
+      <p>The worker checks registered references every 15 minutes, reuses approved media before spending and holds missing-reference jobs. New clips and captions still enter accuracy review.</p>
+      <p>Approved venue clips automatically receive website review cards after accuracy review. Review their captions and choose release times here. The daily planner also recovers missing cards without replacing your edits. Explicit social-sharing approval schedules the reviewed clip on Tru Skool Facebook and Threads. Character episode creation remains unfinished.</p>
     </details>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {selected ? <div className={styles.card} style={{padding:24}}>
       <button className={styles.secondary} disabled={busy} onClick={()=>{setSelected(null);setMessage('')}}>← Back to website overview</button>
-      <img src={cover(selected.site_category)} alt={`${selected.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover}/>
-      <p>{selected.site_category==='bar'?'Approved bar reference':'Existing site concept image — reference approval pending'}</p>
+      {(selected.cover_url || covers[selected.site_category]) && <img src={(selected.cover_url || covers[selected.site_category])} alt={`${selected.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover}/>}
+      <p>{(selected.cover_url || covers[selected.site_category])?'Approved canonical room reference':'Approved cover unavailable — review Master references'}</p>
       <ProgramDetails item={selected}/>
       <ReferenceChecks status={readiness.find(r=>r.category===selected.site_category)} onReview={onReviewReferences}/>
       <h3>{selected.title}</h3><p>{selected.site_category.replaceAll('_',' ')} · {selected.status}</p>
       <label htmlFor="site-copy">Full website copy</label>
       <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
-      <label htmlFor="site-schedule">Publication time (ISO date with timezone, e.g. 2026-10-19T19:00:00-05:00)</label>
-      <input id="site-schedule" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={schedule} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value);setConfirmed(false)}}/>
+      <label htmlFor="site-schedule">Publication time (your device's local time)</label>
+      <input id="site-schedule" type="datetime-local" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={localSchedule(schedule)} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value?new Date(e.target.value).toISOString():'');setConfirmed(false)}}/>
+      {schedule && <p>Chicago release: {new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'short'}).format(new Date(schedule))}</p>}
       <p>{selected.approval_notes}</p>{selected.media_url && <p>This item uses a clip that passed accuracy review. You can review its website caption and release time here. Changing the clip requires a separate accuracy review.</p>}
       {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
       {selected.media_url && <label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={publishSocial} onChange={e=>setPublishSocial(e.target.checked)}/>Also schedule this approved clip and this exact caption on Tru Skool Facebook and Threads at the release time above. Maximum 500 characters; choose a time at least 30 minutes ahead.</label>}
@@ -103,8 +105,8 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
         <button className={styles.reject} disabled={busy} onClick={()=>act('return')}>Return for revision</button>
       </div></>}
       {selected.published_at && <p>Website published: {new Date(selected.published_at).toLocaleString()}</p>}
-      <p><a href={`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
-    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}><img src={cover(item.site_category)} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/><div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
+      <p><a href={selected.site_category==='venue'?`/venue#feature-${selected.id}`:`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
+    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}>{(item.cover_url || covers[item.site_category]) && <img src={(item.cover_url || covers[item.site_category])} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/>}<div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
     {!items.length && <p>No website drafts prepared yet.</p>}
   </section>
 }

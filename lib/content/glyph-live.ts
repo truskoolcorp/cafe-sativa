@@ -13,7 +13,7 @@ export async function liveGlyphCharacters() {
  if(b.live!==true||!Array.isArray(b.characters)||b.characters.length>allowed.size)throw Error('Invalid canonical source response')
  return {...b,characters:b.characters.filter((c:{id:string})=>allowed.has(c.id)).map((c:{id:string;primary_asset_id:string|null;portrait_available:boolean})=>({...c,portrait_url:c.portrait_available&&c.primary_asset_id?`/api/content/glyph/portrait?characterId=${encodeURIComponent(c.id)}&assetId=${encodeURIComponent(c.primary_asset_id)}`:null}))}
 }
-export async function glyphPortrait(id:string,assetId:string) {
+export async function glyphPortrait(id:string,assetId:string,expectedSha?:string) {
  if(!allowed.has(id)||! /^[a-f0-9-]{36}$/.test(assetId))return null
  const r=await readGlyph(`?characterId=${encodeURIComponent(id)}&assetId=${encodeURIComponent(assetId)}`)
  if(!r.ok)return null
@@ -22,6 +22,6 @@ export async function glyphPortrait(id:string,assetId:string) {
  const reader=r.body.getReader(),parts:Uint8Array[]=[];let size=0
  while(true){const p=await reader.read();if(p.done)break;size+=p.value.byteLength;if(size>10000000){await reader.cancel();throw Error('Portrait too large')}parts.push(p.value)}
  const bytes=Buffer.concat(parts)
- if(createHash('sha256').update(bytes).digest('hex')!==sha)throw Error('Canonical portrait integrity failed')
+ if((expectedSha && expectedSha!==sha) || createHash('sha256').update(bytes).digest('hex')!==sha)throw Error('Canonical portrait integrity failed')
  return {bytes,mime}
 }

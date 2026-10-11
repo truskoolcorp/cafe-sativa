@@ -1,4 +1,5 @@
-import { corsHeaders, preflight, jsonWithCors } from '@/lib/cors'
+import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
+import { corsHeaders, preflight, jsonWithCors, resolveAllowedOrigin } from '@/lib/cors'
 
 /**
  * POST /api/concierge/speak
@@ -21,7 +22,7 @@ import { corsHeaders, preflight, jsonWithCors } from '@/lib/cors'
  */
 
 export const runtime = 'nodejs'
-export const maxDuration = 30
+export const maxDuration = 60
 
 type Body = { host?: string; text?: string }
 
@@ -46,11 +47,21 @@ const MODEL_ID = process.env.ELEVENLABS_MODEL_ID || 'eleven_turbo_v2_5'
 
 const MAX_TTS_CHARS = 2000
 
+export async function GET(req:Request) {
+  const host=new URL(req.url).searchParams.get('host')
+  if(!host || !['laviche','ginger','ahnika'].includes(host))return jsonWithCors({error:'Unknown host'},{status:400,request:req})
+  try {
+    const canonical=await canonicalConciergeHost(host)
+    return Response.json({configured:Boolean(process.env.ELEVENLABS_API_KEY),canonicalMatches:Boolean(canonical && canonical.voiceId===voiceIdFor(host as Host))},{headers:{'Cache-Control':'no-store'}})
+  }catch{return Response.json({configured:Boolean(process.env.ELEVENLABS_API_KEY),canonicalMatches:false},{status:503,headers:{'Cache-Control':'no-store'}})}
+}
+
 export async function OPTIONS(req: Request) {
   return preflight(req)
 }
 
 export async function POST(req: Request) {
+  if(!resolveAllowedOrigin(req.headers.get('origin')))return jsonWithCors({error:'Invalid origin'},{status:403,request:req})
   const body = (await req.json().catch(() => null)) as Body | null
 
   const host = body?.host
@@ -75,12 +86,17 @@ export async function POST(req: Request) {
   // Cap length to protect cost; concierge replies are short anyway.
   const speakText = text.length > MAX_TTS_CHARS ? text.slice(0, MAX_TTS_CHARS) : text
   const voiceId = voiceIdFor(host)
+  let canonical
+  try{canonical=await canonicalConciergeHost(host)}catch{}
+  if(!canonical || canonical.voiceId!==voiceId)return jsonWithCors({error:'The configured voice does not match a verified current host master. Review canonical voice settings; no alternate voice was used.'},{status:409,request:req})
 
   try {
     const elevenRes = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
       {
         method: 'POST',
+        signal: AbortSignal.timeout(25000),
+        redirect: 'error',
         headers: {
           'xi-api-key': apiKey,
           'Content-Type': 'application/json',
@@ -100,8 +116,8 @@ export async function POST(req: Request) {
     )
 
     if (!elevenRes.ok) {
-      const detail = await elevenRes.text().catch(() => '')
-      console.error('[speak] ElevenLabs error', elevenRes.status, detail.slice(0, 500))
+      await elevenRes.body?.cancel()
+      console.error('[speak] ElevenLabs error', elevenRes.status)
       return jsonWithCors(
         { error: 'Voice service failed.', status: elevenRes.status },
         { status: 502, request: req }

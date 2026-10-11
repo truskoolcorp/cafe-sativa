@@ -1,3 +1,5 @@
+import { isContentAdmin } from '@/lib/content/auth'
+import { resolveAllowedOrigin } from '@/lib/cors'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -10,11 +12,14 @@ import { NextRequest, NextResponse } from 'next/server'
  * Response: audio/mpeg binary stream
  */
 export async function POST(req: NextRequest) {
+  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
+  if(!resolveAllowedOrigin(req.headers.get('origin')))return NextResponse.json({error:'Invalid origin'},{status:403})
   try {
     const { text, voiceId } = await req.json()
 
-    if (!text || !voiceId) {
-      return NextResponse.json({ error: 'Missing text or voiceId' }, { status: 400 })
+    const allowed=[process.env.ELEVENLABS_VOICE_KEITH || process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_KEITH || 'P4TR6ShrGvF741Gei86A',process.env.ELEVENLABS_VOICE_LAVICHE || process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_LAVICHE || 'oNYzGfXKQJfjG1yEuJe9']
+    if (typeof text!=='string' || !text.trim() || text.length>2000 || typeof voiceId!=='string' || !allowed.includes(voiceId)) {
+      return NextResponse.json({ error: 'Approved host voice and text of at most 2000 characters required' }, { status: 400 })
     }
 
     const apiKey = process.env.ELEVENLABS_API_KEY
@@ -26,6 +31,8 @@ export async function POST(req: NextRequest) {
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
       {
         method: 'POST',
+        signal: AbortSignal.timeout(25000),
+        redirect: 'error',
         headers: {
           'Content-Type': 'application/json',
           'xi-api-key': apiKey,
@@ -45,8 +52,8 @@ export async function POST(req: NextRequest) {
     )
 
     if (!elRes.ok) {
-      const err = await elRes.text()
-      console.error('ElevenLabs TTS error:', err)
+      await elRes.body?.cancel()
+      console.error('ElevenLabs TTS error:', elRes.status)
       return NextResponse.json({ error: 'TTS API error' }, { status: 502 })
     }
 

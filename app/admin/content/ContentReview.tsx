@@ -9,9 +9,9 @@ const plannerUrl = 'https://app.metricool.com/planner/calendar?blogId=5373515&op
 const guidance: Record<string, string> = {
   planned: 'Review the reference before starting a clip.',
   blocked: 'Resolve the setup requirements shown below before running this clip.',
-  generating: 'Your clip is rendering. Check its result to retrieve the preview.',
+  generating: 'The worker checks for finished footage every 15 minutes. Refresh this view for its preview.',
   pending_qa: 'Play the video, compare it with the reference, then complete the checks below.',
-  approved: 'Your approval is saved. This clip is ready for scheduling.',
+  approved: 'Accuracy approval saved. Continue in Website programming to approve the caption and choose its release time.',
   scheduled: 'This clip is scheduled. You can review its delivery details in the planner.',
   published: 'Publication has been recorded. No action is needed.',
   failed: 'This clip needs attention. Review the details before attempting another generation.',
@@ -52,7 +52,7 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
       const r = await fetch('/api/content/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, checks: selected[id] }) })
       const body = await r.json()
       if (!r.ok) throw new Error(body.error)
-      setSelected({}); setMessage(action === 'approve' ? 'Approval saved. The clip is ready for reuse and scheduling.' : 'Clip rejected. No automatic paid retry will run.'); await load(); onChanged?.()
+      setSelected({}); setMessage(action === 'approve' ? body.websiteDraftWarning || 'Clip accuracy approved. Open Website programming to review its caption, release time and optional social delivery.' : 'Clip rejected. No automatic paid retry will run.'); await load(); onChanged?.()
     } catch (e) { setMessage(''); setError(e instanceof Error ? e.message : 'Unable to save review.') }
     finally { setBusy(false) }
   }
@@ -69,6 +69,7 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
     {loading && !data && <p role="status">Loading your clips and references…</p>}
     {data && <>
       <div className={styles.summary}><span className={styles.badge}>Recurring generation: {data.generationEnabled ? 'enabled' : 'paused'}</span><span>Monthly generation limit: <strong>${(data.monthlyLimitCents / 100).toFixed(2)}</strong></span></div>
+      <p>Reserved this month: <strong>${((data.monthlyReservedCents || 0)/100).toFixed(2)}</strong>. Reservations are conservative generation limits, not provider invoices.</p>
       <h2>Planned content and media</h2>
       {!data.jobs.length && <p>No content planned yet.</p>}
       {data.jobs.filter((job: any) => !jobId || job.id === jobId).map((job: any) => {
@@ -81,6 +82,7 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
           <div className={styles.nextAction}><strong>{['scheduled','published'].includes(job.status) ? 'Delivery status' : 'Your next step'}</strong><p>{guidance[job.status] || 'Check the current job status below.'}</p>
             {job.slot_key === pilotSlot && ['planned','blocked','generating'].includes(job.status) && <button className={`${styles.button} ${styles.primary}`} disabled={locked} onClick={pilot}>{busy ? 'Working…' : job.status === 'generating' ? 'Check pilot result →' : 'Run approved 5-second pilot · $1 reserved →'}</button>}
             {job.slot_key === pilotSlot && ['scheduled','published'].includes(job.status) && <a className={`${styles.button} ${styles.primary}`} href={plannerUrl} target="_blank" rel="noreferrer">View scheduled post ↗</a>}
+            {job.status === 'approved' && <Link className={`${styles.button} ${styles.primary}`} href="/admin?view=website">Review caption and release time →</Link>}
             {job.status === 'pending_qa' && <a className={`${styles.button} ${styles.primary}`} href={`#review-${job.id}`}>Complete review below ↓</a>}
           </div>
           {job.blocker && <details className={styles.details}><summary>{job.status === 'scheduled' ? 'Show delivery receipt' : 'Show setup details'}</summary><p>{job.blocker}</p></details>}

@@ -101,20 +101,6 @@ function categoryLabel(category: EventRow['category']): string {
   }
 }
 
-// Category → fallback hero image. Matches the set used by
-// EventCard so the list → detail transition feels continuous.
-const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  stage: '/rooms/stage.webp',
-  kitchen: '/rooms/kitchen.webp',
-  cigar_lounge:
-    '/rooms/cigar_lounge.webp',
-  bar: '/rooms/bar.webp',
-  gallery:
-    '/rooms/gallery.webp',
-  community:
-    '/rooms/community.webp',
-}
-
 function formatEventDate(iso: string) {
   const d = new Date(iso)
   const TZ = 'America/Chicago' // venue-local (Central); server runs UTC
@@ -141,6 +127,8 @@ function formatPrice(cents: number) {
 }
 
 function EventDetailInner() {
+  const [covers,setCovers]=useState<Record<string,string>>({})
+  useEffect(()=>{let active=true;fetch('/api/content/venue-covers',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(b=>{if(active)setCovers(b?.covers || {})}).catch(()=>{});return ()=>{active=false}},[])
   const router = useRouter()
   const searchParams = useSearchParams()
   const params = useParams<{ slug: string }>()
@@ -323,7 +311,7 @@ function EventDetailInner() {
   const tierIncludes = event.free_for_tiers?.includes(userTier)
   const hero =
     event.hero_image_url ||
-    (event.category ? CATEGORY_FALLBACK_IMAGES[event.category] : undefined)
+    (event.category ? covers[event.category] : undefined)
 
   // Ticket CTA copy depends on auth state + tier + current access.
   // Same decision tree as before; just wrapped for readability.

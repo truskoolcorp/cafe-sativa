@@ -1,3 +1,4 @@
+import { planReferencePreviews } from '@/lib/content/reference-previews'
 import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -18,6 +19,7 @@ export async function processContent(req: NextRequest, pilot = false) {
   const headers = { Authorization: `Bearer ${key}`, 'X-Runway-Version': '2024-11-06', 'Content-Type': 'application/json' }
   try {
     const db = createAdminClient()
+    await planReferencePreviews()
     // Recover jobs left in submitting by a runtime interruption. Never resubmit a paid call automatically.
     const stale = new Date(Date.now() - 10 * 60_000).toISOString()
     const recovered = await db.from('cs_content_jobs').update({ status: 'submission_unknown', blocker: 'Interrupted submission; reconcile provider before retrying' }).eq('status', 'submitting').lt('updated_at', stale)
@@ -58,9 +60,10 @@ export async function processContent(req: NextRequest, pilot = false) {
     // Missing references must not starve another room with an approved keyframe.
     const references = await db.from('cs_canonical_assets').select('*').eq('kind', 'venue').eq('active', true)
     if (references.error) throw references.error
-    const approved = (references.data || []).filter(asset => approvedAsset(asset as CanonicalAsset)) as CanonicalAsset[]
+    const valid = (references.data || []).filter(asset => approvedAsset(asset as CanonicalAsset)) as CanonicalAsset[]
+    const approved = valid.filter(asset => valid.filter(other => other.subject === asset.subject).length === 1)
     const rooms = approved.map(asset => asset.subject)
-    const waiting = await db.from('cs_content_jobs').select('id,room').in('status', ['planned','blocked']).limit(100)
+    const waiting = await db.from('cs_content_jobs').select('id,room,canonical_asset_id').in('status', ['planned','blocked']).limit(100)
     if (waiting.error) throw waiting.error
     const missing = (waiting.data || []).filter(job => !rooms.includes(job.room))
     for (const room of Array.from(new Set(missing.map(job => job.room)))) {
@@ -69,7 +72,24 @@ export async function processContent(req: NextRequest, pilot = false) {
       if (marked.error) throw marked.error
     }
     if (!rooms.length) return NextResponse.json({submitted:0,reason:'No approved room references',blocked:missing.length})
-    let selection = db.from('cs_content_jobs').select('*').in('status', ['planned', 'blocked']).in('room',rooms)
+    const activity=await db.from('cs_content_jobs').select('canonical_asset_id,status,qa_approved_by,qa_approved_at,output_url,estimated_cost_cents').in('canonical_asset_id',approved.map(asset=>asset.id)).in('status',['submitting','generating','pending_qa','submission_unknown','failed','approved','scheduled','published']).limit(1000)
+    if(activity.error)throw activity.error
+    const reusableMasters=new Set((activity.data || []).filter(row=>['approved','scheduled','published'].includes(row.status) && row.qa_approved_by && row.qa_approved_at && row.output_url).map(row=>row.canonical_asset_id))
+    const busyMasters=new Set((activity.data || []).filter(row=>!reusableMasters.has(row.canonical_asset_id)).map(row=>row.canonical_asset_id))
+    const eligible=(waiting.data || []).filter(job=>{
+      const asset=approved.find(asset=>asset.subject===job.room)
+      return asset && !busyMasters.has(asset.id) && (!job.canonical_asset_id || job.canonical_asset_id===asset.id)
+    })
+    for(const job of waiting.data || []) {
+      const asset=approved.find(asset=>asset.subject===job.room)
+      const changedMaster=asset && job.canonical_asset_id && job.canonical_asset_id!==asset.id
+      if(asset && (changedMaster || busyMasters.has(asset.id))) {
+        const held=await db.from('cs_content_jobs').update({status:'blocked',blocker:changedMaster?'This draft uses a replaced master. Review a new version; do not reinterpret the original.':'A take from this master is awaiting review or reconciliation. No duplicate paid generation.'}).eq('id',job.id).in('status',['planned','blocked'])
+        if(held.error)throw held.error
+      }
+    }
+    if(!eligible.length)return NextResponse.json({submitted:0,reason:'No eligible room take; review or reconcile existing media first',blocked:missing.length})
+    let selection = db.from('cs_content_jobs').select('*').in('status', ['planned', 'blocked']).in('id',eligible.map(job=>job.id))
     if (pilot) selection = selection.eq('slot_key', '2026-10-07:bar')
     const selected = await selection.order('created_at').limit(1)
     if (selected.error) throw selected.error

@@ -1,3 +1,4 @@
+import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -27,11 +28,12 @@ import { formatEventDate } from '@/lib/events'
  *      overpromising — we give the planned year with the exact date still unconfirmed.
  */
 
-export function Hero({ featured }: { featured: EventRow | null }) {
+export async function Hero({ featured }: { featured: EventRow | null }) {
+  const covers=await approvedVenueCovers()
   // Is the featured event happening right now (within a 2-hour window)?
   const now = Date.now()
   const startMs = featured ? new Date(featured.starts_at).getTime() : 0
-  const isLive = featured && Math.abs(now - startMs) < 2 * 60 * 60 * 1000
+  const isLive = featured && now >= startMs && now < (featured.ends_at ? new Date(featured.ends_at).getTime() : startMs + 2 * 60 * 60 * 1000)
   const eventCta = featured ? `/events/${featured.slug}` : '/events'
   const eventDate = featured ? formatEventDate(featured.starts_at) : null
 
@@ -42,14 +44,14 @@ export function Hero({ featured }: { featured: EventRow | null }) {
           this is LCP; `fill` so it covers the section regardless of
           viewport; object-position slightly low so the faces/lights
           sit in the upper third. */}
-      <Image
-        src="/rooms/venue.webp"
+      {covers['main-lounge'] && <Image
+        src={covers['main-lounge']}
         alt=""
         fill
         priority
         className="object-cover object-[center_40%]"
         sizes="100vw"
-      />
+      />}
 
       {/* Bottom-heavy gradient so the text at the bottom is legible
           against whatever the photo happens to show. */}

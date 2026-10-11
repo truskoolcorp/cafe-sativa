@@ -16,7 +16,7 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
     if(stale.error)throw stale.error
     // Reconcile durable receipts separately from new submissions. Missing from this
     // pending-only endpoint does not establish publication or failure.
-    const receipts=await db.from('cs_social_deliveries').select('*').eq('state','scheduled').order('scheduled_at').limit(20)
+    const receipts=await db.from('cs_social_deliveries').select('*').eq('state','scheduled').gte('scheduled_at',new Date(Date.now()-7*86400000).toISOString()).order('checked_at',{ascending:true,nullsFirst:true}).limit(20)
     if(receipts.error)throw receipts.error
     if(receipts.data?.length) {
       const times=receipts.data.map(row=>new Date(row.scheduled_at).getTime())

@@ -1,8 +1,9 @@
+import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import { approvedAsset, CONTENT_POLICY } from '@/lib/content/policy'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { approvedMediaJob } from '@/lib/content/approved-media'
 
-export const SITE_CATEGORIES = ['stage','kitchen','cigar_lounge','bar','gallery','community'] as const
+export const SITE_CATEGORIES = ['stage','kitchen','cigar_lounge','bar','gallery','community','venue'] as const
 export const SITE_BRIEFS = [
   { category:'stage', title:'The Stage: voices, verses and an open floor', agent:'ahnika', copy:'The Stage brings Café Sativa’s music and spoken-word intentions into the virtual venue. Ahnika Merlot’s open-mic format gives each participant three minutes for verse, spoken word or song, with every membership tier welcome. Comedy Night Open Floor is hosted by Laviche, with rotating stand-up and improv and performer sign-up.\n\nThese are established programming formats, not confirmed upcoming performances. Session dates, participation links and recordings will appear here when ready.' },
   { category:'kitchen', title:'The Kitchen: featured chefs and Café Sativa After Dark', agent:'commander', copy:'Fusion cuisines are one of Café Sativa’s core creative directions. The Kitchen’s intended rhythm includes one or two rotating visiting or featured chefs each month. Earlier planning included Sourdough Fundamentals with Andromeda Zouganelis; the historical June date is not a current booking.\n\nCafé Sativa After Dark includes the virtual-first MUKBANG After Dark flagship, with The Table Talk, First Bite, ASMR Bang, Rate My Plate, creator challenges and audience voting. Episodes and participation details will be listed when ready. No chef appearance or live session is confirmed by this introduction.' },
@@ -59,6 +60,15 @@ export async function publishDueSiteContent(now = new Date()) {
   return published
 }
 
+export async function siteCover(item:{id?:string;site_category?:string|null;source_job_id?:string|null;media_url?:string|null}) {
+ const covers=await approvedVenueCovers()
+ if(item.media_url && item.media_url!=='/api/content/media/approved-bar.mp4') {
+  const job=await approvedMediaJob(item)
+  return job?covers[job.room] || null:null
+ }
+ return covers[item.site_category || ''] || null
+}
+
 export async function getSiteContent(category?:string) {
   const db = createAdminClient()
   let query = db.from('content_items').select('id,title,copy_final,site_category,status,scheduled_at,published_at,media_url,source_job_id').in('status',['approved','scheduled','published']).not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).order('published_at',{ascending:false}).limit(30)
@@ -69,7 +79,7 @@ export async function getSiteContent(category?:string) {
     if (!item.copy_final || !await siteMediaApproved(item)) return null
     const releaseAt=item.scheduled_at || item.published_at
     const released=Boolean(releaseAt && new Date(releaseAt).getTime()<=Date.now())
-    return {...item,copy_final:item.copy_final,release_at:releaseAt,released,media_url:released?item.media_url:null}
+    return {...item,cover_url:await siteCover(item),copy_final:item.copy_final,release_at:releaseAt,released,media_url:released?item.media_url:null}
   }))
   return visible.filter((item): item is NonNullable<typeof item> => item !== null)
 }

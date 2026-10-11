@@ -1,3 +1,4 @@
+import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import { SiteFeatures } from '@/components/events/SiteFeatures'
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -82,20 +83,20 @@ async function loadGallery(): Promise<GalleryRow[]> {
 }
 
 export default async function GalleryPage() {
-  const products = await loadGallery()
+  const [products,covers] = await Promise.all([loadGallery(),approvedVenueCovers()])
 
   return (
     <div className="pb-16 bg-background min-h-screen">
       {/* Hero band */}
       <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden">
-        <Image
-          src="/rooms/gallery.webp"
+        {covers.gallery && <Image
+          src={covers.gallery}
           alt=""
           fill
           priority
           className="object-cover"
           sizes="100vw"
-        />
+        />}
         <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/40 to-background" />
         <div className="relative z-10 h-full flex items-end pb-16 md:pb-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
@@ -217,8 +218,8 @@ function EmptyGallery() {
         Opening soon.
       </h2>
       <p className="text-base text-muted-foreground font-body max-w-md mx-auto mb-6 leading-relaxed">
-        Our first batch of artists is being onboarded now. Check back in a few
-        days, or — if you make things — list your own work.
+        Artist features and approved works will appear here when ready. If you
+        make things, you can submit your work for review.
       </p>
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
         <Link

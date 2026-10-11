@@ -7,6 +7,10 @@
     {
       "path": "/api/content/worker",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/content/social/delivery",
+      "schedule": "7,22,37,52 * * * *"
     }
   ]
 }

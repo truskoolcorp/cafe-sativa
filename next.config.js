@@ -7,6 +7,7 @@ const nextConfig = {
     // list is the Next 14+ recommended pattern — it allows us to be
     // specific about the path and protocol.
     remotePatterns: [
+      { protocol: 'https', hostname: 'nwfxvhqbjtfvoopcadff.supabase.co', pathname: '/storage/v1/object/public/cafe-sativa-canon/**' },
       {
         protocol: 'https',
         hostname: 'images.unsplash.com',

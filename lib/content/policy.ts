@@ -43,8 +43,12 @@ export function compileShot(venue: CanonicalAsset, action: string) {
 // Venue-only templates deliberately avoid character synthesis until approved composite keyframes exist.
 export const WEEKLY_SLOTS = [
   { weekday: 1, room: 'main-lounge', title: 'Inside the virtual lounge', action: 'A gentle, steady camera push into the lounge.', caption: 'Step inside the virtual Café Sativa lounge. Music, art, and conversation shape the atmosphere we are building toward our future physical venue. Sip. Smoke. Vibe.' },
+  { weekday: 2, room: 'stage', title: 'The virtual Stage', action: 'A subtle, steady camera push toward the existing Stage.', caption: 'Explore the approved virtual Café Sativa Stage concept. Music, spoken word and comedy shape the programming vision; appearances and performance dates will be announced when confirmed.' },
   { weekday: 3, room: 'bar', title: 'A moment at the virtual bar', action: 'A slow camera glide along the existing bar.', caption: 'A preview of the virtual Café Sativa bar: warm light, thoughtful details, and room for a good conversation. Explore the vision for our future venue online.' },
+  { weekday: 4, room: 'kitchen', title: 'Inside the virtual Kitchen', action: 'A subtle, steady camera move through the existing Kitchen.', caption: 'Explore the virtual Café Sativa Kitchen and its fusion-cuisine programming vision. This room preview does not announce a guest chef, an available menu or a booked class.' },
   { weekday: 5, room: 'gallery', title: 'Art in the virtual venue', action: 'A subtle camera move through the existing gallery.', caption: 'Art belongs in the conversation. Explore the virtual Café Sativa gallery and the atmosphere inspiring our future physical venue.' },
+  { weekday: 6, room: 'cigar_lounge', title: 'The virtual Cigar Lounge', action: 'A gentle, steady camera push preserving the existing lounge.', caption: 'The virtual Café Sativa Cigar Lounge: a setting for thoughtful conversation and planned guided formats. This preview describes the room vision, not a booked tasting or available product offer.' },
+  { weekday: 0, room: 'community', title: 'A place for At the Table', action: 'A gentle, steady camera push along the existing long table.', caption: 'Explore the approved virtual long-table setting for Café Sativa’s At the Table vision. A place for story and conversation, with session dates and appearances to be confirmed.' },
 ] as const
 
 export function localDate(now: Date) {

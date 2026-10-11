@@ -38,8 +38,11 @@ export async function POST(req: Request) {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
         const session = event.data.object as Stripe.Checkout.Session
+        // A completed checkout can still have a delayed, unpaid payment.
+        if (session.payment_status === 'unpaid') break
         const kind = session.metadata?.kind
 
         if (kind === 'ticket') {
@@ -160,22 +163,24 @@ export async function POST(req: Request) {
         }
         const stripeCustomerId = typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null
         const stripeSubscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null
-        let currentPeriodEnd: string | null = null
-        if (stripeSubscriptionId) {
-          try { const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId); currentPeriodEnd = extractPeriodEnd(sub) } catch {}
-        }
-        await admin.from('memberships').upsert({
-          user_id: userId, tier, status: 'active',
+        if (!['regular','vip'].includes(tier) || !stripeSubscriptionId) throw new Error('Invalid membership checkout metadata')
+        // Fetch current state: webhook delivery order does not establish entitlement.
+        const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId)
+        const currentPeriodEnd = extractPeriodEnd(subscription)
+        const { error: membershipError } = await admin.from('memberships').upsert({
+          user_id: userId, tier, status: mapStripeStatus(subscription.status),
           stripe_customer_id: stripeCustomerId, stripe_subscription_id: stripeSubscriptionId,
           current_period_end: currentPeriodEnd,
         }, { onConflict: 'user_id' })
-        console.log(`[stripe-webhook] Granted ${tier} to user ${userId}`)
+        if (membershipError) throw membershipError
+        console.log('[stripe-webhook] Membership synchronized')
         break
       }
 
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        const sub = event.data.object as Stripe.Subscription
+        const receivedSub = event.data.object as Stripe.Subscription
+        const sub = event.type === 'customer.subscription.deleted' ? receivedSub : await stripe.subscriptions.retrieve(receivedSub.id)
         const userId = sub.metadata?.user_id
         const tier = sub.metadata?.tier as MembershipTier | undefined
         const status = event.type === 'customer.subscription.deleted' ? 'canceled' : mapStripeStatus(sub.status)
@@ -183,21 +188,24 @@ export async function POST(req: Request) {
           const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
           const { data: existing } = await admin.from('memberships').select('user_id,tier').eq('stripe_customer_id', customerId).maybeSingle()
           if (!existing) { console.warn('[stripe-webhook] subscription event for unknown customer'); break }
-          await admin.from('memberships').update({ status, current_period_end: extractPeriodEnd(sub) }).eq('user_id', existing.user_id)
+          const { error: updateError } = await admin.from('memberships').update({ status, current_period_end: extractPeriodEnd(sub) }).eq('user_id', existing.user_id)
+          if (updateError) throw updateError
           break
         }
         const stripeCustomerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
-        await admin.from('memberships').upsert({
+        if (!['regular','vip'].includes(tier)) throw new Error('Invalid subscription tier')
+        const { error: subscriptionError } = await admin.from('memberships').upsert({
           user_id: userId, tier, status, stripe_customer_id: stripeCustomerId,
           stripe_subscription_id: sub.id, current_period_end: extractPeriodEnd(sub),
         }, { onConflict: 'user_id' })
+        if (subscriptionError) throw subscriptionError
         break
       }
 
       case 'charge.refunded': {
         const charge = event.data.object as Stripe.Charge
         const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
-        if (!paymentIntentId) break
+        if (!paymentIntentId || !charge.refunded) break
         const { data: ticket } = await admin.from('tickets').select('id,state').eq('stripe_payment_intent_id', paymentIntentId).maybeSingle()
         if (!ticket || ticket.state === 'refunded') break
         await admin.from('tickets').update({ state: 'refunded' }).eq('id', ticket.id)
@@ -224,7 +232,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ received: true })
   } catch (err: any) {
-    console.error('[stripe-webhook] Handler error:', err)
-    return NextResponse.json({ error: err?.message || 'Webhook handler failed.' }, { status: 500 })
+    console.error('[stripe-webhook] Handler failed; event remains retryable')
+    return NextResponse.json({ error: 'Webhook handler failed; retry required.' }, { status: 500 })
   }
 }

@@ -45,3 +45,11 @@ claim that character videos or the measured physical venue are finished.
 
 No new subscription was purchased. Generation budget reservations are conservative
 limits, not a provider invoice. Private connection credentials remain server-only.
+
+## Production verification
+
+Commit 0dda45f26d7171f0727c22dcbc969c205b68eb08 deployed READY on the existing domain. Live checks returned ten approved public room covers, three current host portraits, and configured/canonical voice matches for Laviche, Ginger and Ahnika. The social worker rejects unauthenticated calls. Six text-only programming introductions were editorially verified and published under Keith’s explicit autonomous platform instruction, with delegated authorization recorded rather than individual manual approval claimed. Clips retain their separate QA gates.
+
+## Payment correction
+
+Stripe checkout fulfillment ignores unpaid sessions and supports delayed-payment success. Membership access uses current provider subscription status, and failed database writes return a retryable error. Partial ticket refunds no longer invalidate the entire ticket. Mocked event tests pass; real checkout, refunds and gallery inventory transactions still require end-to-end verification. Official basis: https://docs.stripe.com/checkout/fulfillment.md?payment-ui=stripe-hosted.

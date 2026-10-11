@@ -49,6 +49,7 @@ export default function AccountPage() {
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState<string | null>(null)
   const [membership, setMembership] = useState<MembershipState | null>(null)
+  const [billingBusy, setBillingBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -116,6 +117,20 @@ export default function AccountPage() {
       router.refresh()
     } catch (err: any) {
       setError(err?.message || 'Sign out failed.')
+    }
+  }
+
+  async function openBilling() {
+    setBillingBusy(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/membership/billing', { method: 'POST' })
+      const result = await response.json()
+      if (!response.ok || !result.url) throw new Error(result.error || 'Could not open membership billing.')
+      window.location.href = result.url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open membership billing.')
+      setBillingBusy(false)
     }
   }
 
@@ -291,18 +306,16 @@ export default function AccountPage() {
                 )}
                 {!membership.isAdmin && membership.tier === 'regular' && (
                   <Button asChild>
-                    <Link href="/membership?intent=vip">
+                    <Link href="/contact">
                       <Crown className="w-4 h-4 mr-2" />
-                      Upgrade to VIP
+                      Request a plan change
                     </Link>
                   </Button>
                 )}
                 {!membership.isAdmin && membership.tier !== 'explorer' && (
-                  <Button variant="outline" asChild>
-                    <Link href="/membership">
-                      <Settings className="w-4 h-4 mr-2" />
-                      Manage subscription
-                    </Link>
+                  <Button variant="outline" onClick={openBilling} disabled={billingBusy}>
+                    <Settings className="w-4 h-4 mr-2" />
+                    {billingBusy ? 'Opening billing…' : 'Manage billing and cancellation'}
                   </Button>
                 )}
                 <Button variant="ghost" asChild>

@@ -368,6 +368,10 @@ function MembershipInner() {
       )
     }
 
+    if (isActiveMember) {
+      return <Button variant="outline" className="w-full" asChild><Link href="/contact">Request a plan change</Link></Button>
+    }
+
     const label =
       loadingTier === paidTier
         ? 'Opening checkout…'
@@ -546,7 +550,7 @@ function MembershipInner() {
               What&rsquo;s in each tier.
             </h2>
             <p className="text-sm text-muted-foreground font-body mt-3">
-              Every detail, laid out. You can upgrade or downgrade any time.
+              Every detail, laid out. Manage billing or request a plan change from your account.
             </p>
           </div>
 

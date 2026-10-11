@@ -61,22 +61,16 @@ export async function POST(req: Request) {
           }
           const paymentIntentId = typeof session.payment_intent === 'string'
             ? session.payment_intent : session.payment_intent?.id ?? null
-          const { data: existing, error: existingError } = await admin.from('tickets').select('id,state')
-            .eq('event_id', eventId).eq('user_id', userId).maybeSingle()
-          if(existingError) throw existingError
-          if (existing && existing.state !== 'refunded') {
-            console.log(`[stripe-webhook] ticket already exists user=${userId} event=${eventId}, ack`)
-            break
-          }
-          const { error: insertError } = await admin.from('tickets').insert({
-            event_id: eventId, user_id: userId, source: 'purchased',
-            state: 'valid', stripe_payment_intent_id: paymentIntentId,
-            amount_paid_cents: session.amount_total ?? 0,
+          const reservationId=session.metadata?.reservation_id
+          if(!reservationId || !paymentIntentId)throw Error('Ticket reservation metadata missing')
+          const {data:recorded,error:recordError}=await admin.rpc('cs_record_ticket_payment',{
+            reservation_uuid:reservationId,
+            receipt:{site:session.metadata?.site,payment_status:session.payment_status,currency:session.currency,
+              user_id:userId,event_id:eventId,session_id:session.id,payment_intent_id:paymentIntentId,amount_cents:session.amount_total},
           })
-          if (insertError) {
-            console.error('[stripe-webhook] Failed to insert ticket', insertError)
-            return NextResponse.json({ error: 'Ticket write failed.' }, { status: 500 })
-          }
+          if(recordError || !recorded)throw Error('Atomic ticket fulfillment failed')
+          if(recorded.state==='payment_attention')console.error('[stripe-webhook] Ticket payment needs reconciliation',{reservationId,sessionId:session.id})
+          if(!recorded.created)break
           // Send confirmation email with Zoom join link
           try {
             const [{ data: ev }, { data: usr }] = await Promise.all([

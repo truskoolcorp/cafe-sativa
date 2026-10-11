@@ -17,10 +17,13 @@ This dated status supersedes older status claims, not approved canonical materia
 - Diagnostic is admin-only and makes no paid model request.
 - Membership events require exact verified Café Sativa prices, matching tier, user and customer. Existing founding/annual subscriptions can use billing management.
 - New membership and ticket checkouts include explicit site ownership metadata. Ticket webhook events require Café Sativa ownership, paid payment mode, USD and a positive paid amount.
-- Ticket checkout rejects foreign origins, malformed event IDs and past dates, and treats database failures as failures. Capacity-limited sales are temporarily closed until atomic reservation/fulfillment is implemented; this is a safeguard, not completed inventory management.
+- Ticket checkout rejects foreign origins, malformed event IDs and past dates, and treats database failures as failures. Ticket inventory now uses atomic event-locked reservations and fulfillment. Holds expire after 40 minutes; Checkout expires after 35 minutes. Late settled payments without capacity are recorded for admin reconciliation rather than granting an extra seat.
 
 - Customer ticket controls close past and unavailable events. A checkout success URL displays pending confirmation until verified ticket access exists.
 - The approved historical Bar master is supported by an exact ID/version/path/hash exception in the authenticated canonical bridge; all downloaded bytes still require the approved SHA-256.
 
 ## Remaining acceptance work
-Atomic ticket reservations and paid fulfillment; corrected room clips; canonical-linked character episodes; Metricool reconnect and delivery receipts; dedicated LiveKit deployment and audio testing; authenticated customer/admin access tests; paid checkout/refund/fulfillment; monitoring and recovery. Never interpret code completion as successful end-to-end production verification.
+Real paid ticket checkout/receipt/refund verification; corrected room clips; canonical-linked character episodes; Metricool reconnect and delivery receipts; dedicated LiveKit deployment and audio testing; authenticated customer/admin access tests; paid checkout/refund/fulfillment; monitoring and recovery. Never interpret code completion as successful end-to-end production verification.
+
+## Ticket reservation validation
+Rollback-only database checks passed for reuse, held and free capacity, missing receipt rejection, payment replay, refunded repurchase, expired holds and late-settlement reconciliation. API mock tests passed for quotes, immutable checkout expiry, Stripe idempotency and session binding. These checks do not prove a real paid transaction or email delivery. Admin payment exceptions are visible at `/admin/tickets`; no refund is issued automatically.

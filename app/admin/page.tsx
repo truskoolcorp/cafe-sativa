@@ -97,6 +97,14 @@ export default function AdminPage() {
     const timer = setInterval(() => { if (!document.hidden && !detail && !acting) void loadAll(); }, 60000);
     return () => clearInterval(timer);
   }, [detail, acting, loadAll]);
+  async function collectExistingTasks() {
+    setActing('collect');
+    try {
+      const response=await fetch('/api/content/worker',{method:'POST'}),body=await response.json();
+      if(!response.ok)throw Error(body.error || 'Existing task check failed');
+      await loadAll();showToast(`Checked ${body.checked || 0} existing tasks. No new generation submitted.`);
+    }catch(error){showToast(error instanceof Error?error.message:'Existing task check failed',false)}finally{setActing(null)}
+  }
   function openDraft(rec:any) { setDetail({ kind:'draft', record:rec }); setDraftCopy(rec.fields['Copy Draft'] || ''); setConfirmed(false); setDetailMessage(''); }
   async function saveDraft(action:string) {
     setActing(detail.record.id); setDetailMessage('Saving…');
@@ -245,7 +253,7 @@ export default function AdminPage() {
               </div>
               {!shownJobs.length && !filtered.length && !shownSiteItems.length && <p>No items in this view.</p>}
             </>}
-            {tab==='genlog' && <div style={{marginBottom:24}}><h2>Current generation status</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status} · {j.blocker || 'No blocker recorded'}</p>)}</div>}
+            {tab==='genlog' && <div style={{marginBottom:24}}><h2>Current generation status</h2><button className={styles.primary} disabled={Boolean(acting)} onClick={collectExistingTasks}>Check existing video tasks — no new generation</button>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status} · {j.blocker || 'No blocker recorded'}</p>)}</div>}
             {tab==='publog' && <div style={{marginBottom:24}}><h2>Current video delivery</h2>{liveJobs.map((j:any)=><p key={j.id}><strong>{j.title}</strong> · {j.status}<br/>{j.blocker || (j.status==='approved'?'Approved; awaiting scheduling':'No delivery receipt recorded')}</p>)}<p>Older delivery attempts below are retained with their original result notes.</p></div>}
             {/* GEN LOG */}
             {tab==='genlog' && (

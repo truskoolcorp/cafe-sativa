@@ -2,24 +2,25 @@ import { planReferencePreviews } from '@/lib/content/reference-previews'
 import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { cronAuthorized } from '@/lib/content/auth'
+import { cronAuthorized, isContentAdmin } from '@/lib/content/auth'
 import { approvedAsset, CanonicalAsset, compileShot, CONTENT_POLICY } from '@/lib/content/policy'
 
 const BASE = 'https://api.dev.runwayml.com/v1'
 
-export async function processContent(req: NextRequest, pilot = false) {
-  if (!cronAuthorized(req.headers.get('authorization'))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!pilot && process.env.CS_CONTENT_GENERATION_ENABLED !== 'true') return NextResponse.json({ mode: 'paused', reason: 'Generation not enabled' })
+export async function processContent(req: NextRequest, pilot = false, collectOnly = false) {
+  if (collectOnly && req.headers.get('origin') !== req.nextUrl.origin) return NextResponse.json({error:'Invalid origin'},{status:403})
+  if (collectOnly ? !await isContentAdmin() : !cronAuthorized(req.headers.get('authorization'))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!collectOnly && !pilot && process.env.CS_CONTENT_GENERATION_ENABLED !== 'true') return NextResponse.json({ mode: 'paused', reason: 'Generation not enabled' })
   const key = process.env.RUNWAYML_API_SECRET
   // Operator sets an all-in conservative quote after verifying provider pricing; no guessed rate.
   const quote = Number(process.env.CS_RUNWAY_FIVE_SECOND_QUOTE_CENTS)
-  if (!key || !Number.isInteger(quote) || quote <= 0 || quote > CONTENT_POLICY.monthlyBudgetCents) {
+  if (!key || (!collectOnly && (!Number.isInteger(quote) || quote <= 0 || quote > CONTENT_POLICY.monthlyBudgetCents))) {
     return NextResponse.json({ error: 'Verified Runway credential and cost quote required' }, { status: 503 })
   }
   const headers = { Authorization: `Bearer ${key}`, 'X-Runway-Version': '2024-11-06', 'Content-Type': 'application/json' }
   try {
     const db = createAdminClient()
-    await planReferencePreviews()
+    if (!collectOnly) await planReferencePreviews()
     // Recover jobs left in submitting by a runtime interruption. Never resubmit a paid call automatically.
     const stale = new Date(Date.now() - 10 * 60_000).toISOString()
     const recovered = await db.from('cs_content_jobs').update({ status: 'submission_unknown', blocker: 'Interrupted submission; reconcile provider before retrying' }).eq('status', 'submitting').lt('updated_at', stale)
@@ -39,6 +40,10 @@ export async function processContent(req: NextRequest, pilot = false) {
         continue
       }
       const task = await response.json()
+      if (['PENDING','THROTTLED','RUNNING'].includes(task.status)) {
+        const observed = await db.from('cs_content_jobs').update({blocker:`Provider reports ${task.status}; existing task retained, no paid resubmission.`}).eq('id',job.id).eq('status','generating')
+        if(observed.error)throw observed.error
+      }
       if (task.status === 'SUCCEEDED' && typeof task.output?.[0] === 'string') {
         const output = new URL(task.output[0])
         if (output.protocol !== 'https:') { await holdCollection('Provider output is not HTTPS'); continue }
@@ -78,6 +83,7 @@ export async function processContent(req: NextRequest, pilot = false) {
         await holdCollection(reason)
       }
     }
+    if (collectOnly) return NextResponse.json({checked:pending.data?.length || 0,submitted:0})
     // Missing references must not starve another room with an approved keyframe.
     const references = await db.from('cs_canonical_assets').select('*').eq('kind', 'venue').eq('active', true)
     if (references.error) throw references.error
@@ -163,6 +169,10 @@ export async function processContent(req: NextRequest, pilot = false) {
       const response = await fetch(`${BASE}/image_to_video`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) })
       if (!response.ok) throw new Error('Provider response requires reconciliation')
       const task = await response.json()
+      if (['PENDING','THROTTLED','RUNNING'].includes(task.status)) {
+        const observed = await db.from('cs_content_jobs').update({blocker:`Provider reports ${task.status}; existing task retained, no paid resubmission.`}).eq('id',job.id).eq('status','generating')
+        if(observed.error)throw observed.error
+      }
       if (typeof task.id !== 'string' || !task.id) throw new Error('Missing task ID')
       const saved = await db.from('cs_content_jobs').update({ status: 'generating', provider_task_id: task.id, updated_at: new Date().toISOString() }).eq('id', job.id)
       if (saved.error) throw saved.error

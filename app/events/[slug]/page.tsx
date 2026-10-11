@@ -19,6 +19,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { ticketingClosedReason } from '@/lib/ticket-state'
 
 /**
  * /events/[slug] — event detail + ticket purchase page.
@@ -205,6 +206,8 @@ function EventDetailInner() {
 
   async function handleGetTicket() {
     if (!event) return
+    const closed = ticketingClosedReason(event)
+    if (closed) { setError(closed); return }
     setError(null)
 
     if (!isSignedIn) {
@@ -263,7 +266,7 @@ function EventDetailInner() {
   // Auto-resume ticket flow if user bounced through signin
   useEffect(() => {
     const intent = searchParams.get('intent')
-    if (!loading && event && isSignedIn && intent === 'ticket') {
+    if (!loading && event && isSignedIn && intent === 'ticket' && !ticketingClosedReason(event)) {
       router.replace(`/events/${event.slug}`)
       handleGetTicket()
     }
@@ -308,7 +311,7 @@ function EventDetailInner() {
 
   const when = formatEventDate(event.starts_at)
   const userTier = member?.tier || 'explorer'
-  const tierIncludes = event.free_for_tiers?.includes(userTier)
+  const tierIncludes = (!member || member.status === 'active') && event.free_for_tiers?.includes(userTier)
   const hero =
     event.hero_image_url ||
     (event.category ? covers[event.category] : undefined)
@@ -324,6 +327,10 @@ function EventDetailInner() {
     ctaLabel = "You're in"
     ctaDisabled = true
     ctaVariant = 'secondary'
+  } else if (ticketingClosedReason(event)) {
+    ctaLabel = 'Ticket sales closed'
+    ctaDisabled = true
+    ctaHint = ticketingClosedReason(event)
   } else if (event.ticket_price_cents === 0) {
     ctaLabel = claimLoading ? 'Confirming…' : 'RSVP (free)'
   } else if (!isSignedIn) {
@@ -400,11 +407,10 @@ function EventDetailInner() {
                 <Sparkles className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                 <div>
                   <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
-                    Ticket confirmed
+                    {event.access === 'ticketed' ? 'Ticket confirmed' : 'Payment confirmation pending'}
                   </p>
                   <p className="text-sm text-foreground font-body mt-1">
-                    Your ticket for {event.title} is on its way. Check your
-                    email for the Zoom link.
+                    {event.access === 'ticketed' ? `Your ticket for ${event.title} is confirmed. Check your account for event access details.` : 'Checkout has returned you to Café Sativa. Your ticket is confirmed only after payment verification. Check your account before trying again.'}
                   </p>
                 </div>
               </div>
@@ -417,7 +423,7 @@ function EventDetailInner() {
                 Checkout canceled
               </p>
               <p className="text-sm text-foreground font-body mt-1">
-                No charge. You can still get a ticket below.
+                Checkout was closed. Check your account for payment and ticket status before trying again.
               </p>
             </div>
           )}
@@ -580,3 +586,4 @@ export default function EventDetailPage() {
     </Suspense>
   )
 }
+

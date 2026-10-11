@@ -50,6 +50,8 @@ export default function AccountPage() {
   const [email, setEmail] = useState<string | null>(null)
   const [membership, setMembership] = useState<MembershipState | null>(null)
   const [billingBusy, setBillingBusy] = useState(false)
+  const [refreshBusy, setRefreshBusy] = useState(false)
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -118,6 +120,20 @@ export default function AccountPage() {
     } catch (err: any) {
       setError(err?.message || 'Sign out failed.')
     }
+  }
+
+  async function refreshMembership() {
+    setRefreshBusy(true)
+    setRefreshMessage(null)
+    try {
+      const response = await fetch('/api/membership/refresh', { method: 'POST' })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Could not refresh membership.')
+      setMembership(current => current ? { ...current, tier: result.tier, status: result.status, currentPeriodEnd: result.currentPeriodEnd } : current)
+      setRefreshMessage(result.cancelAtPeriodEnd ? 'Cancellation is scheduled. Access continues through the confirmed paid period.' : 'Membership refreshed from Stripe.')
+    } catch (err) {
+      setRefreshMessage(err instanceof Error ? err.message : 'Could not refresh membership.')
+    } finally { setRefreshBusy(false) }
   }
 
   async function openBilling() {
@@ -295,6 +311,8 @@ export default function AccountPage() {
 
               {/* Action buttons */}
               <div className="mt-6 pt-6 border-t border-border flex flex-wrap gap-3">
+                {!membership.isAdmin && <Button variant="outline" onClick={refreshMembership} disabled={refreshBusy}>{refreshBusy ? 'Refreshing…' : 'Refresh payment and access'}</Button>}
+                {refreshMessage && <p role="status" className="text-sm text-muted-foreground">{refreshMessage}</p>}
                 {membership.isAdmin && <Button asChild><Link href="/admin/content">Review content</Link></Button>}
                 {!membership.isAdmin && membership.tier === 'explorer' && (
                   <Button asChild>

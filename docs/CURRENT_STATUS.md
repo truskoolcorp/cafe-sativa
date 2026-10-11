@@ -39,3 +39,11 @@ Live Studio records reconfirm Keith, Laviche, Ahnika and Ginger use their canoni
 - Live database: no confirmed future scheduled events, products or orders. Archived June event timing was explicitly provisional. No event, product, price, stock or fulfillment fact was invented to trigger a charge.
 - Gallery confirmation now requires a stored paid receipt; refunded orders do not display a download or fulfillment offer. Missing receipt shows pending confirmation. Customer copy no longer claims unverified immediate delivery, worldwide shipping or a 2026 physical opening. This does not prove digital access revocation at an external source or email delivery.
 - Browser voice lifecycle, canonical episode gates, worker preflight and existing entitlement tests pass. Production build passes. Live provider audio and real paid purchase/refund/fulfillment remain outstanding.
+
+## October 11 payment recovery continuation
+- Production monthly checkout validates the exact allowlisted live Stripe price, USD amount and monthly interval against advertised Regular 9.99 / VIP 24.99 prices. Unconfirmed weekly events and reserved physical opening claims were removed from membership offers.
+- Authenticated membership refresh retrieves the linked Stripe subscription, verifies exact Café Sativa price, user and customer, synchronizes current status/period and reports scheduled cancellation. Updates require the same stored subscription ID to avoid overwriting a concurrent replacement. Manual admin access is not changed.
+- Membership recovery, checkout, portal, entitlement and LiveKit authorization/memory tests pass; production build passes. No real charge, cancellation or refund has been performed, and live audio is not verified.
+- Metricool fresh read confirms posts 390856410 / 390803327 / 390803425 remain PENDING for Oct 12/14/16 at 7pm Chicago. Their dates are in the future; no published receipt is claimed.
+- Attempt to create post-publication checks was rejected by the automation service: current plan allows only 5 scheduled tasks (5 active). No task was created, and unrelated existing tasks were not paused.
+- Railway fresh inventory still has no dedicated Café Sativa worker. The earlier resource-capacity rejection and secure credential transfer remain unresolved.

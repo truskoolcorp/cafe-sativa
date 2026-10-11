@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import styles from './review.module.css'
 
@@ -24,12 +24,21 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const reviewedSources=useRef<Record<string,string>>({})
   const [selected, setSelected] = useState<Record<string, Record<string, boolean>>>({})
   async function load() {
     setLoading(true)
     try {
       const r = await fetch('/api/content/review', { cache: 'no-store' }), body = await r.json()
       if (!r.ok) throw new Error(body.error)
+      const sources:Record<string,string>={}
+      for(const job of body.jobs || []) {
+        const asset=body.assets?.find((item:any)=>item.id===job.canonical_asset_id)
+        sources[job.id]=JSON.stringify([job.output_url,job.status,asset?.id,asset?.sha256,asset?.version,asset?.active,asset?.approved_at])
+      }
+      const previous=reviewedSources.current
+      setSelected(current=>Object.fromEntries(Object.entries(current).filter(([id])=>previous[id]===sources[id] && sources[id])))
+      reviewedSources.current=sources
       setData(body); setError('')
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load review data.') }
     finally { setLoading(false) }

@@ -21,6 +21,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
  *   3. Paid ticket → create a Stripe Checkout session in 'payment'
  *      mode (NOT subscription). Attach metadata:
  *        kind: 'ticket',
+        site: 'cafe-sativa',
  *        event_id,
  *        user_id
  *      so the webhook can route the completion back here. Return { url }.
@@ -190,6 +191,7 @@ export async function POST(req: Request) {
       allow_promotion_codes: true,
       metadata: {
         kind: 'ticket',
+        site: 'cafe-sativa',
         event_id: event.id,
         event_slug: event.slug,
         user_id: userId,
@@ -199,6 +201,7 @@ export async function POST(req: Request) {
       payment_intent_data: {
         metadata: {
           kind: 'ticket',
+          site: 'cafe-sativa',
           event_id: event.id,
           event_slug: event.slug,
           user_id: userId,

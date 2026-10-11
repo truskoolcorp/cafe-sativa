@@ -51,6 +51,8 @@ export async function POST(req: Request) {
         const kind = session.metadata?.kind
 
         if (kind === 'ticket') {
+          // This Stripe account serves multiple projects; ticket metadata alone is not ownership.
+          if(session.metadata?.site !== 'cafe-sativa' || session.mode !== 'payment' || session.payment_status !== 'paid' || session.currency !== 'usd' || !Number.isInteger(session.amount_total) || (session.amount_total ?? 0) <= 0) break
           const userId = session.metadata?.user_id
           const eventId = session.metadata?.event_id
           if (!userId || !eventId) {
@@ -59,8 +61,9 @@ export async function POST(req: Request) {
           }
           const paymentIntentId = typeof session.payment_intent === 'string'
             ? session.payment_intent : session.payment_intent?.id ?? null
-          const { data: existing } = await admin.from('tickets').select('id,state')
+          const { data: existing, error: existingError } = await admin.from('tickets').select('id,state')
             .eq('event_id', eventId).eq('user_id', userId).maybeSingle()
+          if(existingError) throw existingError
           if (existing && existing.state !== 'refunded') {
             console.log(`[stripe-webhook] ticket already exists user=${userId} event=${eventId}, ack`)
             break

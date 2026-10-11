@@ -8,6 +8,10 @@ import {signVoiceSession} from '@/lib/concierge/livekit-session'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const response=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store'}})
+export async function GET() {
+ return response({available:process.env.CS_LIVEKIT_ENABLED==='true' &&
+  ['LIVEKIT_API_KEY','LIVEKIT_API_SECRET','LIVEKIT_URL','CS_LIVEKIT_AGENT_NAME','CS_LIVEKIT_BRIDGE_SECRET'].every(key=>Boolean(process.env[key]))})
+}
 export async function POST(req:Request) {
  if(req.headers.get('origin')!==new URL(req.url).origin)return response({error:'Invalid origin'},403)
  if(process.env.CS_LIVEKIT_ENABLED!=='true')return response({error:'Live conversation is not available yet.'},503)

@@ -1,6 +1,6 @@
 # Café Sativa LiveKit integration
 
-Status: disabled pending a dedicated worker and production configuration.
+Status: disabled pending dedicated worker deployment, production credentials and live acceptance. The browser RTC client is implemented and feature-gated; no live audio acceptance is claimed.
 
 ## Verified existing services
 

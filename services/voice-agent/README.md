@@ -29,3 +29,6 @@ cross-user isolation, expired grants, provider failure, shutdown, and usage limi
 Review provider transcript/recording settings before production use. Keep Chef V
 excluded under the owner hold. See ../../docs/CS_LIVEKIT_WORKER.md for the endpoint
 contract and acceptance checklist.
+
+## Deployment preparation (2026-10-11)
+Dockerfile packages the isolated worker; preflight checks required variable names and a valid wss endpoint without printing values. Use the dedicated agent name `cafe-sativa-hosts`. Railway credential references can point to existing `anya-worker` variables without exposing values, but creation of the dedicated service was blocked by the workspace resource limit. No deployment or registration occurred. Keep website live mode disabled.

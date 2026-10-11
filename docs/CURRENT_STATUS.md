@@ -7,7 +7,7 @@ This dated status supersedes older status claims, not approved canonical materia
 - Only the Bar pilot clip is approved. Stage, Gallery, Kitchen, Cigar Lounge and Community clips failed review. Four untouched room jobs remain planned on the current policy. An unbound duplicate Community draft is blocked because the current master already has a rejected take.
 - Generation is paused, with a $25 monthly ceiling and $6 reserved. No new paid rendering is authorized by this reconciliation.
 - Chef V permissions were confirmed by the owner; all Café Sativa use remains on owner hold. CHEF SAYS is a separate project.
-- Dedicated LiveKit worker source and conversation-memory endpoints are implemented. A server-only bridge secret and agent name are provisioned; live mode stays disabled. LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET remain absent. No dedicated Café Sativa worker is deployed, and the website RTC client is not connected. Existing browser voice mode remains separate from LiveKit.
+- Dedicated LiveKit worker source and conversation-memory endpoints are implemented. A server-only bridge secret and agent name are provisioned; live mode stays disabled. LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET remain absent. No dedicated Café Sativa worker is deployed. The feature-gated RTC browser client is implemented; it stays hidden while disabled and requires live audio acceptance. Existing browser voice mode remains separate from LiveKit.
 - Three social posts are scheduled for October 12, 14 and 16 at 7pm Chicago. Scheduled status is not proof of delivery. Website Metricool OAuth reported invalid_grant; reconnect and actual delivery verification remain open.
 - The selected Stripe live account is the shared Tru Skool account. Café Sativa has six verified subscription prices. No actual paid purchase/refund/fulfillment verification has completed.
 - Historical event rows are in the past and are not valid upcoming programming. Product catalog is empty.
@@ -30,3 +30,12 @@ Rollback-only database checks passed for reuse, held and free capacity, missing 
 
 ## Canonical voice verification
 Live Studio records reconfirm Keith, Laviche, Ahnika and Ginger use their canonical ElevenLabs voice IDs. Approved portraits and voices do not constitute an approved episode script, composite scene, or completed render. Chef V remains excluded.
+
+## October 11 continuation
+- Railway ownership verified as truskoolcorp@truskool.net. Existing `glyph-ecosystem` / `anya-worker` has LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, DEEPGRAM_API_KEY, ELEVEN_API_KEY, OPENAI_API_KEY and RUNWAYML_API_SECRET. OAuth exposes names only. No secret was copied, rotated or replaced.
+- Creating a dedicated `cafe-sativa-voice-worker` was rejected: "You have used all your available resources." Read-back confirms no worker was created. Source services were not modified. Website credentials remain unprovisioned.
+- Worker Docker packaging and credential-free preflight checks are prepared. Worker registration, audio, usage and recovery remain unverified.
+- `/admin/episodes` contains three new script drafts: Laviche's Bar welcome, Ahnika's Stage introduction, and Keith/Laviche's At the Table introduction. Exact live room, portrait, rights, production-ready and voice checks gate script approval. Script revisions invalidate old approvals. No scripts were owner-approved or rendered automatically; composite keyframes and clip reviews remain required. Chef V is excluded.
+- Live database: no confirmed future scheduled events, products or orders. Archived June event timing was explicitly provisional. No event, product, price, stock or fulfillment fact was invented to trigger a charge.
+- Gallery confirmation now requires a stored paid receipt; refunded orders do not display a download or fulfillment offer. Missing receipt shows pending confirmation. Customer copy no longer claims unverified immediate delivery, worldwide shipping or a 2026 physical opening. This does not prove digital access revocation at an external source or email delivery.
+- Browser voice lifecycle, canonical episode gates, worker preflight and existing entitlement tests pass. Production build passes. Live provider audio and real paid purchase/refund/fulfillment remain outstanding.

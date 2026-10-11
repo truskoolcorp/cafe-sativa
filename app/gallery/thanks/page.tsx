@@ -5,6 +5,7 @@ import { CheckCircle2, Package, Download, Gem, Home } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Button } from '@/components/ui/button'
+import { orderReceiptState } from '@/lib/order-state'
 
 /**
  * /gallery/thanks?session_id=cs_...
@@ -53,7 +54,7 @@ async function loadOrder(sessionId: string) {
     .from('orders')
     .select(
       `
-      id, total_cents, currency, fulfillment_state, created_at,
+      id, total_cents, currency, fulfillment_state, created_at, paid_at,
       order_items (
         product_id, title_snapshot, price_cents, quantity,
         products ( kind, digital_delivery_url )
@@ -75,7 +76,7 @@ export default async function ThanksPage({ searchParams }: SP) {
 
   const order = await loadOrder(sessionId)
 
-  if (!order) {
+  if (orderReceiptState(order) === 'pending' || !order) {
     // Webhook likely hasn't run yet, or the user isn't signed in.
     // Show a generic confirmation — email will have the details.
     return <GenericThanks />
@@ -84,7 +85,8 @@ export default async function ThanksPage({ searchParams }: SP) {
   const item = (order.order_items as any[])?.[0]
   const product = item?.products
   const kind = product?.kind || 'physical'
-  const digitalUrl = product?.digital_delivery_url
+  const refunded = orderReceiptState(order) === 'refunded'
+  const digitalUrl = refunded ? null : product?.digital_delivery_url
 
   const total = (order.total_cents / 100).toLocaleString('en-US', {
     style: 'currency',
@@ -105,7 +107,7 @@ export default async function ThanksPage({ searchParams }: SP) {
           </div>
 
           <h1 className="font-heading text-4xl md:text-5xl font-bold text-foreground mb-3 leading-tight">
-            You&rsquo;re all set.
+            {refunded ? 'Order refunded.' : 'Payment confirmed.'}
           </h1>
           <p className="text-base text-muted-foreground font-body mb-8">
             Order #{order.id.slice(0, 8)}
@@ -133,15 +135,13 @@ export default async function ThanksPage({ searchParams }: SP) {
             </div>
           </div>
 
-          {kind === 'physical' && (
+          {!refunded && kind === 'physical' && (
             <p className="text-sm text-foreground font-body leading-relaxed mb-6">
-              Your order has been sent to the artist. They&rsquo;ll package it
-              carefully and ship it within a few days — you&rsquo;ll get a
-              tracking email when it&rsquo;s on its way.
+              Payment is confirmed. Fulfillment status: {order.fulfillment_state}. Check your account for updates; shipping has not been confirmed by this page.
             </p>
           )}
 
-          {kind === 'digital' && digitalUrl && (
+          {!refunded && kind === 'digital' && digitalUrl && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 mb-6 text-left">
               <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold mb-2">
                 Your download
@@ -153,23 +153,20 @@ export default async function ThanksPage({ searchParams }: SP) {
                 {digitalUrl}
               </a>
               <p className="text-xs text-muted-foreground font-body mt-2">
-                Also sent to your email. Access it anytime from your account.
+                Delivery email status is separate from payment confirmation.
               </p>
             </div>
           )}
 
-          {kind === 'digital' && !digitalUrl && (
+          {!refunded && kind === 'digital' && !digitalUrl && (
             <p className="text-sm text-foreground font-body leading-relaxed mb-6">
-              Your download details are on their way by email. Check your inbox
-              in the next few minutes.
+              Digital delivery is pending. Check your account for fulfillment updates.
             </p>
           )}
 
-          {kind === 'nft' && (
+          {!refunded && kind === 'nft' && (
             <p className="text-sm text-foreground font-body leading-relaxed mb-6">
-              Your digital certificate is being prepared and will arrive by
-              email shortly. On-chain minting to Polygon is coming in a future
-              release.
+              Digital certificate fulfillment has not been verified. Check your account for delivery details.
             </p>
           )}
 
@@ -198,11 +195,10 @@ function GenericThanks() {
           <CheckCircle2 className="w-7 h-7 text-primary" />
         </div>
         <h1 className="font-heading text-4xl font-bold text-foreground mb-4">
-          Thank you.
+          Checking your order.
         </h1>
         <p className="text-base text-muted-foreground font-body mb-8 leading-relaxed">
-          Your order went through. A confirmation email is on its way with all
-          the details.
+          Payment has not been confirmed here yet. Sign in to the account used at checkout, then check your orders. If payment completed, confirmation may still be processing.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Button asChild>

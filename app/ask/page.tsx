@@ -23,6 +23,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import LiveVoiceConversation from '@/components/LiveVoiceConversation'
 
 /**
  * /ask — visitor-facing chat with the Café Sativa AI hosts.
@@ -188,6 +189,7 @@ function AskInner() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [liveActive, setLiveActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [rateLimited, setRateLimited] = useState<string | null>(null)
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null)
@@ -261,7 +263,7 @@ function AskInner() {
 
   async function sendMessage(text?: string) {
     const trimmed = (text ?? input).trim()
-    if (!trimmed || sendingRef.current) return
+    if (!trimmed || sendingRef.current || liveActive) return
     sendingRef.current = true
     const turn = voiceTurnRef.current
     let succeeded = false
@@ -648,7 +650,7 @@ function AskInner() {
                     <button
                       key={s}
                       onClick={() => sendMessage(s)}
-                      disabled={sending}
+                      disabled={sending || liveActive}
                       className="group w-full rounded-lg border border-border bg-background/50 px-4 py-2.5 text-left text-sm text-foreground font-body hover:border-primary/40 hover:bg-background transition-colors disabled:opacity-50"
                     >
                       <span className="text-muted-foreground mr-2">“</span>
@@ -684,6 +686,7 @@ function AskInner() {
                         {voiceSupported && (
                           <button
                             type="button"
+                            disabled={liveActive}
                             onClick={() => speak(m.content, activeHost, m.timestamp)}
                             aria-label={`Play ${activeHostMeta.displayName}'s reply`}
                             className="ml-0.5 text-muted-foreground hover:text-primary transition-colors"
@@ -767,6 +770,12 @@ function AskInner() {
             </div>
           )}
 
+          <div className="px-4 lg:px-6">
+            <LiveVoiceConversation key={activeHost} host={activeHost} conversationId={conversationIdRef.current}
+              signedIn={Boolean(isSignedIn)} onActive={setLiveActive}
+              onStart={() => { voiceModeRef.current = false; setVoiceMode(false); stopListening(); stopAudio() }} />
+          </div>
+
           {/* Composer */}
           <div className="border-t border-border p-4 lg:p-6">
             <div className="flex items-end gap-3">
@@ -774,6 +783,7 @@ function AskInner() {
                 <button
                   type="button"
                   onClick={toggleMic}
+                  disabled={liveActive}
                   aria-label={listening ? 'Stop voice input' : 'Speak your message'}
                   className={cn(
                     'shrink-0 h-12 w-12 rounded-lg border flex items-center justify-center transition-colors',
@@ -795,7 +805,7 @@ function AskInner() {
                 onKeyDown={handleInputKeyDown}
                 placeholder={`Message ${activeHostMeta.displayName}…`}
                 rows={1}
-                disabled={sending}
+                disabled={sending || liveActive}
                 className="flex-1 resize-none rounded-lg border border-border bg-background px-4 py-3 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 disabled:opacity-60"
                 style={{ minHeight: '48px', maxHeight: '160px' }}
                 onInput={(e) => {
@@ -807,7 +817,7 @@ function AskInner() {
               />
               <Button
                 onClick={() => sendMessage()}
-                disabled={sending || !input.trim()}
+                disabled={sending || liveActive || !input.trim()}
                 size="lg"
                 className="shrink-0"
               >
@@ -832,6 +842,7 @@ function AskInner() {
                 <button
                   type="button"
                   onClick={toggleVoiceMode}
+                  disabled={liveActive}
                   aria-pressed={voiceMode}
                   className={cn(
                     'shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-body transition-colors',

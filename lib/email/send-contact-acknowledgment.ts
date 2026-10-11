@@ -77,7 +77,7 @@ export async function sendContactAcknowledgment(
             <td style="padding:16px 32px 32px;border-top:1px solid #3a2a1f">
               <p style="margin:0;font-size:12px;color:#8a7a68;line-height:1.5">
                 Café Sativa — Where Nordic wellness meets Canary Island culture.<br>
-                Virtual venue now. Physical doors opening in Tenerife, Spain, 2026.
+                Virtual venue. Physical venue planned for Tenerife, Spain in 2027; opening date to be confirmed.
               </p>
             </td>
           </tr>

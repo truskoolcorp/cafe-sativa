@@ -53,14 +53,12 @@ export async function sendOrderConfirmation(params: Params): Promise<SendResult>
       `
       : `
         <p style="margin:24px 0 16px;font-size:15px;line-height:1.6;color:#f1e5d1">
-          Your digital item is ready. We'll send the delivery details in a
-          follow-up email within the hour.
+          Your payment is confirmed. Digital delivery is pending; check your account for fulfillment updates.
         </p>
       `
     : `
         <p style="margin:24px 0 16px;font-size:15px;line-height:1.6;color:#f1e5d1">
-          We'll package this carefully and ship it soon. You'll get a tracking
-          email when it's on its way.
+          Your payment is confirmed. Shipping is pending; check your account for fulfillment updates.
         </p>
       `
 
@@ -111,7 +109,7 @@ export async function sendOrderConfirmation(params: Params): Promise<SendResult>
             <td style="padding:16px 32px 32px;border-top:1px solid #3a2a1f">
               <p style="margin:0;font-size:12px;color:#8a7a68;line-height:1.5">
                 Café Sativa — Where Nordic wellness meets Canary Island culture.<br>
-                Virtual venue now. Physical doors opening in Tenerife, Spain, 2026.
+                Virtual venue. Physical venue planned for Tenerife, Spain in 2027; opening date to be confirmed.
               </p>
             </td>
           </tr>
@@ -135,8 +133,8 @@ ${
   isDigital
     ? params.digitalDeliveryUrl
       ? `Download: ${params.digitalDeliveryUrl}`
-      : `We'll send the download details in a follow-up email within the hour.`
-    : `We'll package this carefully and ship it soon. You'll get a tracking email when it's on its way.`
+      : `Digital delivery is pending. Check your account for fulfillment updates.`
+    : `Shipping is pending. Check your account for fulfillment updates.`
 }
 
 Every purchase supports the artist directly. Thank you for that.

@@ -97,20 +97,20 @@ export default async function ProductDetailPage({ params }: Params) {
     product.kind === 'physical'
       ? {
           icon: Truck,
-          label: 'Ships worldwide',
-          detail: 'Packed and shipped by the artist within a few days.',
+          label: 'Physical item',
+          detail: 'Checkout shows the available destination countries. Delivery timing requires confirmation.',
         }
       : product.kind === 'digital'
         ? {
             icon: Download,
-            label: 'Delivered instantly',
-            detail: 'Download link sent to your email the moment you pay.',
+            label: 'Digital item',
+            detail: 'Access requires confirmed payment. Delivery status appears with your order.',
           }
         : {
             icon: Gem,
-            label: 'Digital certificate now, on-chain soon',
+            label: 'Digital certificate',
             detail:
-              'You get a signed certificate of ownership via email. On-chain minting is being wired up.',
+              'Review the product’s actual delivery terms. On-chain minting is not promised by this checkout.',
           }
 
   const TrustIcon = trustSignal.icon

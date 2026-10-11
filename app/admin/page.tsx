@@ -172,6 +172,7 @@ export default function AdminPage() {
       <div style={{ padding:'20px 24px', display:'flex', flexWrap:'wrap', alignItems:'center', gap:12 }}>
         <button className={styles.primary} onClick={()=>{setTab('approvals');setFilter('all');}}>Review &amp; approve ({totalPending})</button>
         <a className={styles.secondary} href="https://app.metricool.com/planner/calendar?blogId=5373515" target="_blank" rel="noreferrer">Open social planner ↗</a>
+        <a className={styles.secondary} href="/admin/episodes">Review character episode scripts →</a>
         <a className={styles.secondary} href="/admin/tickets">Review ticket payment exceptions →</a>
         <span style={{ color:C.textDim }}>Generation {current ? (current.generationEnabled ? 'enabled' : 'paused') : 'status unavailable'} · $25 monthly limit</span>
       </div>

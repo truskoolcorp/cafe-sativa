@@ -12,9 +12,10 @@ export async function planReferencePreviews() {
   const exists=await db.from('cs_content_jobs').select('id').eq('canonical_asset_id',asset.id).limit(1)
   if(exists.error)throw exists.error
   if(exists.data?.length)continue
-  const inserted=await db.from('cs_content_jobs').upsert({slot_key:`reference-preview:${brief.room}:${asset.sha256}`,room:brief.room,canonical_asset_id:asset.id,title:brief.title,caption:brief.caption,camera_action:'A subtle, steady camera push preserving this exact empty room and its geometry.',policy_version:CONTENT_POLICY.version,status:'planned'},{onConflict:'slot_key',ignoreDuplicates:true}).select('id')
+  const inserted=await db.from('cs_content_jobs').upsert({slot_key:`reference-preview:${brief.room}:${asset.sha256}`,room:brief.room,canonical_asset_id:asset.id,title:brief.title,caption:brief.caption,camera_action:'A locked-off shot preserving the exact approved empty room, with no camera movement.',policy_version:CONTENT_POLICY.version,status:'planned'},{onConflict:'slot_key',ignoreDuplicates:true}).select('id')
   if(inserted.error)throw inserted.error
   planned+=inserted.data?.length || 0
  }
  return planned
 }
+

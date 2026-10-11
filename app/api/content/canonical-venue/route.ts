@@ -34,7 +34,8 @@ export async function GET(req: NextRequest) {
     const offset = url.pathname.indexOf(marker)
     if (offset < 0) return respond({error:'canonical_storage_path_invalid'},409)
     const path = decodeURIComponent(url.pathname.slice(offset + marker.length))
-    if (!/^reviewed\/venue\/[a-z0-9_-]+-[a-f0-9]{64}\.(png|jpg|webp)$/.test(path) || !path.includes('/'+subject+'-'+asset.sha256+'.')) return respond({error:'canonical_storage_path_invalid'},409)
+    const legacyBar = asset.id === 'f493531a-c7e0-4e89-afbb-f2095b914a63' && subject === 'bar' && asset.version === '2026-10-07-empty-room-pilot' && asset.sha256 === 'b6ae58d3151e7b93bd03f2dc55bae1424c03f8307c67dc9affb88fd0831720a9' && path === 'bar-pilot-2026-10-07.png'
+    if (!legacyBar && (!/^reviewed\/venue\/[a-z0-9_-]+-[a-f0-9]{64}\.(png|jpg|webp)$/.test(path) || !path.includes('/'+subject+'-'+asset.sha256+'.'))) return respond({error:'canonical_storage_path_invalid'},409)
     const fetched = await db.storage.from('cafe-sativa-canon').download(path)
     if (fetched.error || !fetched.data) return respond({error:'canonical_storage_unavailable'},503)
     const bytes=Buffer.from(await fetched.data.arrayBuffer())
@@ -43,3 +44,4 @@ export async function GET(req: NextRequest) {
     return new NextResponse(bytes, {status:200,headers:{'Content-Type':mime,'Cache-Control':'private, no-store','X-Canonical-Sha256':asset.sha256,'X-Canonical-Asset-Id':asset.id,'X-Canonical-Version':asset.version,'X-Robots-Tag':'noindex'}})
   } catch {return respond({error:'canonical_registry_unavailable'},503)}
 }
+

@@ -17,7 +17,7 @@ function setup(event, options = {}) {
     customer: 'cus_1', items: { data: [{ price: { id: 'price_approved' }, current_period_end: 1800000000 }] }
   }
   const stripe = {
-    webhooks: { constructEvent: () => event },
+    webhooks: { constructEvent: () => { if(options.invalidSignature) throw Error('invalid signature'); return event } },
     subscriptions: { retrieve: async () => sub },
     checkout: { sessions: { listLineItems: async () => ({ data: [], has_more: false }) } },
     paymentIntents: { retrieve: async () => ({ application_fee_amount: 0 }) }
@@ -115,4 +115,25 @@ test('refund updates the original order and ticket records, never creates new ch
   assert.equal(h.actions.filter(a=>a.op==='update').length,2)
   assert.equal(h.actions[0].data.fulfillment_state,'refunded')
   assert.equal(h.actions[1].data.state,'refunded')
+})
+
+
+test('invalid Stripe signature cannot write fulfillment state',async()=>{
+  const h=setup({type:'checkout.session.completed',data:{object:{payment_status:'paid',metadata:{site:'cafe-sativa',kind:'ticket'}}}},{invalidSignature:true})
+  assert.equal((await h.post()).status,400)
+  assert.equal(h.actions.length,0)
+})
+
+test('replayed paid ticket receipt delegates exclusively to atomic procedure',async()=>{
+  const h=setup({type:'checkout.session.completed',data:{object:{
+    payment_status:'paid',mode:'payment',currency:'usd',amount_total:1200,
+    payment_intent:'pi_1',id:'cs_1',
+    metadata:{kind:'ticket',site:'cafe-sativa',user_id:'user_1',event_id:'event_1',reservation_id:'res_1'}
+  }}},{rpcResult:{created:false,state:'paid'}})
+  assert.equal((await h.post()).status,200)
+  assert.equal((await h.post()).status,200)
+  const writes=h.actions.filter(a=>a.op==='rpc'&&a.name==='cs_record_ticket_payment')
+  assert.equal(writes.length,2)
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0].input)),JSON.parse(JSON.stringify(writes[1].input)))
+  assert.equal(h.actions.filter(a=>a.op!=='rpc').length,0)
 })

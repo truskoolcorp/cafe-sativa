@@ -1,0 +1,21 @@
+name: Replication supervisor and fencing tests
+on:
+  pull_request:
+    paths:
+      - 'database/replication/**'
+      - 'scripts/replication/**'
+      - 'tests/replication-*.test.cjs'
+      - '.github/workflows/replication-supervisor.yml'
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tests/replication-worker.test.cjs tests/replication-supervisor.test.cjs

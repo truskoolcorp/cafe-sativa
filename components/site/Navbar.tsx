@@ -116,9 +116,7 @@ export function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span className="font-heading text-xl font-bold tracking-tight text-primary">
-              Café Sativa
-            </span>
+            <span className="inline-flex items-center gap-2"><img src="/brand/cafe-sativa/2026-10-07/cafe-sativa-logo-web.webp" alt="" className="h-12 w-12 object-contain" onError={(event) => { event.currentTarget.style.display = 'none' }} /><span className="font-heading text-xl font-bold tracking-tight text-primary">Café Sativa</span></span>
           </Link>
 
           {/* Desktop nav */}

@@ -1,0 +1,28 @@
+name: Café Sativa canonical logo gate
+on:
+  pull_request:
+    paths:
+      - 'components/site/Navbar.tsx'
+      - 'components/site/Footer.tsx'
+      - 'public/brand/cafe-sativa/2026-10-07/cafe-sativa-logo-web.webp'
+      - '.github/workflows/cafe-sativa-logo-gate.yml'
+  workflow_dispatch:
+jobs:
+  canonical-logo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check logo exists and is valid lossless WebP
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import struct
+          p=Path('public/brand/cafe-sativa/2026-10-07/cafe-sativa-logo-web.webp')
+          assert p.is_file(), 'Approved logo binary not committed; do not merge this PR'
+          data=p.read_bytes()
+          assert len(data)>10000, 'Logo file unexpectedly small'
+          assert data[:4]==b'RIFF' and data[8:12]==b'WEBP', 'Invalid WebP asset'
+          assert len(data)==struct.unpack('<I',data[4:8])[0]+8, 'WebP truncated'
+          assert b'VP8L' in data[:40], 'Logo must be lossless WebP'
+          print('Logo asset present, complete, and lossless; verify artwork and tagline visually before merging')
+          PY

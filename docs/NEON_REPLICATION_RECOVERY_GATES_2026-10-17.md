@@ -31,3 +31,17 @@ Created **only in Neon staging**:
 6. Keep Supabase Auth/Storage operational until authenticated runtime parity and RLS are independently validated. Hold production switch until owner approves a reviewed rollback/cutover plan.
 
 **Status:** Reproducible guarded schema extraction available; staged refund and interrupted-RPC execution tested; synthetic fencing prototype tested; **cross-provider replication and automatic failover remain unimplemented and uncertified** because the isolated Supabase branch requires explicit cost authorization and source/target routing needs production-grade fencing.
+
+## Approved hourly-cost Supabase isolated branch — 2026-10-17
+
+Owner explicitly approved **$0.01344/hour** for a Supabase development branch. Branch `cafe-sativa-neon-replica-test-20261017`, ref `anrprovgdpwqcalkolsz`, parent `nwfxvhqbjtfvoopcadff`, was created using Supabase's cost-confirmation flow. Initial project health `ACTIVE_HEALTHY`, branch has no production data; 28 application tables and 35 public RLS policies are present through its migration history. Branch may incur hourly compute/usage charges until removed. Do not point production applications to it.
+
+### First controlled cross-provider synthetic event-transfer verification
+- In Supabase **branch only**, created separate `cs_replication_test.control` and `cs_replication_test.events`, and revoked PUBLIC, `anon`, `authenticated` rights from schema/tables.
+- Read 3 synthetic events from Neon staging `cs_validation.replica_events` and explicitly applied the same key/hash/epoch/sequence payloads into the Supabase branch in a manual, controlled transaction sequence.
+- Both endpoints independently returned 3 records; compared sequence, epoch, event key, and payload hash field-by-field. **All three matched exactly**. Destination checkpoint advanced to 3.
+- A deliberately stale writer (old ID and epoch 1) attempted a checkpoint advance and changed no records. A writer promotion from epoch 1 to epoch 2 had been demonstrated in isolated Neon staging before this test.
+- The third synthetic event's explicit Neon insert followed by Supabase branch insert+checkpoint update took **3,327 milliseconds wall clock from orchestrator**. That is one observed transfer latency, **not** ongoing replication lag, CDC lag, measured RPO/RTO, or failover downtime.
+- No native PostgreSQL subscription, publication, replication slot, durable external worker, trigger-based CDC, continuous sync, cross-provider credential bridge, automatic failover, or fencing at *every real application write entrypoint* has been enabled.
+- Replication scope was limited to a private synthetic schema, with no live production/canonical data or OAuth credentials. This is a contract feasibility test rather than full database replication.
+- The branch must be retired when no longer needed to prevent unbounded hourly spend; obtain approval before destructive cleanup.

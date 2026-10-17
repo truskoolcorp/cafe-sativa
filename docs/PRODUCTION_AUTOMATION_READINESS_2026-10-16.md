@@ -46,3 +46,8 @@ Connected Metricool brand 5373515 confirmed these **provider-side PUBLISHED** re
 - October 14 concept promotion, post 390803327: Facebook https://facebook.com/1260321256112306/posts/1568560448621717 ; Threads https://www.threads.com/@truskoolcorp/post/Defn7SJCteF
 - October 16 concept promotion, post 390803425: Facebook https://facebook.com/1260321256112306/posts/1570498208427941 ; Threads https://www.threads.com/@truskoolcorp/post/DekxhVMCINq
 The connected brand ID and permitted Facebook/Threads destinations match the website's previously documented allowlist. Source code in `lib/content/social-delivery.ts` preserves fail-closed behavior on ambiguous delivery and does not silently replay submissions. **Not yet verified**: current website-owned OAuth refresh state and internal `cs_social_connections`/`cs_social_deliveries` records because access to Café Sativa's production Supabase project is unavailable. Provider publication success alone does not certify unattended future scheduling.
+
+## Metricool read-only safety production release
+- Isolated PR #16 merged as `e073aa06a160257562b9399cb0b26058443553af`.
+- Vercel production deployment `dpl_DE39yX9EaYAvaT2YHJ3idC9JaLzP` status `READY` (verified), with independent social-probe CI successful.
+- This establishes release of source-level ledger write guards, **not** authenticated live probe execution or website OAuth/ledger health. Provider publication receipts for Oct 12, 14 and 16 are independently verified.

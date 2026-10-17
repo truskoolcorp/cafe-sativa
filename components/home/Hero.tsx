@@ -1,4 +1,3 @@
-import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -29,7 +28,6 @@ import { formatEventDate } from '@/lib/events'
  */
 
 export async function Hero({ featured }: { featured: EventRow | null }) {
-  const covers=await approvedVenueCovers()
   // Is the featured event happening right now (within a 2-hour window)?
   const now = Date.now()
   const startMs = featured ? new Date(featured.starts_at).getTime() : 0
@@ -44,8 +42,8 @@ export async function Hero({ featured }: { featured: EventRow | null }) {
           this is LCP; `fill` so it covers the section regardless of
           viewport; object-position slightly low so the faces/lights
           sit in the upper third. */}
-      {covers['main-lounge'] && <Image
-        src={covers['main-lounge']}
+      {<Image
+        src="/rooms/venue.webp"
         alt=""
         fill
         priority

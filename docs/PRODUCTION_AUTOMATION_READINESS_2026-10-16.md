@@ -23,3 +23,9 @@
 3. Run existing webhook offline CI plus a sandbox/persistent database replay test (one paid ticket event delivered twice -> one order and one entitlement; cancellation and refund reverse exactly once). No live charge.
 4. Verify membership and reservation routes + RLS, record observed behavior/receipts, and only then authorize real payment/fulfillment testing.
 5. Maintain fail-closed content gate: no substitute character/venue likeness, no public auto-generation outside owner budget/approval.
+
+## Database ownership / connection blocker confirmed
+- The Vercel production `NEXT_PUBLIC_SUPABASE_URL` points to Supabase project ref `nwfxvhqbjtfvoopcadff` (non-secret public project identifier only).
+- This ref is **not in the currently connected Supabase account's list of accessible projects**. Do not run a test against a similarly named or unrelated Supabase project. A separately scoped connection or direct approved test database access is needed to verify `cs_record_ticket_payment` and replay/refund semantics against real constraints.
+- Vercel production has environment variable **names** for Stripe, Supabase service role, CRON_SECRET, LiveKit, and CS_SOCIAL_ENCRYPTION_KEY. Presence does not establish valid credentials, correct resource ownership or successful scheduled execution; no secret values disclosed.
+- Stripe offline regression workflow for PR #15 completed successfully on commit `2959d526ddae665d8ff4369d3a9f7404219fea61`; this confirms only mocked handler behavior.

@@ -1,0 +1,25 @@
+# Café Sativa automation readiness — evidence audit (2026-10-16)
+
+## Verified existing implementation
+- Vercel project `virtual-cafe-sativa` reports production deployment READY, custom domains `cafe-sativa.com` and `www.cafe-sativa.com`.
+- Stripe webhook code **exists** at `app/api/webhooks/stripe/route.ts`. It verifies signature, restricts ticket checkout to paid Café Sativa metadata and invokes atomic DB payment RPC `cs_record_ticket_payment`; gallery uses `cs_record_gallery_payment`. Membership subscription status and refund cases are handled. Offline tests in `tests/stripe-webhook-regression.test.cjs` and CI are present. **Do not interpret these as confirmed live payments or fulfillment.**
+- Café membership price allowlist is in `lib/membership-prices.ts`. Stripe catalog IDs share the `IDc7LlvDW9` identifier seen in one of multiple connected live Stripe account IDs, but account/price ownership must be verified through the targeted Stripe account before financial actions.
+- Content cron `app/api/content/cron/route.ts` authenticates schedule requests and plans/publishes approved site content. `app/api/content/worker/route.ts` delegates to content worker. Canonical asset registry `cs_canonical_assets` gates publishing.
+- Website social status endpoint `app/api/content/social/status/route.ts` exposes connection verification, dispatch-enabled state, and durable receipt/error checks; user-facing Metricool integration is separate and does not establish website OAuth health.
+- `docs/CONTENT_AUTOMATION.md` reports owner $25/month generation cap, fifteen approved venue references, eight production-ready GLYPH characters, six pending program introductions and unfinished full episode generation **as of Oct 10**. These are historical status statements until live reverified.
+
+## Acceptance gates NOT demonstrated by this audit
+- Authentication/member registration and actual entitlement after a confirmed noncharging webhook event against persistent test DB.
+- Ticket inventory reservations and Stripe payment -> admission and refund compensation, including replay safety in a real database.
+- Membership cancel/renewal and payment failure reconciliation backed by live Stripe receipts.
+- Event dates, capacities, confirmed performers/hosts, products and delivery terms. No speculative listings or charges.
+- LiveKit host worker/audio, room access control and published approved GLYPH episodes.
+- Website-owned Metricool OAuth connected, correct channels mapped, real scheduled/publication receipts and automated recovery.
+- Cron schedule actually firing in the hosted environment; content job retries, alerting, approval audit trail, dead letter handling.
+
+## Immediate nonfinancial verification checklist
+1. Inspect production **environment variable names and target scope only**, not secret values, for Supabase, Stripe, CRON_SECRET, Metricool, LiveKit and content budget.
+2. Read `docs/METRICOOL_OAUTH.md`, `docs/PUBLISHING_RECEIPTS.md`, and the current canonical source table. Separate approvals from actual provider receipts.
+3. Run existing webhook offline CI plus a sandbox/persistent database replay test (one paid ticket event delivered twice -> one order and one entitlement; cancellation and refund reverse exactly once). No live charge.
+4. Verify membership and reservation routes + RLS, record observed behavior/receipts, and only then authorize real payment/fulfillment testing.
+5. Maintain fail-closed content gate: no substitute character/venue likeness, no public auto-generation outside owner budget/approval.

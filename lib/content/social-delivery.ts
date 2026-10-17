@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { approvedMediaJob } from '@/lib/content/approved-media'
 import { siteMediaApproved } from '@/lib/content/site'
-import { captionHash,socialCreateArguments,socialPostMatches,validSocialApproval } from '@/lib/content/social-contract'
+import { captionHash,socialCreateArguments,socialPostMatches,validSocialApproval,verifiedSocialPublication } from '@/lib/content/social-contract'
 import { withSocialConnection } from '@/lib/content/social-connection'
 import { prepareVideoVariant } from '@/lib/content/video-variants'
 import { videoFormatFor } from '@/lib/content/video-formats'
@@ -32,7 +32,7 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
       for(const row of receipts.data) {
         const post=posts.find((post:any)=>String(post.uuid)===row.provider_uuid)
         if (options.readOnly) continue
-        const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),...(post?{provider_post_id:post.id,receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,observation:'Still present in the scheduled-post queue'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
+        const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),...(post?{provider_post_id:post.id,receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,...(verifiedSocialPublication(post,row,brand.timezone) || {}),observation:verifiedSocialPublication(post,row,brand.timezone)?'Publication confirmed on approved Facebook and Threads destinations':'Provider publication not confirmed on both approved networks'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
         if(update.error)throw update.error
       }
     }

@@ -24,3 +24,21 @@ export function socialCreateArguments(row:any,timezone:string,mediaUrl:string) {
   const local=providerLocalDate(row.scheduled_at,timezone)
   return {blogId:'5373515',date:local,mediaFiles:[mediaUrl],info:JSON.stringify({text:row.caption,providers:SOCIAL_NETWORKS.map(network=>({network})),publicationDate:{dateTime:local,timezone},autoPublish:true,draft:false,facebookData:{type:'POST'},threadsData:{type:'POST',replyControl:'EVERYONE',shareAsInstagramStory:false}})}
 }
+
+/** Require identity, exact approved destinations and both provider-issued publication URLs. */
+export function verifiedSocialPublication(post:any,row:any,timezone:string) {
+  if(!post || String(post.uuid)!==String(row.provider_uuid) || String(post.id)!==String(row.provider_post_id) || !socialPostMatches(post,row,timezone))return null
+  if(!Array.isArray(post.providers) || post.providers.length!==2)return null
+  const urls:Record<string,string>={}
+  for(const provider of post.providers) {
+    if(!['facebook','threads'].includes(provider.network) || provider.status!=='PUBLISHED' || typeof provider.publicUrl!=='string')return null
+    try {
+      const url=new URL(provider.publicUrl)
+      const host=url.hostname.toLowerCase()
+      if(url.protocol!=='https:' || (provider.network==='facebook' ? !['facebook.com','www.facebook.com'].includes(host) : !['threads.com','www.threads.com'].includes(host)))return null
+      urls[provider.network]=url.toString()
+    }catch{return null}
+  }
+  if(!urls.facebook || !urls.threads)return null
+  return {publicationConfirmed:true,publicUrls:urls}
+}

@@ -39,3 +39,10 @@
 
 ### Production Postgres host identification
 Read-only inspection of Vercel `POSTGRES_HOST` shows `db.nwfxvhqbjtfvoopcadff.supabase.co`, the **same Supabase project** as the application URL, not Neon. The sensitive `POSTGRES_URL` value was unavailable for hostname parsing. Conventional alternate-client paths `lib/db.ts`, `lib/database.ts`, `lib/neon.ts` and `prisma/schema.prisma` were absent (absence of these paths alone does not prove no other integration). No basis to designate any accessible Neon project as Café Sativa failover. Keep failover disabled pending explicit endpoint mapping and replication proof.
+
+## Metricool provider reconciliation — verified 2026-10-16
+Connected Metricool brand 5373515 confirmed these **provider-side PUBLISHED** receipts (not merely pending schedules):
+- October 12 video, post 390856410: Facebook https://facebook.com/1260321256112306/posts/2000223097558621 ; Threads https://www.threads.com/@truskoolcorp/post/DeaeVQYEY_w
+- October 14 concept promotion, post 390803327: Facebook https://facebook.com/1260321256112306/posts/1568560448621717 ; Threads https://www.threads.com/@truskoolcorp/post/Defn7SJCteF
+- October 16 concept promotion, post 390803425: Facebook https://facebook.com/1260321256112306/posts/1570498208427941 ; Threads https://www.threads.com/@truskoolcorp/post/DekxhVMCINq
+The connected brand ID and permitted Facebook/Threads destinations match the website's previously documented allowlist. Source code in `lib/content/social-delivery.ts` preserves fail-closed behavior on ambiguous delivery and does not silently replay submissions. **Not yet verified**: current website-owned OAuth refresh state and internal `cs_social_connections`/`cs_social_deliveries` records because access to Café Sativa's production Supabase project is unavailable. Provider publication success alone does not certify unattended future scheduling.

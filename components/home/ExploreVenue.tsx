@@ -1,4 +1,3 @@
-import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowUpRight } from 'lucide-react'
@@ -73,7 +72,6 @@ const ROOMS: Room[] = [
 ]
 
 export async function ExploreVenue() {
-  const covers=await approvedVenueCovers()
   return (
     <section className="py-24 md:py-32 bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -99,8 +97,8 @@ export async function ExploreVenue() {
               href={room.href}
               className="group relative aspect-[4/5] overflow-hidden rounded-xl bg-card border border-border hover:border-primary/40 transition-all duration-300"
             >
-              {covers[room.image.split('/').pop()!.replace('.webp','')] && <Image
-                src={covers[room.image.split('/').pop()!.replace('.webp','')]}
+              {<Image
+                src={room.image}
                 alt=""
                 fill
                 sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"

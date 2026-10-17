@@ -14,8 +14,12 @@ export async function queueSocialFeature(item:any,userId:string) {
 
 export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
   return withSocialConnection(async({db,session,brand,enabled})=>{
-    const stale=await db.from('cs_social_deliveries').update({state:'submission_unknown',error:'Submission interrupted. Inspect Metricool before any manual retry.',updated_at:new Date().toISOString()}).eq('state','submitting').lt('submitted_at',new Date(Date.now()-600000).toISOString())
-    if(stale.error)throw stale.error
+    // A read-only probe may refresh OAuth connection health, but must never mutate
+    // delivery rows, including stale-submission recovery or receipt reconciliation.
+    if (!options.readOnly) {
+      const stale=await db.from('cs_social_deliveries').update({state:'submission_unknown',error:'Submission interrupted. Inspect Metricool before any manual retry.',updated_at:new Date().toISOString()}).eq('state','submitting').lt('submitted_at',new Date(Date.now()-600000).toISOString())
+      if(stale.error)throw stale.error
+    }
     // Reconcile durable receipts separately from new submissions. Missing from this
     // pending-only endpoint does not establish publication or failure.
     const receipts=await db.from('cs_social_deliveries').select('*').eq('state','scheduled').gte('scheduled_at',new Date(Date.now()-7*86400000).toISOString()).order('checked_at',{ascending:true,nullsFirst:true}).limit(20)
@@ -27,6 +31,7 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
       if(!Array.isArray(posts))throw new Error('Invalid social receipt response')
       for(const row of receipts.data) {
         const post=posts.find((post:any)=>String(post.uuid)===row.provider_uuid)
+        if (options.readOnly) continue
         const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),...(post?{provider_post_id:post.id,receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,observation:'Still present in the scheduled-post queue'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
         if(update.error)throw update.error
       }

@@ -1,0 +1,21 @@
+name: Replication worker offline safety
+on:
+  pull_request:
+    paths:
+      - 'database/replication/**'
+      - 'scripts/replication/**'
+      - 'tests/replication-worker.test.cjs'
+      - '.github/workflows/replication-worker.yml'
+  workflow_dispatch:
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tests/replication-worker.test.cjs

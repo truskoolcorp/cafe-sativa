@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript')
 const source=fs.readFileSync('lib/content/social-contract.ts','utf8')
-const module={exports:{}}
+const sandboxModule={exports:{}}
 const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020},reportDiagnostics:true})
 assert.equal(js.diagnostics.filter(d=>d.category===ts.DiagnosticCategory.Error).length,0)
-vm.runInNewContext(js.outputText,{module,exports:module.exports,require,URL,Intl,Date,Object,Array,String,Number,Boolean})
-const {verifiedSocialPublication,providerLocalDate}=module.exports
+vm.runInNewContext(js.outputText,{module:sandboxModule,exports:sandboxModule.exports,require,URL,Intl,Date,Object,Array,String,Number,Boolean})
+const {verifiedSocialPublication,providerLocalDate}=sandboxModule.exports
 const timezone='America/Los_Angeles', scheduled_at='2026-10-15T00:00:00Z'
 const row={provider_uuid:'uid-one',provider_post_id:123,caption:'Approved Café Sativa copy',scheduled_at}
 const provider=(network,host)=>({network,status:'PUBLISHED',publicUrl:'https://'+host+'/posts/123'})

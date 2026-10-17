@@ -1,0 +1,20 @@
+name: Café Sativa Metricool reconnect guard
+on:
+  pull_request:
+    paths:
+      - 'app/api/content/social/delivery/route.ts'
+      - 'tests/social-oauth-reconnect-guard.test.cjs'
+      - '.github/workflows/social-oauth-reconnect-guard.yml'
+  workflow_dispatch:
+jobs:
+  reconnect-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/social-oauth-reconnect-guard.test.cjs

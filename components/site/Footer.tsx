@@ -45,7 +45,7 @@ export function Footer() {
           {/* Brand column */}
           <div className="col-span-2">
             <Link href="/" className="inline-flex items-center mb-4">
-              <span className="inline-flex items-center gap-2"><img src="/brand/cafe-sativa-logo.webp" alt="" className="h-24 w-24 object-contain" onError={(event) => { event.currentTarget.style.display = 'none' }} /><span className="font-heading text-xl font-bold tracking-tight text-primary">Café Sativa</span></span>
+              <span className="inline-flex items-center gap-2"><img src="/brand/cafe-sativa/2026-10-07/cafe-sativa-logo-web.webp" alt="" className="h-24 w-24 object-contain" onError={(event) => { event.currentTarget.style.display = 'none' }} /><span className="font-heading text-xl font-bold tracking-tight text-primary">Café Sativa</span></span>
             </Link>
             <p className="text-sm text-muted-foreground font-body leading-relaxed max-w-sm">
               Where Nordic wellness meets Canary Island culture.

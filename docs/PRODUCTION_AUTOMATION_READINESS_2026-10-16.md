@@ -51,3 +51,9 @@ The connected brand ID and permitted Facebook/Threads destinations match the web
 - Isolated PR #16 merged as `e073aa06a160257562b9399cb0b26058443553af`.
 - Vercel production deployment `dpl_DE39yX9EaYAvaT2YHJ3idC9JaLzP` status `READY` (verified), with independent social-probe CI successful.
 - This establishes release of source-level ledger write guards, **not** authenticated live probe execution or website OAuth/ledger health. Provider publication receipts for Oct 12, 14 and 16 are independently verified.
+
+## Scheduled automation configuration verified
+- `vercel.json`: `/api/content/cron` runs `15 5 * * *` (daily 05:15 UTC); `/api/content/worker` runs `*/15 * * * *`; `/api/content/social/delivery` runs `7,22,37,52 * * * *`.
+- `/api/content/social/delivery` uses `cronAuthorized`, checks queued, stale submitting, and scheduled receipts, and avoids unnecessary dispatch if idle; recorded OAuth `invalid_grant`/`invalid_client` blocks submission pending owner reconnection.
+- Cron definitions and handler source do **not** prove Vercel executed the jobs or that provider/database calls succeeded; verify execution history and `cs_social_connections` / `cs_social_deliveries` ledger once authorized database access is available.
+- Isolated read-only safety PR #16 was merged and Vercel deployment is `READY` on main. Audit PR #15 remains draft; keep audit work separate from the already released change.

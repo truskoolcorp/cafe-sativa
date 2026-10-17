@@ -57,3 +57,9 @@ The connected brand ID and permitted Facebook/Threads destinations match the web
 - `/api/content/social/delivery` uses `cronAuthorized`, checks queued, stale submitting, and scheduled receipts, and avoids unnecessary dispatch if idle; recorded OAuth `invalid_grant`/`invalid_client` blocks submission pending owner reconnection.
 - Cron definitions and handler source do **not** prove Vercel executed the jobs or that provider/database calls succeeded; verify execution history and `cs_social_connections` / `cs_social_deliveries` ledger once authorized database access is available.
 - Isolated read-only safety PR #16 was merged and Vercel deployment is `READY` on main. Audit PR #15 remains draft; keep audit work separate from the already released change.
+
+## Live Vercel runtime evidence — website OAuth blocker
+- Read-only production runtime log inspection (last 24 hours) confirms `/api/content/social/delivery` invoked at regular 15-minute intervals (e.g. 2026-10-17 03:07 and 03:22 UTC).
+- It repeatedly reported `[social-connection] Delivery check failed at OAuth refresh: Metricool OAuth invalid_grant (HTTP 400). No automatic submission retry.`
+- Therefore **cron invocation is verified**, but current website-owned Metricool OAuth credential refresh is **broken** and unattended dispatch is NOT production-ready. ChatGPT's separately connected Metricool account does not repair this website credential.
+- The existing website has its own administrator-initiated `Connect Metricool for website automation` OAuth flow. Authorized administrator must reconnect/consent in the website; never copy ChatGPT credentials or substitute another account. After that, verify fresh logs, `last_error` clearance, brand 5373515 / Facebook + Threads allowlist, receipts and idle behavior without new post submission.

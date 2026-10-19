@@ -72,7 +72,7 @@ export async function siteCover(item:{id?:string;site_category?:string|null;sour
 
 export async function getSiteContent(category?:string) {
   const db = createAdminClient()
-  let query = db.from('content_items').select('id,title,copy_final,site_category,status,scheduled_at,published_at,media_url,source_job_id').in('status',['approved','scheduled','published']).not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).order('published_at',{ascending:false}).limit(30)
+  let query = db.from('content_items').select('id,title,copy_final,site_category,status,scheduled_at,published_at,approved_at,approved_by,media_url,source_job_id').in('status',['approved','scheduled','published']).not('approved_at','is',null).not('approved_by','is',null).not('site_category','is',null).order('published_at',{ascending:false}).limit(30)
   if (category) query=query.eq('site_category',category)
   const result=await query
   if (result.error) throw new Error('Website features are temporarily unavailable')

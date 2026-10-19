@@ -1,0 +1,11 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+test('member library requires identity and approved releases, never embeds private media', () => {
+  const page = fs.readFileSync('app/account/library/page.tsx','utf8')
+  assert.match(page, /auth\.getUser\(\)/)
+  assert.match(page, /redirect\('\/auth\/signin/)
+  assert.match(page, /publiclyReleased/)
+  assert.doesNotMatch(page, /<video|<audio|<iframe|media_url|signedUrl|service_role/)
+  assert.match(page, /temporarily unavailable/)
+})

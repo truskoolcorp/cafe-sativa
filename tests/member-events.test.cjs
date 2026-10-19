@@ -1,0 +1,12 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+test('upcoming member access is authenticated and does not imply purchased tickets', () => {
+ const page = fs.readFileSync('app/account/events/page.tsx','utf8')
+ assert.match(page,/auth\.getUser\(\)/)
+ assert.match(page,/redirect\('\/auth\/signin/)
+ assert.match(page,/getUpcomingEvents/)
+ assert.match(page,/membership-aware access/)
+ assert.match(page,/not a history of tickets purchased/)
+ assert.doesNotMatch(page,/service_role|stripe_customer_id|<iframe/)
+})

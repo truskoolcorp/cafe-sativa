@@ -14,8 +14,8 @@ export default async function DiscoverPage() {
       status: item.status,
       published_at: item.published_at,
       scheduled_at: item.scheduled_at,
-      approved_at: item.published_at ? item.published_at : null,
-      approved_by: item.published_at ? 'approved-record' : null,
+      approved_at: item.approved_at,
+      approved_by: item.approved_by,
       copy_final: item.copy_final,
     }))
   } catch { unavailable = true }

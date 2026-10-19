@@ -6,6 +6,8 @@ on:
       - 'lib/content/site.ts'
       - 'app/discover/**'
       - 'components/account/**'
+      - 'app/account/events/**'
+      - 'tests/member-events.test.cjs'
       - 'tests/member-release.test.cjs'
       - '.github/workflows/member-library-gates.yml'
   workflow_dispatch:
@@ -22,5 +24,5 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/member-release.test.cjs
+      - run: node --test tests/member-release.test.cjs tests/member-events.test.cjs
       - run: npx tsc --noEmit

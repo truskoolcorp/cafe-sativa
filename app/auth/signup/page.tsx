@@ -92,7 +92,7 @@ export default function SignUpPage() {
 
       const params = new URLSearchParams(window.location.search)
       const requested = params.get('redirect') || params.get('next') || '/account'
-      const safeRedirect = requested.startsWith('/') && !requested.startsWith('//') && !requested.includes('\\\\') ? requested : '/account'
+      const safeRedirect = requested.startsWith('/') && !requested.startsWith('//') && !requested.includes(String.fromCharCode(92)) ? requested : '/account'
       setTimeout(() => {
         router.push(`/auth/signin?redirect=${encodeURIComponent(safeRedirect)}`)
       }, 1200)

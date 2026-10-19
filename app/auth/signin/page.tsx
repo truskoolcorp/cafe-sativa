@@ -189,7 +189,7 @@ export default function SignInPage() {
         <>
           Don&rsquo;t have an account?{' '}
           <Link
-            href="/auth/signup"
+            href={`/auth/signup?redirect=${encodeURIComponent((searchParams.get("redirect") || searchParams.get("next") || "/account"))}`}
             className="text-primary hover:underline font-body font-semibold"
           >
             Sign up free

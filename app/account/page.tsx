@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
+import { MemberExperience } from '@/components/account/MemberExperience'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -341,6 +342,8 @@ export default function AccountPage() {
                 </Button>
               </div>
             </div>
+
+            <MemberExperience />
 
             {/* Quick-links row */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

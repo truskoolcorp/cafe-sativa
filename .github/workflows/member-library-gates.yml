@@ -1,0 +1,26 @@
+name: Member library release gate
+on:
+  pull_request:
+    paths:
+      - 'lib/content/member-release.ts'
+      - 'lib/content/site.ts'
+      - 'app/discover/**'
+      - 'components/account/**'
+      - 'tests/member-release.test.cjs'
+      - '.github/workflows/member-library-gates.yml'
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/member-release.test.cjs
+      - run: npx tsc --noEmit

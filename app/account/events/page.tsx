@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getUpcomingEvents, formatEventDate } from '@/lib/events'
+import { formatEventDate, type EventRow } from '@/lib/events'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,12 +9,13 @@ export const dynamic = 'force-dynamic'
 export default async function MyEventsPage() {
   const { data: { user }, error } = await createClient().auth.getUser()
   if (error || !user) redirect('/auth/signin?redirect=%2Faccount%2Fevents')
-  const events = await getUpcomingEvents({ limit: 25 })
+  const { data, error: eventsError } = await createClient().from('my_events_v').select('*').gte('starts_at', new Date().toISOString()).order('starts_at', { ascending: true }).limit(25)
+  const events = (data ?? []) as EventRow[]
   return <main className="max-w-5xl mx-auto px-4 py-20">
     <p className="uppercase text-xs tracking-widest text-primary">Your Café Sativa</p>
     <h1 className="font-heading text-4xl font-bold mt-3">Upcoming events and access</h1>
     <p className="text-muted-foreground mt-4">Your current membership-aware access to upcoming events. This is not a history of tickets purchased or confirmed reservations.</p>
-    {events.length === 0 ? <p role="status" className="mt-8">No confirmed upcoming events are listed right now.</p> :
+    {eventsError ? <p role="alert" className="mt-8">Event access is temporarily unavailable. Please try again later.</p> : events.length === 0 ? <p role="status" className="mt-8">No confirmed upcoming events are listed right now.</p> :
       <ul className="grid md:grid-cols-2 gap-5 mt-8">{events.map(event =>
         <li key={event.id} className="rounded-xl border border-border bg-card p-6">
           <p className="text-xs uppercase text-primary">{event.category?.replaceAll('_',' ') || 'Event'}</p>

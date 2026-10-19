@@ -1,0 +1,24 @@
+name: VIP replay access regression
+on:
+  pull_request:
+    paths:
+      - 'app/replays/**'
+      - 'lib/content/vip-replay-access.ts'
+      - 'tests/vip-replay-access.test.cjs'
+      - '.github/workflows/vip-replay-gate.yml'
+  workflow_dispatch:
+jobs:
+  access:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/vip-replay-access.test.cjs tests/member-release.test.cjs
+      - run: npx tsc --noEmit

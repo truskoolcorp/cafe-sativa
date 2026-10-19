@@ -1,0 +1,12 @@
+const test=require('node:test')
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const sql=fs.readFileSync('supabase/migrations/20261019_redact_event_join_credentials.sql','utf8')
+test('join secrets require authenticated entitlement and are redacted otherwise',()=>{
+ assert.match(sql,/security_invoker\s*=\s*true/)
+ assert.match(sql,/auth\.uid\(\) IS NOT NULL/g)
+ assert.match(sql,/THEN e\.zoom_join_url ELSE NULL END/)
+ assert.match(sql,/THEN e\.zoom_meeting_id ELSE NULL END/)
+ assert.match(sql,/m\.status='active'/)
+ assert.match(sql,/t\.state IN \('valid','used'\)/)
+})

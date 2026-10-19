@@ -90,8 +90,11 @@ export default function SignUpPage() {
         'Account created. Check your email for a confirmation link if email verification is enabled.'
       )
 
+      const params = new URLSearchParams(window.location.search)
+      const requested = params.get('redirect') || params.get('next') || '/account'
+      const safeRedirect = requested.startsWith('/') && !requested.startsWith('//') && !requested.includes('\\\\') ? requested : '/account'
       setTimeout(() => {
-        router.push('/auth/signin')
+        router.push(`/auth/signin?redirect=${encodeURIComponent(safeRedirect)}`)
       }, 1200)
     } catch (err: any) {
       setError(err?.message || 'Sign-up failed.')

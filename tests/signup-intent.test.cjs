@@ -1,0 +1,12 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+test('signup handoff retains original request through sign in', () => {
+ const signIn = fs.readFileSync('app/auth/signin/page.tsx','utf8')
+ const signUp = fs.readFileSync('app/auth/signup/page.tsx','utf8')
+ assert.match(signIn,/\/auth\/signup\?redirect=/)
+ assert.match(signUp,/params\.get\('redirect'\)/)
+ assert.match(signUp,/\/auth\/signin\?redirect=/)
+ assert.match(signUp,/!requested\.startsWith\('\/\/'\)/)
+ assert.match(signUp,/String\.fromCharCode\(92\)/)
+})

@@ -5,6 +5,7 @@ on:
       - 'app/auth/signin/**'
       - 'app/auth/signup/**'
       - '.github/workflows/signup-intent-gate.yml'
+      - 'tests/signup-intent.test.cjs'
   workflow_dispatch:
 jobs:
   test:
@@ -19,4 +20,5 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node --test tests/signup-intent.test.cjs
       - run: npx tsc --noEmit

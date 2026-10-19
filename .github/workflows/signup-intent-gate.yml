@@ -1,0 +1,22 @@
+name: Signup intent gate
+on:
+  pull_request:
+    paths:
+      - 'app/auth/signin/**'
+      - 'app/auth/signup/**'
+      - '.github/workflows/signup-intent-gate.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit

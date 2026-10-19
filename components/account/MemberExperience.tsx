@@ -3,6 +3,7 @@ import Link from 'next/link'
 /** Approved Café Sativa virtual venue features. Deliberately no invented
  * balances, referrals, sessions, replay assets, or entitlements. */
 const sections = [
+  { title: 'Upcoming event access', description: 'See confirmed upcoming events and your current membership-based access. Ticket purchase history is not shown here.', href: '/account/events', action: 'View upcoming access' },
   { title: 'Past recordings', description: 'Rewatch approved Stage and venue sessions when released. VIP replay access will be checked against your membership.', href: '/stage', action: 'Explore the Stage' },
   { title: 'Recipe library', description: 'Class recipes and downloadable cards will appear after chef and content approval.', href: '/kitchen', action: 'Explore the Kitchen' },
   { title: 'Listening and recommendations', description: 'Curated episodes and trusted resources will appear when their links are reviewed and published.', href: '/discover', action: 'Explore approved content' },

@@ -26,5 +26,6 @@ export async function POST(req:NextRequest){
  if(moved.error&&!/already exists|duplicate/i.test(moved.error.message))return reply({error:'Unable to finalize private media'},503)
  const saved=await db.from('cs_character_promo_drafts').update({video_asset_path:destination,video_qa_approved_at:null,publication_approved_at:null,updated_at:new Date().toISOString()}).eq('id',r.data.id).is('video_asset_path',null).in('status',['draft','revision_requested']).select('id').maybeSingle()
  if(saved.error||!saved.data)return reply({error:'Media stored privately but draft changed; manual reconciliation required'},409)
+ await db.from('cs_character_promo_qa_checks').upsert({promo_id:r.data.id,video_sha256:sha,check_name:'mp4_integrity',result:'pass',evidence:'Uploaded bytes downloaded, MP4 signature and length validated, SHA-256 fingerprint calculated.'},{onConflict:'promo_id,video_sha256,check_name'})
  return reply({promoId:r.data.id,sha256:sha,privatePath:destination,bytes:bytes.length,qaApproved:false,renderedBySystem:false,published:false},201)
 }

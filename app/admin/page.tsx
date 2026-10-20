@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import ContentReview from './content/ContentReview';
 import SiteContentPanel from './SiteContentPanel';
 import ReferencePanel from './ReferencePanel';
@@ -190,6 +191,7 @@ export default function AdminPage() {
       {/* Tabs */}
       <div style={{ display:'flex', borderBottom:`1px solid ${C.border}`, padding:'0 24px', background:C.surface }}>
         {btn('Content Calendar', 'calendar')}
+        <Link href="/admin/programming" style={{padding:'12px 16px',margin:4,color:C.accent,border:'1px solid '+C.border,fontSize:12,fontWeight:700}}>Week / Month Programming</Link>
         {btn(`Approvals (${totalPending})`, 'approvals')}
         {btn('Generation Log', 'genlog')}
         {btn('Publish Log', 'publog')}

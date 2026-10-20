@@ -17,7 +17,7 @@ export default function Programming(){
  const [weekDate,setWeekDate]=useState(()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Chicago'}))
  const [kind,setKind]=useState<'all'|'event'|'video'|'content'|'social'>('all')
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true)
- const [draftCharacter,setDraftCharacter]=useState(''),[draftTitle,setDraftTitle]=useState(''),[draftBrief,setDraftBrief]=useState(''),[draftBusy,setDraftBusy]=useState(false),[draftMessage,setDraftMessage]=useState(''),[refreshKey,setRefreshKey]=useState(0)
+ const [draftCharacter,setDraftCharacter]=useState(''),[draftTitle,setDraftTitle]=useState(''),[draftBrief,setDraftBrief]=useState(''),[draftAudio,setDraftAudio]=useState(''),[isMusicPerformance,setIsMusicPerformance]=useState(false),[performanceMonth,setPerformanceMonth]=useState(()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Chicago'}).slice(0,7)),[draftBusy,setDraftBusy]=useState(false),[draftMessage,setDraftMessage]=useState(''),[refreshKey,setRefreshKey]=useState(0)
  const [recommendations,setRecommendations]=useState<RecommendationAnalysis|null>(null),[recommendationError,setRecommendationError]=useState('')
  useEffect(()=>{let active=true;fetch('/api/admin/programming/recommendations',{cache:'no-store'}).then(async r=>{const b=await r.json();if(!r.ok)throw Error(b.error||'Analysis unavailable');if(active)setRecommendations(b)}).catch(e=>{if(active)setRecommendationError(e instanceof Error?e.message:'Analysis unavailable')});return()=>{active=false}},[])
  const [characters,setCharacters]=useState<CharacterResponse|null>(null),[characterError,setCharacterError]=useState('')

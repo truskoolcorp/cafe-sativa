@@ -42,11 +42,11 @@ export async function POST(req:NextRequest){
    const found=await db.from('cs_member_library').select('id').eq('source_provider','jellypod').eq('source_external_id',id).maybeSingle()
    if(found.error)return NextResponse.json({error:'Unable to check existing entries',imported,existing,skipped},{status:503})
    if(found.data){existing++;continue}
-   const result=await db.from('cs_member_library').upsert({
+   const result=await db.from('cs_member_library').insert({
     kind:'podcast',title,description,external_url:link.href,source_provider:'jellypod',source_external_id:id,
     status:'published',approved_at:published.toISOString(),published_at:published.toISOString()
-   },{onConflict:'source_provider,source_external_id',ignoreDuplicates:true})
-   if(result.error)return NextResponse.json({error:'Podcast import failed',imported,existing,skipped},{status:503})
+   })
+   if(result.error){if(result.error.code==='23505'){existing++;continue}return NextResponse.json({error:'Podcast import failed',imported,existing,skipped},{status:503})}
    imported++
   }
  }

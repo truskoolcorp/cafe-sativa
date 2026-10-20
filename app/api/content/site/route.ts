@@ -47,5 +47,5 @@ export async function POST(req:NextRequest) {
     }
     const published=approved?await publishDueSiteContent():0
     return NextResponse.json({saved:true,published,socialQueued,socialWarning,socialDeliveryStatus})
-  }catch{return NextResponse.json({error:'Website content action failed; refresh its status before retrying.'},{status:503})}
+  }catch(error){console.error('[site-approval]',error instanceof Error?error.message:'Unknown error');return NextResponse.json({error:'Website approval could not be saved. The server rejected the request; no publication was recorded. Check the server logs for [site-approval].'},{status:503})}
 }

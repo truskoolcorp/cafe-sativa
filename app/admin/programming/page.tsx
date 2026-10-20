@@ -7,7 +7,7 @@ type Content={id:string;title:string;channel:string;agent:string;status:string;s
 type Data={events:Event[];videoJobs:Video[];scheduledContent:Content[];notes:{videoDate:string;character:string;social:string}}
 const format=(value:string)=>new Date(value).toLocaleString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})
 export default function Programming(){
- const [month,setMonth]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit'}).replace('/','-'))
+ const [month,setMonth]=useState(()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Chicago'}).slice(0,7))
  const [scope,setScope]=useState<'month'|'week'>('month')
  const [kind,setKind]=useState<'all'|'event'|'video'|'content'>('all')
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true)

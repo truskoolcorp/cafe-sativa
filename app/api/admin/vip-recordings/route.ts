@@ -5,6 +5,20 @@ export const dynamic='force-dynamic'
 export async function GET(req:NextRequest){
  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
  const admin=createAdminClient()
+ if(req.nextUrl.searchParams.get('preview')==='1'){
+  const bucket=req.nextUrl.searchParams.get('bucket')||''
+  const path=req.nextUrl.searchParams.get('path')||''
+  if(!/^[-a-z0-9_]+$/.test(bucket)||!path||path.startsWith('/')||path.includes('..')||!/^[-a-zA-Z0-9_./]+$/.test(path)||!['.mp4','.mov','.webm','.m4v'].some(ext=>path.toLowerCase().endsWith(ext)))return NextResponse.json({error:'Invalid video reference'},{status:400})
+  const info=await admin.storage.getBucket(bucket)
+  if(info.error||!info.data||info.data.public)return NextResponse.json({error:'Private bucket required'},{status:403})
+  const parts=path.split('/')
+  const name=parts.pop()||''
+  const objects=await admin.storage.from(bucket).list(parts.join('/')||undefined,{search:name,limit:100})
+  if(objects.error||!objects.data?.some(o=>o.id&&o.name===name))return NextResponse.json({error:'Video unavailable'},{status:404})
+  const signed=await admin.storage.from(bucket).createSignedUrl(path,60)
+  if(signed.error||!signed.data)return NextResponse.json({error:'Preview unavailable'},{status:503})
+  return NextResponse.json({url:signed.data.signedUrl,expiresInSeconds:60},{headers:{'Cache-Control':'private, no-store'}})
+ }
  if(req.nextUrl.searchParams.get('files')==='1'){
   const bucket=req.nextUrl.searchParams.get('bucket')||''
   const folder=req.nextUrl.searchParams.get('folder')||''

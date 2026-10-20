@@ -42,6 +42,19 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const [message,setMessage]=useState('')
   const [podcastSyncBusy,setPodcastSyncBusy]=useState(false)
   const [podcastSyncMessage,setPodcastSyncMessage]=useState('')
+  const [podcastHistory,setPodcastHistory]=useState<Array<{id:string;state:string;trigger:string;started_at:string;imported:number;existing:number;skipped:number;error_code:string|null}>>([])
+  const [historyMessage,setHistoryMessage]=useState('')
+  const refreshPodcastHistory=useCallback(async()=>{
+    try{
+      const response=await fetch('/api/admin/library-sync/status',{cache:'no-store'})
+      const body=await response.json()
+      if(!response.ok)throw Error(body.error||'History unavailable')
+      setPodcastHistory(body.receipts||[])
+      setHistoryMessage('')
+    }catch(e){setHistoryMessage(e instanceof Error?e.message:'History unavailable')}
+  },[])
+  useEffect(()=>{void refreshPodcastHistory()},[refreshPodcastHistory])
+
   const load=useCallback(async()=>{
     const [response,referenceResponse]=await Promise.all([fetch('/api/content/site',{cache:'no-store'}),fetch('/api/content/references',{cache:'no-store'})])
     const referenceBody=await referenceResponse.json()
@@ -76,6 +89,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       const response=await fetch('/api/admin/library-sync',{method:'POST'})
       const body=await response.json()
       if(!response.ok)throw Error(body.error||'Podcast sync failed')
+      await refreshPodcastHistory()
       setPodcastSyncMessage(`Podcast sync complete: ${body.imported} imported, ${body.existing} already listed, ${body.skipped} skipped.`)
     }catch(e){setPodcastSyncMessage(e instanceof Error?e.message:'Podcast sync failed')}
     finally{setPodcastSyncBusy(false)}
@@ -84,7 +98,11 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   return <section aria-label="Website programming">
     <h2>Website programming</h2>
     <SocialConnectionPanel/>
-    <div className={styles.card} style={{padding:16,marginBottom:16}}><h3>Approved podcast library</h3><p>Only public episodes from the two Café Sativa Jellypod shows are imported; private drafts and other shows are excluded. Existing records are preserved.</p><button className={styles.secondary} disabled={podcastSyncBusy} onClick={()=>void syncPodcasts()}>{podcastSyncBusy?"Checking feeds…":"Sync published Café Sativa episodes"}</button>{podcastSyncMessage&&<p role="status">{podcastSyncMessage}</p>}</div>
+    <div className={styles.card} style={{padding:16,marginBottom:16}}><h3>Approved podcast library</h3><p>Only public episodes from the two Café Sativa Jellypod shows are imported; private drafts and other shows are excluded. Existing records are preserved.</p><button className={styles.secondary} disabled={podcastSyncBusy} onClick={()=>void syncPodcasts()}>{podcastSyncBusy?"Checking feeds…":"Sync published Café Sativa episodes"}</button>{podcastSyncMessage&&<p role="status">{podcastSyncMessage}</p>}
+      <div style={{marginTop:12}}><button className={styles.secondary} onClick={()=>void refreshPodcastHistory()}>Refresh sync history</button>{historyMessage&&<p role="status">{historyMessage}</p>}
+      {!historyMessage&&!podcastHistory.length&&<p>No sync runs recorded yet.</p>}
+      {podcastHistory.slice(0,5).map(entry=><p key={entry.id}>{new Date(entry.started_at).toLocaleString()} — {entry.trigger}: {entry.state}; {entry.imported} imported, {entry.existing} existing, {entry.skipped} skipped{entry.error_code?' ('+entry.error_code+')':''}</p>)}
+      </div></div>
     <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
       <button className={styles.primary} disabled={busy} onClick={()=>act('plan')}>Prepare program drafts</button>

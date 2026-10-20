@@ -65,15 +65,16 @@ async function runTracked(trigger:'admin'|'cron'){
  try{
   const result=await syncApprovedFeeds()
   const body=await result.clone().json()
-  const success=result.ok
+  const rejectedAll=body.skipped>0 && body.imported===0 && body.existing===0
+  const success=result.ok && !rejectedAll
   console.info('[podcast-sync] feed-check completed',{trigger,success,imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0,skipReasons:body.skipReasons||{}})
   const saved=await db.from('cs_podcast_sync_receipts').update({
    state:success?'succeeded':'failed',finished_at:new Date().toISOString(),
    imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0,
-   checked_feeds:success?SHOWS.length:0,error_code:!success?'feed_or_import_failed':body.skipped>0&&body.imported===0&&body.existing===0?'entries_rejected':null
+   checked_feeds:success?SHOWS.length:0,error_code:rejectedAll?'entries_rejected':!success?'feed_or_import_failed':null
   }).eq('id',receipt.data.id)
   if(saved.error){console.error('[podcast-sync] receipt-save failed',saved.error.code);return NextResponse.json({error:'Sync ran but its audit receipt could not be saved; check catalog before retrying.'},{status:503})}
-  return NextResponse.json({...body,receiptId:receipt.data.id},{status:result.status,headers:{'Cache-Control':'private, no-store'}})
+  return NextResponse.json({...body,receiptId:receipt.data.id},{status:rejectedAll?503:result.status,headers:{'Cache-Control':'private, no-store'}})
  }catch(error){
   await db.from('cs_podcast_sync_receipts').update({state:'failed',finished_at:new Date().toISOString(),error_code:'unexpected'}).eq('id',receipt.data.id)
   console.error('[podcast-sync] unexpected failure',error instanceof Error?error.message:'unknown')

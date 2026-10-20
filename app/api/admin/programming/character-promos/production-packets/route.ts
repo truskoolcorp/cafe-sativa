@@ -21,7 +21,7 @@ export async function GET(){
   if(!current?.primary_asset_id)blockers.push('Canonical portrait unavailable')
   if(!baseline?.voice_id||current?.voice_status!=='canonical')blockers.push('Canonical speech voice unresolved')
   if(current?.primary_asset_id&&baseline?.primary_asset_id&&current.primary_asset_id!==baseline.primary_asset_id)blockers.push('Live portrait differs from reviewed snapshot; re-review likeness before generation')
-  const words=d.spoken_script.trim().split(/\\s+/).filter(Boolean).length
+  const words=d.spoken_script.trim().split(/\s+/).filter(Boolean).length
   const estimatedSpeechSeconds=Math.ceil(words/2.4)
   if(estimatedSpeechSeconds>d.duration_seconds-2)blockers.push('Spoken script may exceed available clip duration; shorten or extend storyboard')
   if(!d.audio_asset_path||!d.voice_approved_at)blockers.push('Spoken audio not produced and verified')

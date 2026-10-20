@@ -19,7 +19,7 @@ export async function GET(){
   if(['approved','scheduled','published'].includes(j.status))roomCounts[room].approved++
  }
  const social=(posts.data||[]).map(p=>({state:p.state,providerStatuses:Array.isArray(p.receipt?.providers)?p.receipt.providers.map((v:{status?:string})=>v.status||'unknown'):[]}))
- const publishedSocial=social.filter(p=>p.providerStatuses.length>0&&p.providerStatuses.every(x=>x.toUpperCase()==='PUBLISHED')).length
+ const publishedSocial=social.filter(p=>p.providerStatuses.length>0&&p.providerStatuses.every((x:string)=>x.toUpperCase()==='PUBLISHED')).length
  const libraryByKind={podcasts:(library.data||[]).filter((x:{kind:string})=>x.kind==='podcast').length,recipes:(library.data||[]).filter((x:{kind:string})=>x.kind==='recipe').length}
  const evidence=[{source:'cs_content_jobs',observedAt:new Date().toISOString(),finding:'Observed venue production job counts and approved-stage counts, not audience demand',metric:(jobs.data||[]).length}]
  const proposals=[]

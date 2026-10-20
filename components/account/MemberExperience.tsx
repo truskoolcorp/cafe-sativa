@@ -42,6 +42,36 @@ function UpcomingExperiences() {
   </section>
 }
 
+type MemberTicket = { id:string; event_id:string; state:string; created_at:string; amount_paid_cents:number|null }
+function TicketHistory() {
+  const [rows,setRows]=useState<MemberTicket[]>([])
+  const [state,setState]=useState<'loading'|'ready'|'error'>('loading')
+  useEffect(()=>{
+    let active=true
+    async function load(){
+      const db=createClient()
+      const user=await db.auth.getUser()
+      if(!active)return
+      if(!user.data.user){setState('error');return}
+      const {data,error}=await db.from('tickets').select('id,event_id,state,created_at,amount_paid_cents').eq('user_id',user.data.user.id).order('created_at',{ascending:false}).limit(20)
+      if(!active)return
+      if(error){setState('error');return}
+      setRows((data||[]) as MemberTicket[])
+      setState('ready')
+    }
+    void load()
+    return ()=>{active=false}
+  },[])
+  return <section aria-labelledby="ticket-history" className="rounded-xl border border-border bg-card/50 p-5">
+    <h3 id="ticket-history" className="font-heading text-xl font-bold">Your tickets and booking history</h3>
+    <p className="mt-2 text-sm text-muted-foreground">Tickets issued to your signed-in account. A checkout reservation is not a confirmed ticket.</p>
+    {state==='loading' && <p className="mt-4 text-sm text-muted-foreground" role="status">Checking your tickets…</p>}
+    {state==='error' && <p className="mt-4 text-sm text-muted-foreground" role="status">Ticket history could not be loaded. No booking or payment was changed.</p>}
+    {state==='ready' && rows.length===0 && <p className="mt-4 text-sm text-muted-foreground">No issued tickets found for this account.</p>}
+    {state==='ready' && rows.length>0 && <ul className="mt-4 divide-y divide-border">{rows.map(ticket=><li className="py-3" key={ticket.id}><p className="text-sm font-semibold">Ticket · {ticket.state.replaceAll('_',' ')}</p><p className="text-xs text-muted-foreground">{new Date(ticket.created_at).toLocaleDateString('en-US',{timeZone:'America/Chicago',dateStyle:'medium'})} · Event reference: {ticket.event_id.slice(0,8)}…</p></li>)}</ul>}
+  </section>
+}
+
 export function MemberExperience() {
   return (
     <section aria-labelledby="member-experience" className="space-y-5">
@@ -51,6 +81,7 @@ export function MemberExperience() {
         <p className="text-sm text-muted-foreground mt-2">Explore the venue while these member libraries are prepared. Only verified, approved content will be listed when available.</p>
       </div>
       <UpcomingExperiences />
+      <TicketHistory />
       <div className="grid gap-4 sm:grid-cols-2">
         {sections.map(section => (
           <article key={section.title} className="rounded-xl border border-border bg-card/50 p-5">

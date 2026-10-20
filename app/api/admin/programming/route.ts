@@ -7,9 +7,18 @@ export async function GET(req:NextRequest){
  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401,headers})
  const month=req.nextUrl.searchParams.get('month')||new Date().toISOString().slice(0,7)
  if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(month))return NextResponse.json({error:'Invalid month'},{status:400,headers})
- const start=month+'-01T00:00:00.000Z'
+ const week=req.nextUrl.searchParams.get('week')
+ if(week && (!/^20\d{2}-\d{2}-\d{2}$/.test(week) || new Date(week+'T12:00:00Z').toISOString().slice(0,10)!==week))return NextResponse.json({error:'Invalid week'},{status:400,headers})
  const [year,mon]=month.split('-').map(Number)
- const end=new Date(Date.UTC(year,mon,1)).toISOString()
+ let start=month+'-01T00:00:00.000Z'
+ let end=new Date(Date.UTC(year,mon,1)).toISOString()
+ if(week){
+  const date=new Date(week+'T12:00:00Z')
+  const monday=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()-(date.getUTCDay()+6)%7)
+  // Include a 24-hour timezone buffer at either end; the UI filters exact Dallas-local days.
+  start=new Date(monday-86400000).toISOString()
+  end=new Date(monday+8*86400000).toISOString()
+ }
  try {
   const db=createAdminClient()
   const [events,jobs,content,social]=await Promise.all([

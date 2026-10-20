@@ -8,6 +8,9 @@ export default function VipRecordingInventory(){
  const [error,setError]=useState('')
  const [title,setTitle]=useState(''),[description,setDescription]=useState(''),[bucket,setBucket]=useState(''),[path,setPath]=useState('')
  const [saving,setSaving]=useState(false),[notice,setNotice]=useState('')
+ const [checks,setChecks]=useState<{checks:{adminAuthenticated:boolean;unapprovedExcluded:boolean;privatePublishedStorage:boolean};catalog:{total:number;eligible:number;unreleased:number}}|null>(null)
+ const [verifyError,setVerifyError]=useState(''),[verifying,setVerifying]=useState(false)
+ async function verify(){setVerifying(true);setVerifyError('');try{const r=await fetch('/api/admin/vip-recordings/verify',{cache:'no-store'});const b=await r.json();if(!r.ok)throw Error(b.error||'Verification unavailable');setChecks(b)}catch(e){setChecks(null);setVerifyError(e instanceof Error?e.message:'Verification unavailable')}finally{setVerifying(false)}}
  async function register(){setSaving(true);setNotice('');try{const r=await fetch('/api/admin/vip-recordings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description,storage_bucket:bucket,storage_path:path})});const b=await r.json();if(!r.ok)throw Error(b.error||'Registration failed');setNotice('Private draft registered. Not approved or published.');setTitle('');setDescription('');setBucket('');setPath('');await reload()}catch(e){setNotice(e instanceof Error?e.message:'Registration failed')}finally{setSaving(false)}}
  async function transition(item:Recording,action:'approve'|'release'){
   const meaning=action==='approve'?'confirm this recording has been reviewed for rights, accuracy, and VIP suitability':'release this previously approved recording to eligible VIP members now'
@@ -30,11 +33,12 @@ export default function VipRecordingInventory(){
   }catch(e){setError(e instanceof Error?e.message:'Unable to load inventory')}
   finally{setLoading(false)}
  }
- useEffect(()=>{void reload()},[])
+ useEffect(()=>{void reload();void verify()},[])
  return <main className="min-h-screen bg-background pt-28 pb-20 px-5"><div className="max-w-4xl mx-auto">
   <Link href="/admin?view=website" className="text-primary underline">← Website Programming</Link>
   <h1 className="font-heading text-3xl mt-5">VIP recording inventory</h1>
   <p className="mt-3 text-muted-foreground">Private editorial inventory. Video storage locations and playback links are not disclosed here. Register an existing video from private storage as a draft. This page cannot upload files. Approval and release are separate, explicitly confirmed actions.</p>
+  <section className="rounded-xl border border-border p-5 mt-6"><h2 className="font-heading text-xl font-semibold">VIP catalog safety checks</h2><p className="text-muted-foreground mt-2">Read-only verification of approvals, release eligibility, and private storage. Real member-session playback testing remains separate.</p><button className="mt-3 rounded border border-border px-4 py-2" disabled={verifying} onClick={()=>void verify()}>{verifying?"Checking…":"Run safety checks"}</button>{verifyError&&<p role="alert" className="mt-3">{verifyError}</p>}{checks&&<div className="mt-4 space-y-2"><p>Published recordings have approvals: {checks.checks.unapprovedExcluded?"Pass":"Needs attention"}</p><p>Published recording storage is private: {checks.checks.privatePublishedStorage?"Pass":"Needs attention"}</p><p>Catalog: {checks.catalog.total} total, {checks.catalog.eligible} release-eligible, {checks.catalog.unreleased} unreleased.</p></div>}</section>
   <div className="rounded-xl border border-border p-5 mt-6 grid gap-3">
    <h2 className="font-heading text-xl font-semibold">Register existing private video</h2>
    <input aria-label="Recording title" className="rounded border p-3 bg-card" placeholder="Recording title" value={title} onChange={e=>setTitle(e.target.value)}/>

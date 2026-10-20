@@ -6,7 +6,6 @@ import { approvedAsset, CONTENT_POLICY, dueSlots, localDate } from '@/lib/conten
 
 import { planSiteContent, publishDueSiteContent } from '@/lib/content/site'
 import { planApprovedClipFeatures } from '@/lib/content/clip-features'
-import { processSocialDelivery } from '@/lib/content/social-delivery'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -36,9 +35,9 @@ export async function GET(req: NextRequest) {
     const { data, error } = await db.from('cs_content_jobs').select('id,title,room,status,blocker').in('status', ['planned', 'blocked']).limit(20)
     if (error) throw error
     // A schedule plans work; the separate worker handles approved media and metered generation.
-    let social:unknown
-    try {social=await processSocialDelivery()}catch{social={status:'unavailable',error:'Social connection check failed; no automatic submission retry'}}
-    return NextResponse.json({ referencePreviewsPlanned, sitePlanned, clipFeaturesPlanned, sitePublished, social, planned_slots: jobs.length, jobs: data, policy: CONTENT_POLICY.version })
+    // Social receipts and dispatch have their own guarded cron endpoint.
+    // Keep the general content planner independent of provider OAuth health.
+    return NextResponse.json({ referencePreviewsPlanned, sitePlanned, clipFeaturesPlanned, sitePublished, social: {status:'managed_by_dedicated_delivery_cron'}, planned_slots: jobs.length, jobs: data, policy: CONTENT_POLICY.version })
   } catch {
     return NextResponse.json({ error: 'Content operation failed; inspect website and generation status before retrying' }, { status: 503 })
   }

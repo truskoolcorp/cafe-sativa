@@ -6,6 +6,9 @@ export default function VipRecordingInventory(){
  const [items,setItems]=useState<Recording[]>([])
  const [loading,setLoading]=useState(true)
  const [error,setError]=useState('')
+ const [title,setTitle]=useState(''),[description,setDescription]=useState(''),[bucket,setBucket]=useState(''),[path,setPath]=useState('')
+ const [saving,setSaving]=useState(false),[notice,setNotice]=useState('')
+ async function register(){setSaving(true);setNotice('');try{const r=await fetch('/api/admin/vip-recordings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description,storage_bucket:bucket,storage_path:path})});const b=await r.json();if(!r.ok)throw Error(b.error||'Registration failed');setNotice('Private draft registered. Not approved or published.');setTitle('');setDescription('');setBucket('');setPath('');await reload()}catch(e){setNotice(e instanceof Error?e.message:'Registration failed')}finally{setSaving(false)}}
  async function reload(){
   setLoading(true);setError('')
   try{
@@ -20,7 +23,16 @@ export default function VipRecordingInventory(){
  return <main className="min-h-screen bg-background pt-28 pb-20 px-5"><div className="max-w-4xl mx-auto">
   <Link href="/admin?view=website" className="text-primary underline">← Website Programming</Link>
   <h1 className="font-heading text-3xl mt-5">VIP recording inventory</h1>
-  <p className="mt-3 text-muted-foreground">Private editorial inventory. Video storage locations and playback links are not disclosed here. This page cannot publish, upload, or modify recordings.</p>
+  <p className="mt-3 text-muted-foreground">Private editorial inventory. Video storage locations and playback links are not disclosed here. Register an existing video from private storage as a draft. This page cannot upload, approve, or publish recordings.</p>
+  <div className="rounded-xl border border-border p-5 mt-6 grid gap-3">
+   <h2 className="font-heading text-xl font-semibold">Register existing private video</h2>
+   <input aria-label="Recording title" className="rounded border p-3 bg-card" placeholder="Recording title" value={title} onChange={e=>setTitle(e.target.value)}/>
+   <textarea aria-label="Description" className="rounded border p-3 bg-card" placeholder="Description" value={description} onChange={e=>setDescription(e.target.value)}/>
+   <input aria-label="Private storage bucket" className="rounded border p-3 bg-card" placeholder="Private storage bucket" value={bucket} onChange={e=>setBucket(e.target.value)}/>
+   <input aria-label="Video storage path" className="rounded border p-3 bg-card" placeholder="Video storage path" value={path} onChange={e=>setPath(e.target.value)}/>
+   <button className="rounded border border-border px-4 py-2" disabled={saving||!title||!bucket||!path} onClick={()=>void register()}>{saving?'Validating…':'Register private draft'}</button>
+   {notice&&<p role="status">{notice}</p>}
+  </div>
   <button className="mt-6 rounded border border-border px-4 py-2" onClick={()=>void reload()}>Refresh inventory</button>
   {loading&&<p className="mt-5" role="status">Loading recordings…</p>}
   {error&&<p className="mt-5" role="alert">{error}</p>}

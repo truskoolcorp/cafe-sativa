@@ -40,6 +40,8 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const [publishSocial,setPublishSocial]=useState(false)
   const [busy,setBusy]=useState(false)
   const [message,setMessage]=useState('')
+  const [podcastSyncBusy,setPodcastSyncBusy]=useState(false)
+  const [podcastSyncMessage,setPodcastSyncMessage]=useState('')
   const load=useCallback(async()=>{
     const [response,referenceResponse]=await Promise.all([fetch('/api/content/site',{cache:'no-store'}),fetch('/api/content/references',{cache:'no-store'})])
     const referenceBody=await referenceResponse.json()
@@ -68,10 +70,21 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
     }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
     finally{setBusy(false)}
   }
+  async function syncPodcasts(){
+    setPodcastSyncBusy(true);setPodcastSyncMessage('Checking approved public Café Sativa feeds…')
+    try {
+      const response=await fetch('/api/admin/library-sync',{method:'POST'})
+      const body=await response.json()
+      if(!response.ok)throw Error(body.error||'Podcast sync failed')
+      setPodcastSyncMessage(`Podcast sync complete: ${body.imported} imported, ${body.existing} already listed, ${body.skipped} skipped.`)
+    }catch(e){setPodcastSyncMessage(e instanceof Error?e.message:'Podcast sync failed')}
+    finally{setPodcastSyncBusy(false)}
+  }
   const locked=selected && ['published','archived','failed'].includes(selected.status)
   return <section aria-label="Website programming">
     <h2>Website programming</h2>
     <SocialConnectionPanel/>
+    <div className={styles.card} style={{padding:16,marginBottom:16}}><h3>Approved podcast library</h3><p>Only public episodes from the two Café Sativa Jellypod shows are imported; private drafts and other shows are excluded. Existing records are preserved.</p><button className={styles.secondary} disabled={podcastSyncBusy} onClick={()=>void syncPodcasts()}>{podcastSyncBusy?"Checking feeds…":"Sync published Café Sativa episodes"}</button>{podcastSyncMessage&&<p role="status">{podcastSyncMessage}</p>}</div>
     <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
       <button className={styles.primary} disabled={busy} onClick={()=>act('plan')}>Prepare program drafts</button>

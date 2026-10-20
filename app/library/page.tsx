@@ -4,6 +4,7 @@ import {useEffect,useState} from 'react'
 type Item={id:string;kind:'recipe'|'podcast';title:string;description:string|null;details:string|null;external_url:string|null;published_at:string}
 export default function LibraryPage(){
  const [kind,setKind]=useState<'recipe'|'podcast'>('recipe')
+ useEffect(()=>{if(new URLSearchParams(window.location.search).get('kind')==='podcast')setKind('podcast')},[])
  const [items,setItems]=useState<Item[]>([])
  const [message,setMessage]=useState('Loading approved content…')
  useEffect(()=>{let current=true;setMessage('Loading approved content…');fetch('/api/library?kind='+kind,{cache:'no-store'}).then(async r=>{const b=await r.json();if(!r.ok)throw Error(b.error||'Catalog unavailable');if(current){setItems(b.items||[]);setMessage('')}}).catch(e=>{if(current){setItems([]);setMessage(e instanceof Error?e.message:'Unable to load library')}});return()=>{current=false}},[kind])

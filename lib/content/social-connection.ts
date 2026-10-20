@@ -9,7 +9,18 @@ export async function withSocialConnection<T>(operation:(context:{db:ReturnType<
   if(claim.error)throw claim.error
   const connection=claim.data?.[0]
   if(!connection)throw new Error('Social connection unavailable or busy')
-  if(connection.last_error?.includes('OAuth invalid_grant') || connection.last_error?.includes('OAuth invalid_client')) {
+  // Refresh the persisted state after taking the lock; an RPC result may not
+  // include the latest OAuth diagnostic following another worker's attempt.
+  const current=await db.from('cs_social_connections').select('last_error,credential_ciphertext').eq('provider','metricool').maybeSingle()
+  if(current.error || !current.data) {
+    await db.from('cs_social_connections').update({lock_until:null}).eq('provider','metricool').eq('lock_until',connection.lock_until)
+    throw new Error('Metricool connection status unavailable')
+  }
+  if(current.data.credential_ciphertext!==connection.credential_ciphertext) {
+    await db.from('cs_social_connections').update({lock_until:null}).eq('provider','metricool').eq('lock_until',connection.lock_until)
+    throw new Error('Metricool connection changed; retry later')
+  }
+  if(current.data.last_error?.includes('OAuth invalid_grant') || current.data.last_error?.includes('OAuth invalid_client')) {
     await db.from('cs_social_connections').update({lock_until:null}).eq('provider','metricool').eq('lock_until',connection.lock_until)
     throw new Error('Metricool reconnection required before delivery checks can resume')
   }

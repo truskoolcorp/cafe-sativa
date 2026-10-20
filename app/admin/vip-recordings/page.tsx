@@ -15,8 +15,21 @@ export default function VipRecordingInventory(){
  const [folders,setFolders]=useState<Array<{name:string;path:string}>>([])
  const [browseStatus,setBrowseStatus]=useState('')
  const [browsing,setBrowsing]=useState(false)
+ const [previewUrl,setPreviewUrl]=useState('')
+ const [previewError,setPreviewError]=useState('')
+ const [previewing,setPreviewing]=useState(false)
+ async function preview(filePath:string){
+  setPreviewUrl('');setPreviewError('');setPath(filePath);setPreviewing(true)
+  try{
+   const query=new URLSearchParams({preview:'1',bucket,path:filePath})
+   const r=await fetch('/api/admin/vip-recordings?'+query.toString(),{cache:'no-store'})
+   const data=await r.json();if(!r.ok)throw Error(data.error||'Preview unavailable')
+   setPreviewUrl(data.url)
+  }catch(e){setPreviewError(e instanceof Error?e.message:'Preview unavailable')}
+  finally{setPreviewing(false)}
+ }
  async function browse(bucketId:string,dir=''){
-  setFiles([]);setFolders([]);setBrowseStatus('')
+  setFiles([]);setFolders([]);setBrowseStatus('');setPreviewUrl('');setPreviewError('')
   if(!bucketId){setFolder('');return}
   setBrowsing(true)
   try{
@@ -66,12 +79,15 @@ export default function VipRecordingInventory(){
    <h2 className="font-heading text-xl font-semibold">Register existing private video</h2>
    <input aria-label="Recording title" className="rounded border p-3 bg-card" placeholder="Recording title" value={title} onChange={e=>setTitle(e.target.value)}/>
    <textarea aria-label="Description" className="rounded border p-3 bg-card" placeholder="Description" value={description} onChange={e=>setDescription(e.target.value)}/>
-   <label>Private storage bucket<select aria-label="Private storage bucket" className="rounded border p-3 bg-card w-full mt-1" value={bucket} onChange={e=>{setBucket(e.target.value);setPath('');void browse(e.target.value)}}><option value="">Select a private bucket</option>{buckets.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>{bucketError&&<p role="alert">{bucketError}</p>}{!bucketError&&buckets.length===0&&<p>No private storage buckets available. Registration is unavailable until one is configured.</p>}
+   <label>Private storage bucket<select aria-label="Private storage bucket" className="rounded border p-3 bg-card w-full mt-1" value={bucket} onChange={e=>{setBucket(e.target.value);setPath('');setPreviewUrl('');void browse(e.target.value)}}><option value="">Select a private bucket</option>{buckets.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>{bucketError&&<p role="alert">{bucketError}</p>}{!bucketError&&buckets.length===0&&<p>No private storage buckets available. Registration is unavailable until one is configured.</p>}
    {bucket&&<div className="rounded border border-border p-3">
     <p className="text-sm mb-2">Private video files {folder}</p>
     {folder&&<button className="rounded border px-3 py-1 mr-2" onClick={()=>void browse(bucket,folder.split('/').slice(0,-1).join('/'))}>Parent folder</button>}
     {folders.map(x=><button key={x.path} className="rounded border px-3 py-1 mr-2 mb-2" onClick={()=>void browse(bucket,x.path)}>Folder: {x.name}</button>)}
-    {files.map(x=><button key={x.path} className="rounded border px-3 py-1 mr-2 mb-2" onClick={()=>setPath(x.path)}>{path===x.path?'Selected: ':'Select: '}{x.name}</button>)}
+    {files.map(x=><button key={x.path} className="rounded border px-3 py-1 mr-2 mb-2" onClick={()=>void preview(x.path)}>{path===x.path?'Reviewing: ':'Preview: '}{x.name}</button>)}
+    {previewing&&<p role="status">Preparing secure preview…</p>}
+    {previewError&&<p role="alert">{previewError}</p>}
+    {previewUrl&&<div className="mt-3 mb-3"><p className="text-sm">Private admin preview. This does not approve or publish the video. Link expires after 60 seconds.</p><video key={previewUrl} src={previewUrl} controls preload="metadata" className="w-full max-w-xl mt-2" /></div>}
     <button className="rounded border px-3 py-1 mb-2" disabled={browsing} onClick={()=>void browse(bucket,folder)}>{browsing?'Checking files…':'Refresh this folder'}</button>
     {browseStatus&&<p role="status">{browseStatus}</p>}
     {!browsing&&!browseStatus&&!files.length&&!folders.length&&<p>No supported video files are listed in this folder. Browse another folder or add an approved file to private storage.</p>}

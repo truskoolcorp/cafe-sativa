@@ -35,3 +35,20 @@ export async function POST(req:NextRequest){
  if(created.error)return reply({error:created.error.code==='23505'?'A music proposal already occupies this month':'Could not save private proposal'},created.error.code==='23505'?409:503)
  return reply({proposal:created.data,publicEventCreated:false,renderingStarted:false,publishingStarted:false},201)
 }
+
+export async function PATCH(req:NextRequest){
+ if(!await isContentAdmin())return reply({error:'Unauthorized'},401)
+ if(req.headers.get('origin')!==req.nextUrl.origin)return reply({error:'Invalid origin'},403)
+ if(Number(req.headers.get('content-length'))>12000)return reply({error:'Request too large'},413)
+ const b=await req.json().catch(()=>null)
+ if(!b||typeof b.id!=='string'||!/^[0-9a-f-]{36}$/i.test(b.id)||typeof b.title!=='string'||!b.title.trim()||b.title.length>240||typeof b.description!=='string'||b.description.length>2500||typeof b.brief!=='string'||b.brief.length>5000||typeof b.month!=='string'||!/^20\d{2}-(0[1-9]|1[0-2])$/.test(b.month)||!['music','comedy','spoken_word','interview','other'].includes(b.type))return reply({error:'Invalid revision fields'},400)
+ const db=createAdminClient()
+ const existing=await db.from('cs_programming_proposals').select('id,status').eq('id',b.id).maybeSingle()
+ if(existing.error||!existing.data)return reply({error:'Proposal unavailable'},404)
+ if(!['draft','owner_review','revision_requested'].includes(existing.data.status))return reply({error:'This proposal is not editable'},409)
+ // Keep revisions private; do not infer concept, spending or publication approval.
+ const updated=await db.from('cs_programming_proposals').update({title:b.title.trim(),description:b.description,production_brief:b.brief,proposed_month:b.month,performance_type:b.type,status:'revision_requested',updated_at:new Date().toISOString()}).eq('id',b.id).eq('status',existing.data.status).select('id,status').maybeSingle()
+ if(updated.error)return reply({error:updated.error.code==='23505'?'A musical proposal already occupies that month':'Revision unavailable'},updated.error.code==='23505'?409:503)
+ if(!updated.data)return reply({error:'Proposal changed concurrently; reload before editing'},409)
+ return reply({proposal:updated.data,publicEventCreated:false,renderingStarted:false,publishingStarted:false})
+}

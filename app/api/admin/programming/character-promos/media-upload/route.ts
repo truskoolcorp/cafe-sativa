@@ -5,7 +5,8 @@ import {createAdminClient} from '@/lib/supabase/admin'
 export const dynamic='force-dynamic'
 export const runtime='nodejs'
 const HEADERS={'Cache-Control':'private, no-store'}
-const MAX_BYTES=35*1024*1024
+// Keep below Vercel's serverless request body limit; larger media requires direct-to-storage upload.
+const MAX_BYTES=4*1024*1024
 const json=(value:unknown,status=200)=>NextResponse.json(value,{status,headers:HEADERS})
 export async function POST(req:NextRequest){
  if(!await isContentAdmin())return json({error:'Unauthorized'},401)
@@ -16,7 +17,7 @@ export async function POST(req:NextRequest){
  try{form=await req.formData()}catch{return json({error:'Invalid multipart upload'},400)}
  const id=form.get('promoId'),asset=form.get('video')
  if(typeof id!=='string'||!/^[a-f0-9-]{36}$/i.test(id)||!(asset instanceof File))return json({error:'Select a promo and MP4 file'},400)
- if(asset.size===0||asset.size>MAX_BYTES||asset.type!=='video/mp4')return json({error:'Only MP4 video up to 35 MB is supported'},400)
+ if(asset.size===0||asset.size>MAX_BYTES||asset.type!=='video/mp4')return json({error:'Only MP4 video up to 4 MB is supported'},400)
  const bytes=Buffer.from(await asset.arrayBuffer())
  if(bytes.length<16||bytes.toString('ascii',4,8)!=='ftyp')return json({error:'Invalid MP4 signature'},400)
  const sha=createHash('sha256').update(bytes).digest('hex')

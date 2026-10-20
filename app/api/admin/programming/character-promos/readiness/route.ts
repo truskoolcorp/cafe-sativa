@@ -14,6 +14,7 @@ export async function GET(){
  const work=(drafts.data||[]).map(d=>{
   const targets=(plans.data||[]).filter(p=>p.promo_id===d.id)
   const blockers:string[]=[]
+  if(!['script_approved'].includes(d.status))blockers.push('Spoken script has not passed the canonical approval gate')
   if(d.character_id!=='keith'&&d.intended_channel==='character_profile_unconfirmed')blockers.push('Dedicated character account is not connected')
   if(d.character_id==='keith'&&d.intended_channel!=='truskoolcorp_metricool_brand_5373515')blockers.push('Incorrect corporate brand routing')
   if(!d.actual_social_account)blockers.push('Exact authorized social account not mapped')
@@ -22,6 +23,8 @@ export async function GET(){
   if(!d.publication_approved_at)blockers.push('Content publication authorization missing')
   if(!targets.length)blockers.push('No verified provider delivery plan')
   if(targets.some(t=>!t.account_id))blockers.push('Provider destination is unknown')
+  if(targets.some(t=>!['ready_for_delivery','submitted','confirmed'].includes(t.status)))blockers.push('Delivery plan is not cleared for scheduling')
+  if(targets.some(t=>t.status==='confirmed'&&!t.provider_receipt))blockers.push('Confirmed delivery lacks provider receipt')
   return {id:d.id,title:d.title,characterId:d.character_id,status:d.status,ready:!blockers.length,blockers,targets:targets.map(t=>({network:t.network,status:t.status,scheduledAt:t.scheduled_at,hasProviderReceipt:!!t.provider_receipt}))}
  })
  return NextResponse.json({primaryCorporatePersona:'keith',corporateMetricoolBrandId:5373515,analyticsScope:'Tru Skool corporate accounts only',publicationsTriggered:false,paidRendersTriggered:false,readyCount:work.filter(p=>p.ready).length,items:work},{headers})

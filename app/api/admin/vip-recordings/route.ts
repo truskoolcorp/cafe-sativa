@@ -39,6 +39,7 @@ export async function POST(req:NextRequest){
  const bucket=typeof body.storage_bucket==='string'?body.storage_bucket.trim():''
  const path=typeof body.storage_path==='string'?body.storage_path.trim():''
  if(!title||title.length>240||description.length>2500||!bucket||!path||path.startsWith('/')||path.includes('..')||!/^[-a-z0-9_]+$/.test(bucket)||!/^[a-zA-Z0-9_./-]+$/.test(path))return NextResponse.json({error:'Invalid title or private storage reference'},{status:400})
+ if(!['.mp4','.mov','.webm','.m4v'].some(ext=>path.toLowerCase().endsWith(ext)))return NextResponse.json({error:'Only supported video files can be registered'},{status:400})
  const db=createAdminClient()
  const bucketInfo=await db.storage.getBucket(bucket)
  if(bucketInfo.error||!bucketInfo.data||bucketInfo.data.public)return NextResponse.json({error:'A configured private storage bucket is required'},{status:400})

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isContentAdmin } from '@/lib/content/auth'
+import { isContentAdmin, cronAuthorized } from '@/lib/content/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 export const dynamic='force-dynamic'
 export const maxDuration=60
@@ -15,9 +15,7 @@ function field(xml:string,tag:string){
  if(!value)return ''
  return value.replace(/^<!\[CDATA\[|\]\]>$/g,'').replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim()
 }
-export async function POST(req:NextRequest){
- if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
- if(req.headers.get('origin')!==req.nextUrl.origin)return NextResponse.json({error:'Invalid origin'},{status:403})
+async function syncApprovedFeeds(){
  const db=createAdminClient()
  let imported=0,existing=0,skipped=0
  for(const show of SHOWS){
@@ -51,4 +49,35 @@ export async function POST(req:NextRequest){
   }
  }
  return NextResponse.json({imported,existing,skipped,feeds:SHOWS.length},{headers:{'Cache-Control':'private, no-store'}})
+}
+
+async function runTracked(trigger:'admin'|'cron'){
+ const db=createAdminClient()
+ const receipt=await db.from('cs_podcast_sync_receipts').insert({trigger,state:'running'}).select('id').single()
+ if(receipt.error||!receipt.data)return NextResponse.json({error:'Unable to begin auditable sync'},{status:503})
+ try{
+  const result=await syncApprovedFeeds()
+  const body=await result.clone().json()
+  const success=result.ok
+  const saved=await db.from('cs_podcast_sync_receipts').update({
+   state:success?'succeeded':'failed',finished_at:new Date().toISOString(),
+   imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0,
+   checked_feeds:success?SHOWS.length:0,error_code:success?null:'feed_or_import_failed'
+  }).eq('id',receipt.data.id)
+  if(saved.error)return NextResponse.json({error:'Sync ran but its audit receipt could not be saved; check catalog before retrying.'},{status:503})
+  return NextResponse.json({...body,receiptId:receipt.data.id},{status:result.status,headers:{'Cache-Control':'private, no-store'}})
+ }catch(error){
+  await db.from('cs_podcast_sync_receipts').update({state:'failed',finished_at:new Date().toISOString(),error_code:'unexpected'}).eq('id',receipt.data.id)
+  console.error('[podcast-sync] unexpected failure',error instanceof Error?error.message:'unknown')
+  return NextResponse.json({error:'Podcast sync failed; see audit receipt',receiptId:receipt.data.id},{status:503})
+ }
+}
+export async function POST(req:NextRequest){
+ if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
+ if(req.headers.get('origin')!==req.nextUrl.origin)return NextResponse.json({error:'Invalid origin'},{status:403})
+ return runTracked('admin')
+}
+export async function GET(req:NextRequest){
+ if(!cronAuthorized(req.headers.get('authorization')))return NextResponse.json({error:'Unauthorized'},{status:401})
+ return runTracked('cron')
 }

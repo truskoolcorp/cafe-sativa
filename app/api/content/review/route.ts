@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     if (!job || (body.action === 'override' ? !['pending_qa','failed'].includes(job.status) : job.status !== 'pending_qa')) return response({ error: 'This job is no longer eligible for this review.' }, 409)
     if (body.action === 'override' && !job.blocker?.includes('canonical accuracy review') && job.status === 'failed') return response({ error: 'Only visual-QA rejections are eligible for owner override.' }, 409)
     if (body.action === 'approve' || body.action === 'override') {
-      if (!/^[0-9a-f-]{36}\.mp4$/i.test(job.output_url || '') || job.policy_version !== CONTENT_POLICY.version) return response({ error: 'Current policy and stored video required.' }, 409)
+      if (!/^[0-9a-f-]{36}\.mp4$/i.test(job.output_url || '') || (body.action === 'approve' && job.policy_version !== CONTENT_POLICY.version)) return response({ error: 'Current policy and stored video required.' }, 409)
       const asset = await db.from('cs_canonical_assets').select('*').eq('id', job.canonical_asset_id).eq('active', true).eq('kind', 'venue').eq('subject', job.room).not('approved_by', 'is', null).not('approved_at', 'is', null).maybeSingle()
       if (asset.error) throw asset.error
       if (!approvedAsset(asset.data)) return response({ error: 'The venue reference is no longer approved.' }, 409)

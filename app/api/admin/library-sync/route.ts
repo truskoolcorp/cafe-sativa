@@ -19,6 +19,8 @@ function field(xml:string,tag:string){
 async function syncApprovedFeeds(){
  const db=createAdminClient()
  let imported=0,existing=0,skipped=0
+ const skipReasons:Record<string,number>={}
+ const skip=(reason:string)=>{skipped++;skipReasons[reason]=(skipReasons[reason]||0)+1}
  for(const show of SHOWS){
   let feed:string
   try {
@@ -31,11 +33,15 @@ async function syncApprovedFeeds(){
   for(const match of items){
    const entry=match[1],title=field(entry,'title').slice(0,240),raw=field(entry,'link')
    let link:URL
-   try{link=new URL(raw)}catch{skipped++;continue}
+   try{link=new URL(raw)}catch{skip('invalid_link');continue}
    const id=link.pathname.match(/^\/episodes\/([0-9a-f-]{36})\/?$/i)?.[1]
    const date=field(entry,'pubDate')
    const published=new Date(date)
-   if(!id||!uuid.test(id)||link.protocol!=='https:'||link.hostname!==show.host||!title||!Number.isFinite(published.getTime())||published.getTime()>Date.now()){skipped++;continue}
+   if(!id||!uuid.test(id)){skip('episode_id_format');continue}
+   if(link.protocol!=='https:'||link.hostname!==show.host){skip('untrusted_link_origin');continue}
+   if(!title){skip('missing_title');continue}
+   if(!Number.isFinite(published.getTime())){skip('missing_or_invalid_date');continue}
+   if(published.getTime()>Date.now()){skip('future_publication');continue}
    const description=field(entry,'description').slice(0,1500)
    // Unique provider ID makes repeat syncs safe and preserves owner edits.
    const found=await db.from('cs_member_library').select('id').eq('source_provider','jellypod').eq('source_external_id',id).maybeSingle()
@@ -49,7 +55,7 @@ async function syncApprovedFeeds(){
    imported++
   }
  }
- return NextResponse.json({imported,existing,skipped,feeds:SHOWS.length},{headers:{'Cache-Control':'private, no-store'}})
+ return NextResponse.json({imported,existing,skipped,skipReasons,feeds:SHOWS.length},{headers:{'Cache-Control':'private, no-store'}})
 }
 
 async function runTracked(trigger:'admin'|'cron'){
@@ -60,11 +66,11 @@ async function runTracked(trigger:'admin'|'cron'){
   const result=await syncApprovedFeeds()
   const body=await result.clone().json()
   const success=result.ok
-  console.info('[podcast-sync] feed-check completed',{trigger,success,imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0})
+  console.info('[podcast-sync] feed-check completed',{trigger,success,imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0,skipReasons:body.skipReasons||{}})
   const saved=await db.from('cs_podcast_sync_receipts').update({
    state:success?'succeeded':'failed',finished_at:new Date().toISOString(),
    imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0,
-   checked_feeds:success?SHOWS.length:0,error_code:success?null:'feed_or_import_failed'
+   checked_feeds:success?SHOWS.length:0,error_code:!success?'feed_or_import_failed':body.skipped>0&&body.imported===0&&body.existing===0?'entries_rejected':null
   }).eq('id',receipt.data.id)
   if(saved.error){console.error('[podcast-sync] receipt-save failed',saved.error.code);return NextResponse.json({error:'Sync ran but its audit receipt could not be saved; check catalog before retrying.'},{status:503})}
   return NextResponse.json({...body,receiptId:receipt.data.id},{status:result.status,headers:{'Cache-Control':'private, no-store'}})

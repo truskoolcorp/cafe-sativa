@@ -30,5 +30,6 @@ export async function POST(req:NextRequest){
  if(uploaded.error&& !/already exists|duplicate/i.test(uploaded.error.message))return json({error:'Private media storage unavailable'},503)
  const saved=await db.from('cs_character_promo_drafts').update({video_asset_path:path,video_qa_approved_at:null,publication_approved_at:null,updated_at:new Date().toISOString()}).eq('id',id).is('video_asset_path',null).in('status',['draft','revision_requested']).select('id,video_asset_path').maybeSingle()
  if(saved.error||!saved.data)return json({error:'Asset retained in private storage but draft changed concurrently; review before continuing'},409)
+ await db.from('cs_character_promo_qa_checks').upsert({promo_id:id,video_sha256:sha,check_name:'mp4_integrity',result:'pass',evidence:'Server-side MP4 header and byte-length validated; SHA-256 fingerprint calculated.'},{onConflict:'promo_id,video_sha256,check_name'})
  return json({promoId:id,sha256:sha,privatePath:path,size:bytes.length,qaApproved:false,publishingAllowed:false,providerCallsStarted:false},201)
 }

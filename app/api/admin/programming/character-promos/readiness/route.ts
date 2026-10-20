@@ -6,14 +6,19 @@ const headers={'Cache-Control':'private, no-store'}
 export async function GET(){
  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401,headers})
  const db=createAdminClient()
- const [drafts,plans]=await Promise.all([
+ const [drafts,plans,qa]=await Promise.all([
   db.from('cs_character_promo_drafts').select('id,character_id,promo_key,title,status,intended_channel,actual_social_account,audio_asset_path,video_asset_path,voice_approved_at,video_qa_approved_at,publication_approved_at,linked_event_id').order('created_at',{ascending:false}).limit(100),
-  db.from('cs_character_promo_delivery_plans').select('promo_id,network,account_id,status,scheduled_at,provider_receipt').limit(100)
+  db.from('cs_character_promo_delivery_plans').select('promo_id,network,account_id,status,scheduled_at,provider_receipt').limit(100),
+  db.from('cs_character_promo_qa_checks').select('promo_id,video_sha256,check_name,result').limit(1000)
  ])
- if(drafts.error||plans.error)return NextResponse.json({error:'Promotion readiness sources unavailable'},{status:503,headers})
+ if(drafts.error||plans.error||qa.error)return NextResponse.json({error:'Promotion readiness sources unavailable'},{status:503,headers})
  const work=(drafts.data||[]).map(d=>{
   const targets=(plans.data||[]).filter(p=>p.promo_id===d.id)
   const blockers:string[]=[]
+  const expectedChecks=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety']
+  const sha=d.video_asset_path?.match(/\/([a-f0-9]{64})\.mp4$/)?.[1]||null
+  const seen=(qa.data||[]).filter(q=>q.promo_id===d.id&&q.video_sha256===sha&&q.result==='pass')
+  if(!sha||expectedChecks.some(name=>!seen.some(q=>q.check_name===name)))blockers.push('Complete passing QA observations for this exact video hash are missing')
   if(!['script_approved'].includes(d.status))blockers.push('Spoken script has not passed the canonical approval gate')
   if(d.character_id!=='keith'&&d.intended_channel==='character_profile_unconfirmed')blockers.push('Dedicated character account is not connected')
   if(d.character_id==='keith'&&d.intended_channel!=='truskoolcorp_metricool_brand_5373515')blockers.push('Incorrect corporate brand routing')

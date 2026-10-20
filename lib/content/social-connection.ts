@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { METRICOOL_MCP,providerJson,seal,unseal } from '@/lib/content/metricool-oauth'
 import { metricoolSession,verifiedMetricoolBrand } from '@/lib/content/metricool-mcp'
@@ -26,6 +27,9 @@ export async function withSocialConnection<T>(operation:(context:{db:ReturnType<
   }
   let stage='administrator verification'
   let activeCiphertext:string=connection.credential_ciphertext
+  const credentialVersion=createHash('sha256').update(connection.credential_ciphertext).digest('hex').slice(0,12)
+  let refreshDecision='not_evaluated'
+  let remainingSeconds:number|null=null
   try {
     const owner=await db.auth.admin.getUserById(connection.owner_id)
     if(owner.error || owner.data.user?.app_metadata?.cafe_sativa_admin!==true)throw new Error('Connection owner is no longer an authorized administrator')
@@ -34,6 +38,10 @@ export async function withSocialConnection<T>(operation:(context:{db:ReturnType<
     const issuedAt=Date.parse(credentials.obtainedAt || '')
     const expiresIn=Number(credentials.expires_in)
     const accessValid=typeof credentials.access_token==='string' && credentials.access_token && credentials.token_type?.toLowerCase()==='bearer' && Number.isFinite(issuedAt) && Number.isFinite(expiresIn) && expiresIn>0 && issuedAt+expiresIn*1000>Date.now()+60000
+    remainingSeconds=Number.isFinite(issuedAt)&&Number.isFinite(expiresIn)?Math.round((issuedAt+expiresIn*1000-Date.now())/1000):null
+    refreshDecision=accessValid?'access_valid':remainingSeconds===null?'missing_expiry':remainingSeconds<=60?'expiring_or_expired':'invalid_access_metadata'
+    // Only safe metadata is logged. Never log token values, client IDs or ciphertext.
+    console.info('[social-oauth-health]',JSON.stringify({credentialVersion,refreshDecision,remainingSeconds,accessLifetimeSeconds:Number.isFinite(expiresIn)?expiresIn:null}))
     let accessToken=credentials.access_token
     if (!accessValid) {
     stage='OAuth refresh'
@@ -59,6 +67,7 @@ export async function withSocialConnection<T>(operation:(context:{db:ReturnType<
   }catch(error){
     const safeOAuth=error instanceof Error && /^Metricool OAuth [a-z_]+ \(HTTP \d{3}\)$/.test(error.message)?`: ${error.message}`:''
     const diagnostic=`Delivery check failed at ${stage}${safeOAuth}. No automatic submission retry.`
+    if(stage==='OAuth refresh')console.error('[social-oauth-refresh]',JSON.stringify({credentialVersion,refreshDecision,remainingSeconds}))
     // A newer OAuth reauthorization must not inherit errors from this older attempt.
     await db.from('cs_social_connections').update({last_error:diagnostic}).eq('provider','metricool').eq('credential_ciphertext',activeCiphertext)
     console.error('[social-connection]',diagnostic)

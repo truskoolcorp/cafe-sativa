@@ -14,9 +14,11 @@ export default function VipRecordingInventory(){
  const [files,setFiles]=useState<Array<{name:string;path:string}>>([])
  const [folders,setFolders]=useState<Array<{name:string;path:string}>>([])
  const [browseStatus,setBrowseStatus]=useState('')
+ const [browsing,setBrowsing]=useState(false)
  async function browse(bucketId:string,dir=''){
   setFiles([]);setFolders([]);setBrowseStatus('')
-  if(!bucketId)return
+  if(!bucketId){setFolder('');return}
+  setBrowsing(true)
   try{
    const query=new URLSearchParams({files:'1',bucket:bucketId,folder:dir})
    const r=await fetch('/api/admin/vip-recordings?'+query.toString(),{cache:'no-store'})
@@ -25,6 +27,7 @@ export default function VipRecordingInventory(){
    setFolder(dir);setFiles(data.files||[]);setFolders(data.folders||[])
    if(data.truncated)setBrowseStatus('Showing the first 100 entries. Narrow the folder to see more.')
   }catch(e){setBrowseStatus(e instanceof Error?e.message:'Storage browsing unavailable')}
+  finally{setBrowsing(false)}
  }
 
  async function loadBuckets(){try{const r=await fetch('/api/admin/vip-recordings?buckets=1',{cache:'no-store'});const b=await r.json();if(!r.ok)throw Error(b.error||'Cannot list private buckets');setBuckets(b.buckets||[]);setBucketError('')}catch(e){setBucketError(e instanceof Error?e.message:'Cannot list private buckets')}}
@@ -69,8 +72,9 @@ export default function VipRecordingInventory(){
     {folder&&<button className="rounded border px-3 py-1 mr-2" onClick={()=>void browse(bucket,folder.split('/').slice(0,-1).join('/'))}>Parent folder</button>}
     {folders.map(x=><button key={x.path} className="rounded border px-3 py-1 mr-2 mb-2" onClick={()=>void browse(bucket,x.path)}>Folder: {x.name}</button>)}
     {files.map(x=><button key={x.path} className="rounded border px-3 py-1 mr-2 mb-2" onClick={()=>setPath(x.path)}>{path===x.path?'Selected: ':'Select: '}{x.name}</button>)}
+    <button className="rounded border px-3 py-1 mb-2" disabled={browsing} onClick={()=>void browse(bucket,folder)}>{browsing?'Checking files…':'Refresh this folder'}</button>
     {browseStatus&&<p role="status">{browseStatus}</p>}
-    {!browseStatus&&!files.length&&!folders.length&&<p>No video files listed in this folder.</p>}
+    {!browsing&&!browseStatus&&!files.length&&!folders.length&&<p>No supported video files are listed in this folder. Browse another folder or add an approved file to private storage.</p>}
    </div>}
    <input aria-label="Video storage path" className="rounded border p-3 bg-card" placeholder="Video storage path" value={path} onChange={e=>setPath(e.target.value)}/>
    <button className="rounded border border-border px-4 py-2" disabled={saving||!title||!bucket||!path} onClick={()=>void register()}>{saving?'Validating…':'Register private draft'}</button>

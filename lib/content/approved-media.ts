@@ -12,7 +12,7 @@ export async function approvedMediaJob(item:{id?:string;site_category?:string|nu
   const found=await db.from('cs_content_jobs').select('*').eq('id',item.source_job_id).in('status',['approved','scheduled','published']).maybeSingle()
   if(found.error) throw found.error
   const job=found.data
-  if(!job || !job.qa_approved_by || !job.qa_approved_at || job.policy_version!==CONTENT_POLICY.version || ROOM_SITE_CATEGORY[job.room]!==item.site_category || typeof job.output_url!=='string' || !MEDIA_UUID.test(job.output_url.replace(/\.mp4$/,'')) || !job.output_url.endsWith('.mp4')) return null
+  if(!job || !job.qa_approved_by || !job.qa_approved_at || (job.policy_version !== CONTENT_POLICY.version && !(job.policy_version === '2026-10-07' && typeof job.blocker === 'string' && job.blocker.startsWith('Owner visual override by '))) || ROOM_SITE_CATEGORY[job.room]!==item.site_category || typeof job.output_url!=='string' || !MEDIA_UUID.test(job.output_url.replace(/\.mp4$/,'')) || !job.output_url.endsWith('.mp4')) return null
   const canonical=await db.from('cs_canonical_assets').select('*').eq('id',job.canonical_asset_id).eq('kind','venue').eq('subject',job.room).maybeSingle()
   if(canonical.error) throw canonical.error
   return approvedAsset(canonical.data)?job:null

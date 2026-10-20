@@ -33,6 +33,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const [readiness,setReadiness]=useState<ReferenceStatus[]>([])
   const [items,setItems]=useState<Item[]>([])
   const [selected,setSelected]=useState<Item|null>(null)
+  const [queueFilter,setQueueFilter]=useState<'pending'|'all'>('pending')
   const [copy,setCopy]=useState('')
   const [schedule,setSchedule]=useState('')
   const [confirmed,setConfirmed]=useState(false)
@@ -58,10 +59,10 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       const body=await response.json()
       if(!response.ok) throw new Error(body.error || 'Website action failed')
       const fresh=await load()
-      if(selected){const item=fresh.find(i=>i.id===selected.id);if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
+      if(selected){const item=fresh.find(i=>i.id===selected.id);if(action==='approve' && item && item.status!=='pending_approval'){const next=fresh.find(i=>i.status==='pending_approval' && i.id!==selected.id);if(next){open(next)}else{setSelected(null);setQueueFilter('pending')}}else if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
       setConfirmed(false)
       setPublishSocial(false)
-      setMessage(action==='approve' ? (body.published ? 'Published to the website. Open the category page to view it.' : 'Approved. The daily publisher will release it when its schedule is due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='prepare_clips' ? `${body.planned} approved clip drafts prepared. Existing cards and schedules were preserved.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
+      setMessage(action==='approve' ? (body.published ? 'Approval saved and published. Advanced to next pending item.' : 'Approval saved. Advanced to next pending item; publishing will occur when due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='prepare_clips' ? `${body.planned} approved clip drafts prepared. Existing cards and schedules were preserved.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
       if(body.socialWarning)setMessage(body.socialWarning)
       else if(body.socialQueued)setMessage(`Website approved. Social delivery status: ${body.socialDeliveryStatus || 'queued'}. Check its receipt in Social delivery connection; publication is not confirmed yet.`)
     }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
@@ -78,6 +79,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       <button className={styles.secondary} disabled={busy} onClick={()=>act('publish_due')}>Publish approved due items</button>
       <button className={styles.secondary} disabled={busy} onClick={()=>void load().catch(e=>setMessage(e.message))}>Refresh status</button>
     </div>
+    {!selected && <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}><button className={styles.secondary} aria-pressed={queueFilter==='pending'} onClick={()=>setQueueFilter('pending')}>Needs approval ({items.filter(i=>i.status==='pending_approval').length})</button><button className={styles.secondary} aria-pressed={queueFilter==='all'} onClick={()=>setQueueFilter('all')}>All content</button></div>}
     <details className={styles.programDetails}><summary>How references and recurring programming work</summary>
       <p>Approve each master room and character reference once, with its source and version. Future briefs reuse those references; a changed layout, identity or voice requires a new version.</p>
       <p>The worker checks registered references every 15 minutes, reuses approved media before spending and holds missing-reference jobs. New clips and captions still enter accuracy review.</p>
@@ -106,7 +108,8 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       </div></>}
       {selected.published_at && <p>Website published: {new Date(selected.published_at).toLocaleString()}</p>}
       <p><a href={selected.site_category==='venue'?`/venue#feature-${selected.id}`:`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
-    </div> : <div className={styles.cards}>{items.map(item=><article className={styles.card} key={item.id}>{(item.cover_url || covers[item.site_category]) && <img src={(item.cover_url || covers[item.site_category])} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/>}<div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
+    </div> : <div className={styles.cards}>{items.filter(item=>queueFilter==='all' || item.status==='pending_approval').map(item=><article className={styles.card} key={item.id}>{(item.cover_url || covers[item.site_category]) && <img src={(item.cover_url || covers[item.site_category])} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/>}<div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
     {!items.length && <p>No website drafts prepared yet.</p>}
+    {!!items.length && !selected && queueFilter==='pending' && !items.some(item=>item.status==='pending_approval') && <p role="status">All caught up — no website items need approval.</p>}
   </section>
 }

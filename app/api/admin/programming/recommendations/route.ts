@@ -20,7 +20,7 @@ export async function GET(){
  }
  const social=(posts.data||[]).map(p=>({state:p.state,providerStatuses:Array.isArray(p.receipt?.providers)?p.receipt.providers.map((v:{status?:string})=>v.status||'unknown'):[]}))
  const publishedSocial=social.filter(p=>p.providerStatuses.length>0&&p.providerStatuses.every(x=>x.toUpperCase()==='PUBLISHED')).length
- const libraryByKind={podcasts:(library.data||[]).filter(x=>x.kind==='podcast').length,recipes:(library.data||[]).filter(x=>x.kind==='recipe').length}
+ const libraryByKind={podcasts:(library.data||[]).filter((x:{kind:string})=>x.kind==='podcast').length,recipes:(library.data||[]).filter((x:{kind:string})=>x.kind==='recipe').length}
  const evidence=[{source:'cs_content_jobs',observedAt:new Date().toISOString(),finding:'Observed venue production job counts and approved-stage counts, not audience demand',metric:(jobs.data||[]).length}]
  const proposals=[]
  if((jobs.data||[]).length>0 && (events.data||[]).length===0)proposals.push({key:'programming-gap-review',title:'Review programming opportunities against confirmed event inventory',confidence:'low',status:'suggested',analyst:'Anya / OC',concierge:'Laviche',owner:'Keith',whyNow:'There are venue production records but no upcoming event records in the queried horizon. This is an inventory gap, not proof of audience demand.',evidence,missingSignals:['Audience attendance and demand','Confirmed hosts and dates'],mayPublish:false})

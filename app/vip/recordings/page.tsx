@@ -17,7 +17,7 @@ export default function VIPReplaysPage(){
   <Link href="/account" className="inline-block mt-5 text-primary underline">← Your Dashboard</Link>
   {message && <p role="status" className="mt-6 text-sm text-muted-foreground">{message}</p>}
   {entitled===false && <p className="mt-6 rounded-xl border border-border p-6">VIP access is required for this library. <Link href="/membership" className="text-primary underline">View membership options</Link>.</p>}
-  {entitled===true && !items.length && <p className="mt-6 rounded-xl border border-border p-6">No approved past recordings are available yet. Your membership is recognized; check back when sessions are released.</p>}
+  {entitled===true && !items.length && <p className="mt-6 rounded-xl border border-border p-6">Our first live-event recordings are still ahead. When a Café Sativa event is recorded, reviewed, and approved for VIP release, you will find it here. Your membership access is recognized.</p>}
   {entitled===true && items.length>0 && <div className="mt-6 space-y-4">{items.map(item=><article key={item.id} className="rounded-xl border border-border bg-card p-5"><h2 className="font-heading text-xl font-bold">{item.title}</h2>{item.description&&<p className="mt-2 text-sm text-muted-foreground">{item.description}</p>}<p className="mt-2 text-xs text-muted-foreground">Released {new Date(item.release_at).toLocaleDateString()}</p><button className="mt-3 text-primary underline" onClick={()=>void play(item.id)}>Watch recording</button>{playing===item.id && url && <video key={url} className="w-full mt-4 rounded-lg" controls preload="metadata" src={url}/>}</article>)}</div>}
  </div></main>
 }

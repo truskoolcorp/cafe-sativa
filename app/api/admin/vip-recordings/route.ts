@@ -5,6 +5,18 @@ export const dynamic='force-dynamic'
 export async function GET(req:NextRequest){
  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401})
  const admin=createAdminClient()
+ if(req.nextUrl.searchParams.get('files')==='1'){
+  const bucket=req.nextUrl.searchParams.get('bucket')||''
+  const folder=req.nextUrl.searchParams.get('folder')||''
+  if(!/^[-a-z0-9_]+$/.test(bucket)||folder.startsWith('/')||folder.includes('..')||!/^[-a-zA-Z0-9_./]*$/.test(folder))return NextResponse.json({error:'Invalid private storage location'},{status:400})
+  const info=await admin.storage.getBucket(bucket)
+  if(info.error||!info.data||info.data.public)return NextResponse.json({error:'Private bucket required'},{status:403})
+  const found=await admin.storage.from(bucket).list(folder||undefined,{limit:100,sortBy:{column:'name',order:'asc'}})
+  if(found.error)return NextResponse.json({error:'Files could not be listed'},{status:503})
+  const files=(found.data||[]).filter(o=>o.id&&/\\.(mp4|mov|webm|m4v)$/i.test(o.name)).map(o=>({name:o.name,path:folder?folder.replace(/\\/$/,'')+'/'+o.name:o.name}))
+  const folders=(found.data||[]).filter(o=>!o.id&&o.name&&!o.name.startsWith('.')).map(o=>({name:o.name,path:folder?folder.replace(/\\/$/,'')+'/'+o.name:o.name}))
+  return NextResponse.json({files,folders,truncated:(found.data||[]).length===100},{headers:{'Cache-Control':'private, no-store'}})
+ }
  if(req.nextUrl.searchParams.get('buckets')==='1'){
   const result=await admin.storage.listBuckets()
   if(result.error)return NextResponse.json({error:'Private buckets could not be listed'},{status:503,headers:{'Cache-Control':'private, no-store'}})

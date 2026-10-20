@@ -24,7 +24,10 @@ export async function GET(){
   if(!d.video_asset_path||!d.video_qa_approved_at)blockers.push('Finished video and QA missing')
   if(!d.actual_social_account)blockers.push('Exact social account mapping missing')
   if(!d.publication_approved_at)blockers.push('Publication readiness missing')
-  return {id:d.id,title:d.title,characterId:d.character_id,script:d.spoken_script,visualBrief:d.visual_brief,targetDurationSeconds:d.duration_seconds,intendedChannel:d.intended_channel,canonicalReference:baseline?{assetId:baseline.primary_asset_id,sha256:baseline.sha256,voiceId:baseline.voice_id,baselineOnly:true}:null,liveCanonVerified:!!current&&registry?.live===true,readyForGeneration:false,readyForPublishing:false,blockers}
+  const duration=d.duration_seconds
+  const cut1=Math.max(3,Math.round(duration*0.25)),cut2=Math.max(cut1+3,Math.round(duration*0.72))
+  const shotPlan=[{index:1,fromSecond:0,toSecond:cut1,framing:'Canonical medium close-up, opening invitation'},{index:2,fromSecond:cut1,toSecond:cut2,framing:'Canon-approved venue environment and restrained camera movement'},{index:3,fromSecond:cut2,toSecond:duration,framing:'Return to canonical speaker and SIP | SMOKE | VIBE end card'}]
+  return {id:d.id,title:d.title,characterId:d.character_id,script:d.spoken_script,visualBrief:d.visual_brief,targetDurationSeconds:d.duration_seconds,shotPlan,spokenDelivery:'Natural human-paced direct-to-camera; do not infer a clone or substitute voice',intendedChannel:d.intended_channel,canonicalReference:baseline?{assetId:baseline.primary_asset_id,sha256:baseline.sha256,voiceId:baseline.voice_id,baselineOnly:true}:null,liveCanonVerified:!!current&&registry?.live===true,readyForGeneration:false,readyForPublishing:false,blockers}
  })
  return NextResponse.json({packets,notice:'Preparation only. Snapshot IDs are references, never substitute for live GLYPH verification. No rendering, payments, scheduling or publishing occurred.',liveCanonSourceAvailable:registry?.live===true},{headers})
 }

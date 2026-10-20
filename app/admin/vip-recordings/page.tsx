@@ -8,6 +8,9 @@ export default function VipRecordingInventory(){
  const [error,setError]=useState('')
  const [title,setTitle]=useState(''),[description,setDescription]=useState(''),[bucket,setBucket]=useState(''),[path,setPath]=useState('')
  const [saving,setSaving]=useState(false),[notice,setNotice]=useState('')
+ const [buckets,setBuckets]=useState<Array<{id:string;name:string}>>([])
+ const [bucketError,setBucketError]=useState('')
+ async function loadBuckets(){try{const r=await fetch('/api/admin/vip-recordings?buckets=1',{cache:'no-store'});const b=await r.json();if(!r.ok)throw Error(b.error||'Cannot list private buckets');setBuckets(b.buckets||[]);setBucketError('')}catch(e){setBucketError(e instanceof Error?e.message:'Cannot list private buckets')}}
  const [checks,setChecks]=useState<{checks:{adminAuthenticated:boolean;unapprovedExcluded:boolean;privatePublishedStorage:boolean};catalog:{total:number;eligible:number;unreleased:number}}|null>(null)
  const [verifyError,setVerifyError]=useState(''),[verifying,setVerifying]=useState(false)
  async function verify(){setVerifying(true);setVerifyError('');try{const r=await fetch('/api/admin/vip-recordings/verify',{cache:'no-store'});const b=await r.json();if(!r.ok)throw Error(b.error||'Verification unavailable');setChecks(b)}catch(e){setChecks(null);setVerifyError(e instanceof Error?e.message:'Verification unavailable')}finally{setVerifying(false)}}
@@ -33,7 +36,7 @@ export default function VipRecordingInventory(){
   }catch(e){setError(e instanceof Error?e.message:'Unable to load inventory')}
   finally{setLoading(false)}
  }
- useEffect(()=>{void reload();void verify()},[])
+ useEffect(()=>{void reload();void verify();void loadBuckets()},[])
  return <main className="min-h-screen bg-background pt-28 pb-20 px-5"><div className="max-w-4xl mx-auto">
   <Link href="/admin?view=website" className="text-primary underline">← Website Programming</Link>
   <h1 className="font-heading text-3xl mt-5">VIP recording inventory</h1>
@@ -43,7 +46,7 @@ export default function VipRecordingInventory(){
    <h2 className="font-heading text-xl font-semibold">Register existing private video</h2>
    <input aria-label="Recording title" className="rounded border p-3 bg-card" placeholder="Recording title" value={title} onChange={e=>setTitle(e.target.value)}/>
    <textarea aria-label="Description" className="rounded border p-3 bg-card" placeholder="Description" value={description} onChange={e=>setDescription(e.target.value)}/>
-   <input aria-label="Private storage bucket" className="rounded border p-3 bg-card" placeholder="Private storage bucket" value={bucket} onChange={e=>setBucket(e.target.value)}/>
+   <label>Private storage bucket<select aria-label="Private storage bucket" className="rounded border p-3 bg-card w-full mt-1" value={bucket} onChange={e=>setBucket(e.target.value)}><option value="">Select a private bucket</option>{buckets.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>{bucketError&&<p role="alert">{bucketError}</p>}{!bucketError&&buckets.length===0&&<p>No private storage buckets available. Registration is unavailable until one is configured.</p>}
    <input aria-label="Video storage path" className="rounded border p-3 bg-card" placeholder="Video storage path" value={path} onChange={e=>setPath(e.target.value)}/>
    <button className="rounded border border-border px-4 py-2" disabled={saving||!title||!bucket||!path} onClick={()=>void register()}>{saving?'Validating…':'Register private draft'}</button>
    {notice&&<p role="status">{notice}</p>}

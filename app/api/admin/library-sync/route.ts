@@ -54,17 +54,18 @@ async function syncApprovedFeeds(){
 async function runTracked(trigger:'admin'|'cron'){
  const db=createAdminClient()
  const receipt=await db.from('cs_podcast_sync_receipts').insert({trigger,state:'running'}).select('id').single()
- if(receipt.error||!receipt.data)return NextResponse.json({error:'Unable to begin auditable sync'},{status:503})
+ if(receipt.error||!receipt.data){console.error('[podcast-sync] receipt-create failed',receipt.error?.code||'missing_record');return NextResponse.json({error:'Unable to begin auditable sync'},{status:503})}
  try{
   const result=await syncApprovedFeeds()
   const body=await result.clone().json()
   const success=result.ok
+  console.info('[podcast-sync] feed-check completed',{trigger,success,imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0})
   const saved=await db.from('cs_podcast_sync_receipts').update({
    state:success?'succeeded':'failed',finished_at:new Date().toISOString(),
    imported:body.imported||0,existing:body.existing||0,skipped:body.skipped||0,
    checked_feeds:success?SHOWS.length:0,error_code:success?null:'feed_or_import_failed'
   }).eq('id',receipt.data.id)
-  if(saved.error)return NextResponse.json({error:'Sync ran but its audit receipt could not be saved; check catalog before retrying.'},{status:503})
+  if(saved.error){console.error('[podcast-sync] receipt-save failed',saved.error.code);return NextResponse.json({error:'Sync ran but its audit receipt could not be saved; check catalog before retrying.'},{status:503})}
   return NextResponse.json({...body,receiptId:receipt.data.id},{status:result.status,headers:{'Cache-Control':'private, no-store'}})
  }catch(error){
   await db.from('cs_podcast_sync_receipts').update({state:'failed',finished_at:new Date().toISOString(),error_code:'unexpected'}).eq('id',receipt.data.id)

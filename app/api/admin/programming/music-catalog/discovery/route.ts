@@ -8,13 +8,14 @@ const enabled=()=>process.env.CS_MUSICBRAINZ_COMMERCIAL_ACCESS_APPROVED==='true'
 export async function GET(){
  if(!await isContentAdmin())return reply({error:'Unauthorized'},401)
  const db=createAdminClient()
- const [inventory,candidates,identities]=await Promise.all([
+ const [inventory,candidates,identities,sources]=await Promise.all([
   db.from('cs_music_catalog').select('id,release_title,artist_name,catalog_status,source').limit(500),
   db.from('cs_music_metadata_matches').select('catalog_id,provider,provider_entity_id,provider_entity_type,match_status,match_confidence,observed_at').limit(1000),
-  db.from('cs_music_artist_identity').select('artist_name,musicbrainz_artist_mbid,identity_status,confirmed_at').order('artist_name')
+  db.from('cs_music_artist_identity').select('artist_name,musicbrainz_artist_mbid,identity_status,confirmed_at').order('artist_name'),
+  db.from('cs_music_artist_sources').select('artist_name,provider,external_id,canonical_url,verification_status,assertion_source').order('artist_name')
  ])
- if(inventory.error||candidates.error||identities.error)return reply({error:'Catalog unavailable'},503)
- return reply({enabled:enabled(),automatedSyncEnabled:false,provider:'musicbrainz',requiresCommercialTermsVerification:!enabled(),releases:inventory.data||[],artists:identities.data||[],releaseCount:(inventory.data||[]).length,verifiedMatches:(candidates.data||[]).filter(x=>x.match_status==='verified').length,candidates:candidates.data||[],note:'Read-only reconciliation status. Discovery cannot run until authorized commercial API access is explicitly configured. No publishing or paid rendering.'})
+ if(inventory.error||candidates.error||identities.error||sources.error)return reply({error:'Catalog unavailable'},503)
+ return reply({enabled:enabled(),automatedSyncEnabled:false,provider:'musicbrainz',requiresCommercialTermsVerification:!enabled(),releases:inventory.data||[],artists:identities.data||[],artistSources:sources.data||[],releaseCount:(inventory.data||[]).length,verifiedMatches:(candidates.data||[]).filter(x=>x.match_status==='verified').length,candidates:candidates.data||[],note:'Read-only reconciliation status. Discovery cannot run until authorized commercial API access is explicitly configured. No publishing or paid rendering.'})
 }
 export async function POST(req:NextRequest){
  if(!await isContentAdmin())return reply({error:'Unauthorized'},401)

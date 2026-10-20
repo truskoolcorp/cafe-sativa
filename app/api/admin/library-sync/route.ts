@@ -10,11 +10,12 @@ const SHOWS=[
 ] as const
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 function field(xml:string,tag:string){
- const escaped=tag.replace(/[.*+?^$\{\}()|[\]\\]/g,'\\$&')
- const value=new RegExp('<'+escaped+'(?:\\s[^>]*)?>([\\s\\S]*?)</'+escaped+'>','i').exec(xml)?.[1]
+ // Only fixed internal RSS tag names are passed here.
+ const value=new RegExp('<'+tag+'(?:\\s[^>]*)?>([\\s\\S]*?)</'+tag+'>','i').exec(xml)?.[1]
  if(!value)return ''
  return value.replace(/^<!\[CDATA\[|\]\]>$/g,'').replace(/<[^>]*>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim()
 }
+
 async function syncApprovedFeeds(){
  const db=createAdminClient()
  let imported=0,existing=0,skipped=0

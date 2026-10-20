@@ -97,7 +97,7 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const locked=selected && ['published','archived','failed'].includes(selected.status)
   return <section aria-label="Website programming">
     <h2>Website programming</h2>
-    <p><a href="/admin/recipes" className={styles.secondary} style={{display:'inline-block',padding:'10px 14px',marginBottom:12}}>Open recipe editorial desk →</a></p>
+    <p><a href="/admin/recipes" className={styles.secondary} style={{display:'inline-block',padding:'10px 14px',marginBottom:12}}>Open recipe editorial desk →</a> <a href="/admin/vip-recordings" className={styles.secondary} style={{display:"inline-block",padding:"10px 14px",marginBottom:12}}>View VIP recording inventory →</a></p>
     <SocialConnectionPanel/>
     <div className={styles.card} style={{padding:16,marginBottom:16}}><h3>Approved podcast library</h3><p>Only public episodes from the two Café Sativa Jellypod shows are imported; private drafts and other shows are excluded. Existing records are preserved.</p><button className={styles.secondary} disabled={podcastSyncBusy} onClick={()=>void syncPodcasts()}>{podcastSyncBusy?"Checking feeds…":"Sync published Café Sativa episodes"}</button>{podcastSyncMessage&&<p role="status">{podcastSyncMessage}</p>}
       <div style={{marginTop:12}}><button className={styles.secondary} onClick={()=>void refreshPodcastHistory()}>Refresh sync history</button>{historyMessage&&<p role="status">{historyMessage}</p>}

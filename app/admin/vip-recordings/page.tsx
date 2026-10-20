@@ -9,6 +9,17 @@ export default function VipRecordingInventory(){
  const [title,setTitle]=useState(''),[description,setDescription]=useState(''),[bucket,setBucket]=useState(''),[path,setPath]=useState('')
  const [saving,setSaving]=useState(false),[notice,setNotice]=useState('')
  async function register(){setSaving(true);setNotice('');try{const r=await fetch('/api/admin/vip-recordings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description,storage_bucket:bucket,storage_path:path})});const b=await r.json();if(!r.ok)throw Error(b.error||'Registration failed');setNotice('Private draft registered. Not approved or published.');setTitle('');setDescription('');setBucket('');setPath('');await reload()}catch(e){setNotice(e instanceof Error?e.message:'Registration failed')}finally{setSaving(false)}}
+ async function transition(item:Recording,action:'approve'|'release'){
+  const meaning=action==='approve'?'confirm this recording has been reviewed for rights, accuracy, and VIP suitability':'release this previously approved recording to eligible VIP members now'
+  if(!window.confirm('Confirm you want to '+meaning+'?'))return
+  setSaving(true);setNotice('')
+  try{
+   const r=await fetch('/api/admin/vip-recordings/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:item.id,action,confirmReviewed:true})})
+   const data=await r.json();if(!r.ok)throw Error(data.error||'Transition failed')
+   setNotice(action==='approve'?'Recording approved; not released.':'Recording released to eligible VIP members.')
+   await reload()
+  }catch(e){setNotice(e instanceof Error?e.message:'Transition failed')}finally{setSaving(false)}
+ }
  async function reload(){
   setLoading(true);setError('')
   try{
@@ -23,7 +34,7 @@ export default function VipRecordingInventory(){
  return <main className="min-h-screen bg-background pt-28 pb-20 px-5"><div className="max-w-4xl mx-auto">
   <Link href="/admin?view=website" className="text-primary underline">← Website Programming</Link>
   <h1 className="font-heading text-3xl mt-5">VIP recording inventory</h1>
-  <p className="mt-3 text-muted-foreground">Private editorial inventory. Video storage locations and playback links are not disclosed here. Register an existing video from private storage as a draft. This page cannot upload, approve, or publish recordings.</p>
+  <p className="mt-3 text-muted-foreground">Private editorial inventory. Video storage locations and playback links are not disclosed here. Register an existing video from private storage as a draft. This page cannot upload files. Approval and release are separate, explicitly confirmed actions.</p>
   <div className="rounded-xl border border-border p-5 mt-6 grid gap-3">
    <h2 className="font-heading text-xl font-semibold">Register existing private video</h2>
    <input aria-label="Recording title" className="rounded border p-3 bg-card" placeholder="Recording title" value={title} onChange={e=>setTitle(e.target.value)}/>
@@ -41,6 +52,8 @@ export default function VipRecordingInventory(){
    <h2 className="font-heading text-xl font-semibold">{item.title}</h2>
    <p className="mt-2 text-sm">Status: {item.status} · Approval: {item.approved_at?new Date(item.approved_at).toLocaleDateString():'not approved'} · Release: {item.release_at?new Date(item.release_at).toLocaleDateString():'not scheduled'}</p>
    {item.description&&<p className="mt-3 text-muted-foreground">{item.description}</p>}
+   {item.status==='draft'&&<button disabled={saving} className="mt-3 rounded border border-border px-4 py-2" onClick={()=>void transition(item,'approve')}>Review and approve</button>}
+   {item.status==='approved'&&<button disabled={saving} className="mt-3 rounded border border-border px-4 py-2" onClick={()=>void transition(item,'release')}>Release to VIP members</button>}
   </article>)}</div>
  </div></main>
 }

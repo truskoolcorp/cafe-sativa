@@ -39,14 +39,22 @@ export default function WatchPage() {
         setIsSignedIn(true)
         const { data: ev, error: evErr } = await supabase
           .from('my_events_v')
-          .select('id,slug,title,subtitle,starts_at,ends_at,status,zoom_join_url,zoom_meeting_id,presenter_name,topic_brief,access')
+          .select('id,slug,title,subtitle,starts_at,ends_at,status,presenter_name,topic_brief,access')
           .eq('slug', slug).maybeSingle()
         if (evErr || !ev) { setError('Event not found.'); setLoading(false); return }
-        setEvent(ev as EventRow)
-        const { data: ticket } = await supabase
-          .from('tickets').select('id,state')
-          .eq('event_id', ev.id).eq('user_id', userData.user.id).maybeSingle()
-        setHasTicket(!!(ticket && ticket.state === 'valid') || ev.access === 'ticketed' || ev.access === 'tier_included')
+        const joinResponse = await fetch(`/api/events/${encodeURIComponent(slug)}/join`, { cache: 'no-store' })
+        if (joinResponse.status === 403) {
+          setEvent(ev as EventRow)
+          setHasTicket(false)
+          return
+        }
+        if (!joinResponse.ok) {
+          setError('Joining is temporarily unavailable. Please try again later.')
+          return
+        }
+        const join = await joinResponse.json()
+        setEvent({ ...ev, zoom_join_url: join.zoom_join_url ?? null, zoom_meeting_id: join.zoom_meeting_id ?? null } as EventRow)
+        setHasTicket(true)
       } catch { setError('Could not load event.') } finally { setLoading(false) }
     }
     load()

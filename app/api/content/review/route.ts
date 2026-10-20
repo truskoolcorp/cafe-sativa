@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
   if (Number(req.headers.get('content-length')) > 4096) return response({ error: 'Request too large' }, 413)
   try {
     const body = await req.json()
-    if (!uuid.test(body.id || '') || !['approve', 'reject'].includes(body.action)) return response({ error: 'Invalid review' }, 400)
+    if (!uuid.test(body.id || '') || !['approve', 'reject', 'override'].includes(body.action)) return response({ error: 'Invalid review' }, 400)
+    if (body.action === 'override' && (typeof body.reason !== 'string' || body.reason.trim().length < 10 || body.reason.length > 500)) return response({ error: 'Provide an owner override reason (10–500 characters).' }, 400)
     if (body.action === 'approve' && !checks.every(key => body.checks?.[key] === true)) return response({ error: 'Complete every accuracy check before approval.' }, 400)
     const { data: { user } } = await createClient().auth.getUser()
     if (!user || user.app_metadata?.cafe_sativa_admin !== true) return response({ error: 'Unauthorized' }, 401)
@@ -57,8 +58,9 @@ export async function POST(req: NextRequest) {
     const found = await db.from('cs_content_jobs').select('*').eq('id', body.id).maybeSingle()
     if (found.error) throw found.error
     const job = found.data
-    if (!job || job.status !== 'pending_qa') return response({ error: 'This job is no longer awaiting review.' }, 409)
-    if (body.action === 'approve') {
+    if (!job || (body.action === 'override' ? !['pending_qa','failed'].includes(job.status) : job.status !== 'pending_qa')) return response({ error: 'This job is no longer eligible for this review.' }, 409)
+    if (body.action === 'override' && !job.blocker?.includes('canonical accuracy review') && job.status === 'failed') return response({ error: 'Only visual-QA rejections are eligible for owner override.' }, 409)
+    if (body.action === 'approve' || body.action === 'override') {
       if (!/^[0-9a-f-]{36}\.mp4$/i.test(job.output_url || '') || job.policy_version !== CONTENT_POLICY.version) return response({ error: 'Current policy and stored video required.' }, 409)
       const asset = await db.from('cs_canonical_assets').select('*').eq('id', job.canonical_asset_id).eq('active', true).eq('kind', 'venue').eq('subject', job.room).not('approved_by', 'is', null).not('approved_at', 'is', null).maybeSingle()
       if (asset.error) throw asset.error
@@ -69,15 +71,15 @@ export async function POST(req: NextRequest) {
       if (media.error || !media.data) return response({ error: 'Stored video unavailable.' }, 409)
     }
     const changed = await db.from('cs_content_jobs').update({
-      status: body.action === 'approve' ? 'approved' : 'failed',
-      qa_approved_by: body.action === 'approve' ? user.id : null,
-      qa_approved_at: body.action === 'approve' ? new Date().toISOString() : null,
-      blocker: body.action === 'approve' ? null : 'Rejected in accuracy review; no automatic paid retry',
+      status: body.action !== 'reject' ? 'approved' : 'failed',
+      qa_approved_by: body.action !== 'reject' ? user.id : null,
+      qa_approved_at: body.action !== 'reject' ? new Date().toISOString() : null,
+      blocker: body.action === 'override' ? `Owner visual override by ${user.id}: ${body.reason.trim()}` : body.action === 'approve' ? null : 'Rejected in accuracy review; no automatic paid retry',
       updated_at: new Date().toISOString(),
-    }).eq('id', job.id).eq('status', 'pending_qa').select('id,status').maybeSingle()
+    }).eq('id', job.id).eq('status', job.status).select('id,status').maybeSingle()
     if (changed.error) throw changed.error
     if(!changed.data)return response({ error: 'Another review changed this job. Refresh.' }, 409)
-    if(body.action==='approve') {
+    if(body.action==='approve' || body.action==='override') {
       try { return response({...changed.data,websiteDraftsPrepared:await planApprovedClipFeatures()}) }
       catch { return response({...changed.data,websiteDraftWarning:'Clip approval saved. Use Prepare approved clip drafts in Website programming to retry website-card preparation.'}) }
     }

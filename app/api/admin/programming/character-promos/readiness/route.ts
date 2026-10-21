@@ -17,8 +17,10 @@ export async function GET(){
   const blockers:string[]=[]
   const expectedChecks=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety']
   const sha=d.video_asset_path?.match(/\/([a-f0-9]{64})\.mp4$/)?.[1]||null
-  const seen=(qa.data||[]).filter(q=>q.promo_id===d.id&&q.video_sha256===sha&&q.result==='pass')
-  if(!sha||expectedChecks.some(name=>!seen.some(q=>q.check_name===name)))blockers.push('Complete passing QA observations for this exact video hash are missing')
+  const observations=(qa.data||[]).filter(q=>q.promo_id===d.id&&q.video_sha256===sha)
+  const seen=observations.filter(q=>q.result==='pass')
+  const pendingChecks=expectedChecks.filter(name=>!seen.some(q=>q.check_name===name))
+  if(!sha||pendingChecks.length)blockers.push('Complete passing QA observations for this exact video hash are missing')
   if(!['script_approved'].includes(d.status))blockers.push('Spoken script has not passed the canonical approval gate')
   if(d.character_id!=='keith'&&d.intended_channel==='character_profile_unconfirmed')blockers.push('Dedicated character account is not connected')
   if(d.character_id==='keith'&&d.intended_channel!=='truskoolcorp_metricool_brand_5373515')blockers.push('Incorrect corporate brand routing')
@@ -29,9 +31,9 @@ export async function GET(){
   if(!d.publication_approved_at)blockers.push('Content publication authorization missing')
   if(!targets.length)blockers.push('No verified provider delivery plan')
   if(targets.some(t=>!t.account_id))blockers.push('Provider destination is unknown')
-  if(targets.some(t=>!['ready_for_delivery','submitted','confirmed'].includes(t.status)))blockers.push('Delivery plan is not cleared for scheduling')
+  if(targets.some(t=>t.status!=='ready_for_delivery'))blockers.push('Delivery plan is not cleared for a new scheduling action')
   if(targets.some(t=>t.status==='confirmed'&&!t.provider_receipt))blockers.push('Confirmed delivery lacks provider receipt')
-  return {id:d.id,title:d.title,characterId:d.character_id,status:d.status,embeddedAudioPermitted:true,ready:!blockers.length,blockers,targets:targets.map(t=>({network:t.network,status:t.status,scheduledAt:t.scheduled_at,hasProviderReceipt:!!t.provider_receipt}))}
+  return {id:d.id,title:d.title,characterId:d.character_id,status:d.status,qaProgress:{passed:seen.length,total:expectedChecks.length,pending:pendingChecks,recorded:observations.length},embeddedAudioPermitted:true,ready:!blockers.length,blockers,targets:targets.map(t=>({network:t.network,status:t.status,scheduledAt:t.scheduled_at,hasProviderReceipt:!!t.provider_receipt}))}
  })
  return NextResponse.json({primaryCorporatePersona:'keith',corporateMetricoolBrandId:5373515,analyticsScope:'Tru Skool corporate accounts only',publicationsTriggered:false,paidRendersTriggered:false,readyCount:work.filter(p=>p.ready).length,items:work},{headers})
 }

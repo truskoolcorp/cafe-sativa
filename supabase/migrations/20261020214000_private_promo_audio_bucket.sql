@@ -1,0 +1,1 @@
+insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types) values ('cafe-sativa-audio','cafe-sativa-audio',false,10485760,array['audio/mpeg','audio/mp3']) on conflict (id) do nothing;

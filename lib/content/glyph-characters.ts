@@ -156,6 +156,12 @@ export const GLYPH_CHARACTER_SNAPSHOT = {
       "rights_status": "approved",
       "voice_id": "hROPTUoViDvDwonZteKF",
       "voice_status": "canonical",
+      "jellypod": {
+        "character_id": "497ab0b2",
+        "voice_id": 30136,
+        "verifiedAt": "2026-10-20",
+        "source": "Connected Jellypod saved-character inventory"
+      },
       "owner_confirmation": {
         "basis": "Owner explicitly confirmed displayed cover images accurate and approved",
         "scope": "Displayed canonical registry cover image only",
@@ -172,6 +178,12 @@ export const GLYPH_CHARACTER_SNAPSHOT = {
       "rights_status": "approved",
       "voice_id": "1ADiGshU4crZd55MCmm6",
       "voice_status": "canonical",
+      "jellypod": {
+        "character_id": "9f8c6c92",
+        "voice_id": 37181,
+        "verifiedAt": "2026-10-20",
+        "source": "Connected Jellypod saved-character inventory"
+      },
       "owner_confirmation": {
         "basis": "Owner explicitly confirmed displayed cover images accurate and approved",
         "scope": "Displayed canonical registry cover image only",
@@ -188,6 +200,12 @@ export const GLYPH_CHARACTER_SNAPSHOT = {
       "rights_status": "approved",
       "voice_id": "oNYzGfXKQJfjG1yEuJe9",
       "voice_status": "canonical",
+      "jellypod": {
+        "character_id": "29c1420c",
+        "voice_id": 37182,
+        "verifiedAt": "2026-10-20",
+        "source": "Connected Jellypod saved-character inventory"
+      },
       "owner_confirmation": {
         "basis": "Owner explicitly confirmed displayed cover images accurate and approved",
         "scope": "Displayed canonical registry cover image only",

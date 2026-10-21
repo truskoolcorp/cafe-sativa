@@ -28,6 +28,14 @@ export const GLYPH_CHARACTER_SNAPSHOT = {
       "rights_status": "approved",
       "voice_id": "9I3zeSiEilh5b2sSFWdK",
       "voice_status": "canonical",
+      "heygen": {
+        "avatar_group_id": "e9a45c47c2514c4f899cc00460c981a2",
+        "additional_provider_id": "18b0fc82-492f-449a-84df-5aaa36fe3065",
+        "avatar_group_verified": true,
+        "additional_provider_id_verified": false,
+        "renderable_look_id": null,
+        "note": "Avatar group confirmed from connected HeyGen private looks; user-supplied second ID type unresolved. Select a verified look before rendering."
+      },
       "owner_confirmation": {
         "basis": "Owner explicitly confirmed displayed cover images accurate and approved",
         "scope": "Displayed canonical registry cover image only",

@@ -13,6 +13,8 @@ export default function CharacterPromotions() {
  {data && <div className="grid gap-4 md:grid-cols-2">{data.promos.map((p:any)=><article className="border rounded-lg p-4" key={p.id}>
  <h2 className="text-xl font-bold">{p.title}</h2><p>{p.character_id} · {p.status}</p>
  <p>Stored media: {p.video_asset_path?'Yes':'Not yet'}</p>
+ <p>File-matched QA checks: {data.qa.filter((q:any)=>q.promo_id===p.id && p.video_asset_path?.includes(q.video_sha256+'.mp4') && q.result==='pass').length}/3</p>
+ {data.qa.some((q:any)=>q.promo_id===p.id && !p.video_asset_path?.includes(q.video_sha256+'.mp4')) && <p className="text-amber-400">Historical QA belongs to an older video; replacement needs fresh review.</p>}
  <p>Voice: {p.voice_approved_at?'Approved':'Pending'} · Video: {p.video_qa_approved_at?'Approved':'Pending'} · Publication: {p.publication_approved_at?'Approved':'Pending'}</p>
  {data.delivery.filter((d:any)=>d.promo_id===p.id).map((d:any,i:number)=><p key={i}>{d.network}: {d.status} · {d.scheduled_at||'No slot'}</p>)}
  </article>)}</div>}

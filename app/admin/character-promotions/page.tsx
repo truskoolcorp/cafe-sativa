@@ -1,19 +1,33 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 export default function CharacterPromotions() {
  const [data,setData]=useState<any>(null),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
  useEffect(()=>{fetch('/api/admin/character-promotions',{cache:'no-store'}).then(async r=>{const x=await r.json();if(!r.ok)throw Error(x.error);setData(x)}).catch(e=>setError(String(e)))},[])
  async function upload(id:string,file:File) {
   setBusy(true);setError('');setMessage('')
   try {
-    const body=new FormData();body.append('promoId',id);body.append('video',file)
-    const r=await fetch('/api/admin/character-promotions/media',{method:'POST',body})
-    const j=await r.json();if(!r.ok)throw new Error(j.error || 'Upload failed')
-    setMessage('File stored (SHA-256: '+j.sha256+'). Video QA and publication approval remain pending.')
+    if(!file.name.toLowerCase().endsWith('.mp4')||file.size>90*1024*1024||file.size<1024)throw new Error('Choose an MP4 between 1 KB and 90 MB')
+    const hash=await crypto.subtle.digest('SHA-256',await file.arrayBuffer())
+    const sha256=Array.from(new Uint8Array(hash)).map(n=>n.toString(16).padStart(2,'0')).join('')
+    const request=async(stage:'init'|'complete')=>{
+      const r=await fetch('/api/admin/character-promotions/media',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({promoId:id,sha256,size:file.size,stage})})
+      const result=await r.json()
+      if(!r.ok)throw new Error(result.error || 'Upload failed')
+      return result
+    }
+    setMessage('Preparing secure media transfer…')
+    const permission=await request('init')
+    setMessage('Uploading verified MP4 directly to protected storage…')
+    const stored=await createClient().storage.from('cafe-sativa-content').uploadToSignedUrl(permission.path,permission.token,file,{contentType:'video/mp4'})
+    if(stored.error)throw new Error(stored.error.message)
+    setMessage('Verifying uploaded bytes and updating the original campaign record…')
+    await request('complete')
+    setMessage('File verified and attached (SHA-256: '+sha256+'). Final QA and publication approval remain pending.')
     const next=await fetch('/api/admin/character-promotions',{cache:'no-store'});if(next.ok)setData(await next.json())
-  } catch(e) {setError(e instanceof Error?e.message:'Upload failed')}
-  finally {setBusy(false)}
+  }catch(e){setError(e instanceof Error?e.message:'Upload failed')}
+  finally{setBusy(false)}
  }
  return <main className="mx-auto max-w-5xl px-5 pt-28 pb-16">
  <Link href="/admin" className="underline">Back to admin</Link>

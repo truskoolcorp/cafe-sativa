@@ -9,6 +9,7 @@ const TABLES: Record<string, string> = {
   genLog:     'tblrqrmpMVXridABu',
   publishLog: 'tblmziJeOofHnTzVz',
   brief:      'tblGcyrva3YIy74aI',
+  recovery:   'tblS0LdOa2UXcTT8k', // Production-only read access; never edit/publish from this route
 };
 
 export async function GET(req: NextRequest) {

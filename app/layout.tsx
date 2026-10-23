@@ -54,10 +54,8 @@ export default function RootLayout({
         <Script
           id="metricool-cafe-sativa"
           strategy="afterInteractive"
-          src="https://tracker.metricool.com/resources/be.js"
-          onLoad={() => {
-            const tracker = (window as Window & { beTracker?: { t: (config: { hash: string }) => void } }).beTracker
-            tracker?.t({ hash: "a0d4d05a33de207c57b5029ffc12d1e0" })
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var s=document.createElement('script');s.src='https://tracker.metricool.com/resources/be.js';s.onload=function(){if(window.beTracker)window.beTracker.t({hash:'a0d4d05a33de207c57b5029ffc12d1e0'});};document.head.appendChild(s);})();`,
           }}
         />
       </body>

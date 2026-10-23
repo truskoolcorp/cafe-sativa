@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
   title: 'The Kitchen',
   description:
-    'Explore Café Sativa's virtual Kitchen, hosted by Andromeda Zouganelis, with culinary conversations, recipes, and future guest-chef programming.',
+    "Explore Café Sativa’s virtual Kitchen, hosted by Andromeda Zouganelis, with culinary conversations, recipes, and future guest-chef programming.",
 }
 
 export default async function KitchenPage() {

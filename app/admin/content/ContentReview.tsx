@@ -5,7 +5,7 @@ import styles from './review.module.css'
 
 const checks = { geometry: 'Room layout matches the reference', furniture: 'Furniture and materials match', lighting: 'Lighting remains believable and consistent', noPeople: 'No people or invented characters appear', noInventedText: 'No invented logos or distorted text appear', captionAccuracy: 'Caption accurately describes the virtual venue' }
 const pilotSlot = '2026-10-07:bar'
-const plannerUrl = 'https://app.metricool.com/planner/calendar?blogId=5373515&openWithPostUuid=-6101444496612767856'
+const plannerUrl = 'https://app.metricool.com/planner/calendar?blogId=7605217'
 const guidance: Record<string, string> = {
   planned: 'Review the reference before starting a clip.',
   blocked: 'Resolve the setup requirements shown below before running this clip.',

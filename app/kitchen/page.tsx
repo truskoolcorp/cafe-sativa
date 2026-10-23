@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
   title: 'The Kitchen',
   description:
-    'Hands-on cooking classes, masterclasses, and culinary workshops with visiting chefs. Learn in real time with a real audience.',
+    'Explore Café Sativa's virtual Kitchen, hosted by Andromeda Zouganelis, with culinary conversations, recipes, and future guest-chef programming.',
 }
 
 export default async function KitchenPage() {
@@ -18,7 +18,7 @@ export default async function KitchenPage() {
       category="kitchen"
       title="The Kitchen"
       tagline="Cook along, live."
-      description="Fusion cuisines, featured-chef programming and Café Sativa After Dark in the virtual Kitchen. Confirmed classes will include their actual hosts, ingredients and participation details."
+      description="Meet Andromeda Zouganelis, the Café Sativa Kitchen host. Explore global flavors, culinary stories, and creative conversations. Guest chefs and confirmed classes will be announced with their actual hosts, ingredients, and participation details."
       heroImage="/rooms/kitchen.webp"
       events={events}
     />

@@ -76,3 +76,7 @@ publish_approved: false
 other_roles_unchanged: true
 
 Integration must follow verified current schema; never overwrite existing character assignments.
+## ElevenLabs avatar and private lip-sync validation — October 25, 2026
+Owner created an ElevenLabs avatar for Zaria Solenne: avatar_id gSXpWCguEqYxqaf8JkLk. Screenshot confirms five owner-approved source images loaded, a Headshot style, and a Bree-labelled default voice. The exact avatar-level default voice_id must be read back and confirmed before permanent voice lock; the v4 voice ID in the earlier separate audition may differ from the avatar selection.
+Private ElevenLabs flow: 6ZSZ4Of8VsMAdKNvqZVj. Its voice node was verified as eleven_v4. User supplied two completed 8-second talking portrait MP4s (Lip syncing.mp4 and Lip syncing (1).mp4). Both demonstrate an animated Zaria likeness; one framing is unusually tight and the other presents more face/upper-body context. Both are owner-reported successful first tests, not final release masters. Preserve the source media and actual voice/provider receipts before production registration. Do not publish or overwrite the Café Sativa Gallery canon. Video environment remains a neutral studio test; actual Gallery master required for venue introduction.
+status: avatar-created / short-private-test-completed / canonical-voice-approval-pending / gallery-intro-not-published

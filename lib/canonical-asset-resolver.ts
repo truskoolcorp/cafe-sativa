@@ -13,7 +13,8 @@ export type CanonicalAsset = {
 };
 
 export class CanonicalAssetError extends Error {
-  readonly code: string;\n  constructor(code: string, message: string) { super(message); this.code = code; }
+  readonly code: string;
+  constructor(code: string, message: string) { super(message); this.code = code; }
 }
 
 export async function resolveCanonicalAsset(

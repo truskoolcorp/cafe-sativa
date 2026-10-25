@@ -4,6 +4,8 @@ on:
     paths:
       - 'lib/canonical-asset-resolver.ts'
       - 'tests/canonical-asset-resolver.test.ts'
+      - 'lib/zaria-voice-guard.ts'
+      - 'tests/zaria-voice-guard.test.ts'
       - '.github/workflows/canonical-assets.yml'
   workflow_dispatch:
 jobs:
@@ -17,4 +19,4 @@ jobs:
         with:
           node-version: '24'
       - name: Run fail-closed asset resolver tests (mocked, no production credentials)
-        run: node --experimental-strip-types --test tests/canonical-asset-resolver.test.ts
+        run: node --experimental-strip-types --test tests/canonical-asset-resolver.test.ts tests/zaria-voice-guard.test.ts

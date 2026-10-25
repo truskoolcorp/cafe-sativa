@@ -1,0 +1,20 @@
+name: Café Sativa Canonical Asset Resolver QA
+on:
+  pull_request:
+    paths:
+      - 'lib/canonical-asset-resolver.ts'
+      - 'tests/canonical-asset-resolver.test.ts'
+      - '.github/workflows/canonical-assets.yml'
+  workflow_dispatch:
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run fail-closed asset resolver tests (mocked, no production credentials)
+        run: node --experimental-strip-types --test tests/canonical-asset-resolver.test.ts

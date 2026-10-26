@@ -8,6 +8,7 @@ on:
       - 'tests/zaria-voice-guard.test.ts'
       - 'lib/private-character-assets.ts'
       - 'lib/content/zaria-render-preflight.ts'
+      - 'lib/content/zaria-render-approval.ts'
       - 'tests/zaria-render-preflight.test.ts'
       - 'app/api/content/glyph/zaria-preflight/route.ts'
       - 'tests/private-character-assets.test.ts'

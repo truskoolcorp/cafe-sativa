@@ -10,7 +10,8 @@ const expected: ReadonlyArray<readonly [string,string]> = [
  ["zaria-solenne/approved/full-body.jpeg","ec07d605f327ae9066837e4faa69c36d1ff080a21a66e59af03e732933e8bad2"],
  ["zaria-solenne/approved/side-alt.jpeg","67d01f197438d26473e0228998f03f7480f8493e03c7e30773e368fdc3fed5e9"],
  ["zaria-solenne/approved/side-clean.jpeg","c219dabe2822d0a6a756d197c7da9aead285931598b65717f3f62502f2588a5a"],
- ["zaria-solenne/venue-references/gallery-candidate.png","c48c1e9869b6736da21ee2a45e5ea710a8d44afa4620d3af1188f8af89ddde82"]
+ ["zaria-solenne/venue-references/gallery-candidate.png","c48c1e9869b6736da21ee2a45e5ea710a8d44afa4620d3af1188f8af89ddde82"],
+ ["zaria-solenne/manifests/asset-manifest.json","6cbb8e41046d88a2edbb42511107df514e4d322e82344a649a135fb821b8eb34"]
 ];
 export async function GET(){
  if (!await isContentAdmin()) return NextResponse.json({error:"Unauthorized"},{status:401,headers:{"Cache-Control":"no-store"}});

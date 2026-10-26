@@ -10,7 +10,7 @@ on:
       - 'lib/content/zaria-render-preflight.ts'
       - 'tests/zaria-render-preflight.test.ts'
       - 'app/api/content/glyph/zaria-preflight/route.ts'
-      - 'tests/private-character-assets.test.ts tests/zaria-render-preflight.test.ts'
+      - 'tests/private-character-assets.test.ts'
       - '.github/workflows/canonical-assets.yml'
   workflow_dispatch:
 jobs:
@@ -24,4 +24,4 @@ jobs:
         with:
           node-version: '24'
       - name: Run fail-closed asset resolver tests (mocked, no production credentials)
-        run: node --experimental-strip-types --test tests/canonical-asset-resolver.test.ts tests/zaria-voice-guard.test.ts tests/private-character-assets.test.ts
+        run: node --experimental-strip-types --test tests/canonical-asset-resolver.test.ts tests/zaria-voice-guard.test.ts tests/private-character-assets.test.ts tests/zaria-render-preflight.test.ts

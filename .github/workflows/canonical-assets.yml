@@ -7,6 +7,7 @@ on:
       - 'lib/zaria-voice-guard.ts'
       - 'tests/zaria-voice-guard.test.ts'
       - 'lib/private-character-assets.ts'
+      - 'lib/content/zaria-render-preflight.ts'
       - 'app/api/content/glyph/zaria-preflight/route.ts'
       - 'tests/private-character-assets.test.ts'
       - '.github/workflows/canonical-assets.yml'

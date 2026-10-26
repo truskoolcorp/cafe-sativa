@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-export { requireZariaRenderApproval } from "./zaria-render-approval.ts";
+export { requireZariaRenderApproval } from "./zaria-render-approval";
 import { verifiedPrivateCharacterAsset, ZARIA_CHARACTER_ASSETS } from "@/lib/private-character-assets";
 
 /** A fail-closed check for private Zaria media generation.

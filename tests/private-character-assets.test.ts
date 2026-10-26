@@ -1,0 +1,11 @@
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
+import { verifiedPrivateCharacterAsset, ZARIA_CHARACTER_ASSETS } from "../lib/private-character-assets.ts";
+const bytes = new TextEncoder().encode("approved-test-reference");
+const digest = createHash("sha256").update(bytes).digest("hex");
+const mock=(actual:Uint8Array,err=false)=>({storage:{from:(bucket:string)=>({download:async(path:string)=>({data:err?null:new Blob([actual]),error:err?{message:"not found"}:null})})}});
+test("accepts verified private reference bytes",async()=>assert.deepEqual(await verifiedPrivateCharacterAsset(mock(bytes),ZARIA_CHARACTER_ASSETS.approved[0],digest),bytes));
+test("rejects wrong hash",async()=>assert.rejects(verifiedPrivateCharacterAsset(mock(bytes),ZARIA_CHARACTER_ASSETS.approved[0],"0".repeat(64)),/DIGEST_MISMATCH/));
+test("rejects paths outside allowlist",async()=>assert.rejects(verifiedPrivateCharacterAsset(mock(bytes),"../other-brand/image.png",digest),/UNREGISTERED/));
+test("rejects download failure",async()=>assert.rejects(verifiedPrivateCharacterAsset(mock(bytes,true),ZARIA_CHARACTER_ASSETS.approved[0],digest),/DOWNLOAD_FAILED/));

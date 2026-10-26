@@ -22,9 +22,12 @@ export async function GET(){
    catch(e) {checks.push({path,valid:false,reason:e instanceof Error?e.message:"ASSET_CHECK_FAILED"});}
  }
  const valid=checks.every(x=>x.valid);
+ const {data:job,error:jobError}=await db.from("cs_character_video_jobs").select("id,status,provider_task_id,request_key").eq("request_key","zaria-gallery-facebook-intro-20261025").maybeSingle();
  const {data:draft,error:draftError}=await db.from("cs_character_promo_drafts").select("status,voice_approved_at,video_qa_approved_at,publication_approved_at,evidence").eq("promo_key","zaria-gallery-facebook-intro-20261025").maybeSingle();
  const renderBlockers=draftError?["DRAFT_READ_FAILED"]:zariaPrivateRenderBlockers(draft,valid);
+ if(jobError || !job) renderBlockers.push("VIDEO_JOB_UNAVAILABLE");
+ else if(job.status !== "blocked" && job.status !== "draft")renderBlockers.push("VIDEO_JOB_STATE_REQUIRES_REVIEW");
  const publicationBlockers=draftError?["DRAFT_READ_FAILED"]:zariaPublicationBlockers(draft);
  // Read-only preflight does not approve, render, schedule or publish.
- return NextResponse.json({character:"zaria-solenne",bucket:ZARIA_CHARACTER_ASSETS.bucket,integrityVerified:valid,venueCompositionApproved:false,renderAuthorized:renderBlockers.length===0,publishAuthorized:publicationBlockers.length===0 && renderBlockers.length===0,renderBlockers,publicationBlockers,checks},{status:valid && !draftError?200:409,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+ return NextResponse.json({character:"zaria-solenne",bucket:ZARIA_CHARACTER_ASSETS.bucket,integrityVerified:valid,venueCompositionApproved:false,renderAuthorized:renderBlockers.length===0,publishAuthorized:publicationBlockers.length===0 && renderBlockers.length===0,renderBlockers,publicationBlockers,job:job?{id:job.id,status:job.status,requestKey:job.request_key,providerSubmitted:!!job.provider_task_id}:null,checks},{status:valid && !draftError?200:409,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
 }

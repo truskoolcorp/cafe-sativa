@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { isContentAdmin } from "@/lib/content/auth";
 import { verifiedPrivateCharacterAsset, ZARIA_CHARACTER_ASSETS } from "@/lib/private-character-assets";
 export const runtime="nodejs";
@@ -15,7 +15,7 @@ const expected: ReadonlyArray<readonly [string,string]> = [
 ];
 export async function GET(){
  if (!await isContentAdmin()) return NextResponse.json({error:"Unauthorized"},{status:401,headers:{"Cache-Control":"no-store"}});
- const db=createAdminClient(); const checks: Array<{path:string;valid:boolean;reason?:string}>=[];
+ const db=createClient(); const checks: Array<{path:string;valid:boolean;reason?:string}>=[];
  for(const [path,sha] of expected){
    try { await verifiedPrivateCharacterAsset(db,path,sha); checks.push({path,valid:true}); }
    catch(e) {checks.push({path,valid:false,reason:e instanceof Error?e.message:"ASSET_CHECK_FAILED"});}

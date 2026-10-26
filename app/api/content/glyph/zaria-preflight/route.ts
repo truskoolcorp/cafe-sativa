@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isContentAdmin } from "@/lib/content/auth";
+import { zariaPrivateRenderBlockers, zariaPublicationBlockers } from "@/lib/content/zaria-dispatch-readiness";
 import { verifiedPrivateCharacterAsset, ZARIA_CHARACTER_ASSETS } from "@/lib/private-character-assets";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -21,6 +22,9 @@ export async function GET(){
    catch(e) {checks.push({path,valid:false,reason:e instanceof Error?e.message:"ASSET_CHECK_FAILED"});}
  }
  const valid=checks.every(x=>x.valid);
+ const {data:draft,error:draftError}=await db.from("cs_character_promo_drafts").select("status,voice_approved_at,video_qa_approved_at,publication_approved_at,evidence").eq("promo_key","zaria-gallery-facebook-intro-20261025").maybeSingle();
+ const renderBlockers=draftError?["DRAFT_READ_FAILED"]:zariaPrivateRenderBlockers(draft,valid);
+ const publicationBlockers=draftError?["DRAFT_READ_FAILED"]:zariaPublicationBlockers(draft);
  // Read-only preflight does not approve, render, schedule or publish.
- return NextResponse.json({character:"zaria-solenne",bucket:ZARIA_CHARACTER_ASSETS.bucket,integrityVerified:valid,venueCompositionApproved:false,renderAuthorized:false,publishAuthorized:false,checks},{status:valid?200:409,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+ return NextResponse.json({character:"zaria-solenne",bucket:ZARIA_CHARACTER_ASSETS.bucket,integrityVerified:valid,venueCompositionApproved:false,renderAuthorized:renderBlockers.length===0,publishAuthorized:publicationBlockers.length===0 && renderBlockers.length===0,renderBlockers,publicationBlockers,checks},{status:valid && !draftError?200:409,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
 }

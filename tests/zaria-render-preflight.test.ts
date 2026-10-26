@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { requireZariaRenderApproval } from "../lib/content/zaria-render-preflight.ts";
+import { requireZariaRenderApproval } from "../lib/content/zaria-render-approval.ts";
 test("denies incomplete Zaria approval",()=>{
  for(const key of ["galleryApproved","voiceApproved","ownerAuthorized"] as const){
   const approval={galleryApproved:true,voiceApproved:true,ownerAuthorized:true};

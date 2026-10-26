@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+export { requireZariaRenderApproval } from "./zaria-render-approval.ts";
 import { verifiedPrivateCharacterAsset, ZARIA_CHARACTER_ASSETS } from "@/lib/private-character-assets";
 
 /** A fail-closed check for private Zaria media generation.
@@ -17,8 +18,4 @@ const required: ReadonlyArray<readonly [string,string]> = [
 export async function requireZariaAssetPreflight():Promise<void>{
  const db=createClient();
  for(const [path,sha] of required) await verifiedPrivateCharacterAsset(db,path,sha);
-}
-/** Separate human approval state is mandatory even after integrity checks pass. */
-export function requireZariaRenderApproval(input:{galleryApproved:boolean;voiceApproved:boolean;ownerAuthorized:boolean}):void{
- if(!input.galleryApproved || !input.voiceApproved || !input.ownerAuthorized)throw new Error("ZARIA_RENDER_NOT_APPROVED");
 }

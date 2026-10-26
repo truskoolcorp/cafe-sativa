@@ -8,8 +8,9 @@ on:
       - 'tests/zaria-voice-guard.test.ts'
       - 'lib/private-character-assets.ts'
       - 'lib/content/zaria-render-preflight.ts'
+      - 'tests/zaria-render-preflight.test.ts'
       - 'app/api/content/glyph/zaria-preflight/route.ts'
-      - 'tests/private-character-assets.test.ts'
+      - 'tests/private-character-assets.test.ts tests/zaria-render-preflight.test.ts'
       - '.github/workflows/canonical-assets.yml'
   workflow_dispatch:
 jobs:

@@ -7,14 +7,9 @@ import { cookies } from 'next/headers'
  *
  * Soft-delete a message. Body: { message_id: string }
  *
- * Authorization is enforced by two RLS update policies:
- *   - lounge_messages_update_own: user can update their own messages
- *   - lounge_messages_update_staff: staff/admin can update any
- *
- * We don't do a hard DELETE — historical rows stay around with
- * deleted_at + deleted_by set so we can audit abuse patterns later.
- * The read policy filters out deleted_at IS NOT NULL so the UI
- * never shows them.
+ * Ownership/staff authorization is checked by the database RPC.
+ * The RPC bypasses the deleted-row read filter only after authorization,
+ * retains the row for audit, and derives deleted_by from auth.uid().
  */
 
 type Body = { message_id: string }

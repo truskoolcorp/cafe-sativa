@@ -13,9 +13,10 @@ export async function POST(req: Request) {
     if (authError || !auth.user) return reply({ error: 'Sign in to refresh membership.' }, 401)
     const admin = createAdminClient()
     const { data: member, error } = await admin.from('memberships')
-      .select('stripe_customer_id,stripe_subscription_id').eq('user_id', auth.user.id).maybeSingle()
+      .select('stripe_customer_id,stripe_subscription_id,updated_at').eq('user_id', auth.user.id).maybeSingle()
     if (error) return reply({ error: 'Could not read membership. Please retry.' }, 503)
     if (!member?.stripe_customer_id || !member.stripe_subscription_id) return reply({ error: 'No Stripe subscription is linked yet. Payment confirmation may still be pending.' }, 409)
+    if (!member.updated_at) return reply({error:'Membership revision unavailable. Please retry.'},503)
     if (!process.env.STRIPE_SECRET_KEY) return reply({ error: 'Membership refresh is unavailable.' }, 503)
     const sub = await new Stripe(process.env.STRIPE_SECRET_KEY).subscriptions.retrieve(member.stripe_subscription_id)
     const tier = cafeSubscriptionTier(sub)
@@ -28,10 +29,11 @@ export async function POST(req: Request) {
     const status = ['active','trialing'].includes(sub.status) ? 'active' : ['past_due','unpaid'].includes(sub.status) ? 'past_due' : ['canceled','incomplete_expired'].includes(sub.status) ? 'canceled' : 'incomplete'
     // Update only the exact subscription observed; a concurrent replacement must not be overwritten.
     const { data: updated, error: writeError } = await admin.from('memberships').update({tier,status,current_period_end:currentPeriodEnd})
-      .eq('user_id', auth.user.id).eq('stripe_subscription_id', sub.id).select('user_id').maybeSingle()
+      .eq('user_id', auth.user.id).eq('stripe_subscription_id', sub.id).eq('updated_at',member.updated_at).select('user_id').maybeSingle()
     if (writeError || !updated) return reply({ error: 'Membership changed during refresh. Please retry.' }, 503)
     return reply({ tier, status, currentPeriodEnd, cancelAtPeriodEnd: sub.cancel_at_period_end })
   } catch {
     return reply({ error: 'Could not refresh membership. Please retry or contact support.' }, 503)
   }
 }
+

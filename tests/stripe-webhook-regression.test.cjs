@@ -13,7 +13,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: {
 function setup(event, options = {}) {
   const actions = []
   const sub = options.subscription || {
-    id: 'sub_1', status: 'active', metadata: { user_id: 'user_1', site: 'cafe-sativa', tier: 'regular' },
+    id: 'sub_1', created:200, status: event.type==='customer.subscription.deleted'?'canceled':'active', metadata: { user_id: 'user_1', site: 'cafe-sativa', tier: 'regular' },
     customer: 'cus_1', items: { data: [{ price: { id: 'price_approved' }, current_period_end: 1800000000 }] }
   }
   const stripe = {
@@ -31,10 +31,10 @@ function setup(event, options = {}) {
       upsert: async (data) => { actions.push({op: 'upsert', table, data}); return {error:null} },
       update: data => {
         actions.push({op:'update',table,data})
-        return { eq: () => ({ error:null }) }
+        const q={eq:()=>q,is:()=>q,select:()=>q,maybeSingle:async()=>({data:{user_id:'user_1'},error:null}),then:resolve=>Promise.resolve({error:null}).then(resolve)};return q
       },
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({data: table==='tickets' ? options.ticket || null : null,error:null}) })
+        eq: () => ({ maybeSingle: async () => ({data: table==='tickets' ? options.ticket || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:null}) })
       })
     })
   }
@@ -42,6 +42,7 @@ function setup(event, options = {}) {
   const exports = {}
   const requireMock = name => {
     if (name === 'next/server') return { NextResponse: { json: (body, init={}) => ({status:init.status || 200,body}) } }
+    if (name === '@/lib/sync-membership') {const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/sync-membership.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports:mod.exports,require:requireMock,Date,Number,Error});return mod.exports}
     if (name === 'stripe') return { __esModule:true,default:StripeMock }
     if (name === '@/lib/supabase/admin') return {createAdminClient:()=>db}
     if (name === '@/lib/membership-prices') return {cafeSubscriptionTier: s => {
@@ -94,7 +95,7 @@ test('subscription cancellation marks a verified membership canceled',async()=>{
   }}})
   assert.equal((await h.post()).status,200)
   const write=h.actions.find(a=>a.table==='memberships')
-  assert.equal(write.op,'upsert')
+  assert.equal(write.op,'update')
   assert.equal(write.data.status,'canceled')
 })
 
@@ -102,7 +103,7 @@ test('foreign subscription never grants membership',async()=>{
   const h=setup({type:'customer.subscription.deleted',data:{object:{
     id:'sub_foreign',status:'active',metadata:{user_id:'user_1',site:'other-site'},
     customer:'cus_1',items:{data:[{price:{id:'price_approved'}}]}
-  }}})
+  }}},{subscription:{id:'sub_foreign',metadata:{site:'other-site'},customer:'cus_1',items:{data:[{price:{id:'foreign'}}]}}})
   assert.equal((await h.post()).status,200)
   assert.equal(h.actions.length,0)
 })
@@ -116,3 +117,4 @@ test('refund updates the original order and ticket records, never creates new ch
   assert.equal(h.actions[0].data.fulfillment_state,'refunded')
   assert.equal(h.actions[1].data.state,'refunded')
 })
+

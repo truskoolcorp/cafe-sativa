@@ -3,7 +3,21 @@ on:
   pull_request:
     paths:
       - 'app/api/webhooks/stripe/route.ts'
-      - 'tests/stripe-webhook-regression.test.cjs'
+      - 'app/api/membership/refresh/route.ts'
+      - 'lib/sync-membership.ts'
+      - 'lib/membership-prices.ts'
+      - 'tests/*membership*'
+      - 'tests/stripe-*'
+      - '.github/workflows/stripe-webhook-regression.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/api/webhooks/stripe/route.ts'
+      - 'app/api/membership/refresh/route.ts'
+      - 'lib/sync-membership.ts'
+      - 'lib/membership-prices.ts'
+      - 'tests/*membership*'
+      - 'tests/stripe-*'
       - '.github/workflows/stripe-webhook-regression.yml'
   workflow_dispatch:
 jobs:
@@ -17,4 +31,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/stripe-webhook-regression.test.cjs
+      - run: node --test tests/stripe-webhook-regression.test.cjs tests/membership-sync.test.cjs
+      - run: node tests/stripe-entitlements.cjs
+      - run: node tests/membership-refresh.cjs

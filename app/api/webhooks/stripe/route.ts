@@ -1,30 +1,9 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { cafeSubscriptionTier } from '@/lib/membership-prices'
+import { syncCafeMembership } from '@/lib/sync-membership'
 
 type MembershipTier = 'regular' | 'vip'
-type MembershipStatus = 'active' | 'canceled' | 'past_due' | 'incomplete'
-
-function mapStripeStatus(s: string): MembershipStatus {
-  switch (s) {
-    case 'active': case 'trialing': return 'active'
-    case 'past_due': case 'unpaid': return 'past_due'
-    case 'canceled': case 'incomplete_expired': return 'canceled'
-    default: return 'incomplete'
-  }
-}
-
-function extractPeriodEnd(sub: Stripe.Subscription): string | null {
-  const fi = sub.items?.data?.[0]
-  // The existing webhook uses Stripe's 2020 event schema, which places
-  // this value on the subscription. Current SDK retrievals use items.
-  const end = fi?.current_period_end ?? (sub as unknown as {current_period_end?: number}).current_period_end
-  if (typeof end !== 'number' || !Number.isFinite(end) || end <= 0) return null
-  const date = new Date(end * 1000)
-  return Number.isNaN(date.getTime()) ? null : date.toISOString()
-}
-
 export async function POST(req: Request) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -162,48 +141,27 @@ export async function POST(req: Request) {
         const stripeCustomerId = typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null
         const stripeSubscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null
         if (!['regular','vip'].includes(tier) || !stripeSubscriptionId) throw new Error('Invalid membership checkout metadata')
-        // Fetch current state: webhook delivery order does not establish entitlement.
-        const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId)
-        const verifiedTier=cafeSubscriptionTier(subscription)
-        const subscriptionCustomer=typeof subscription.customer==='string'?subscription.customer:subscription.customer.id
-        if(!verifiedTier || verifiedTier!==tier || subscription.metadata?.user_id!==userId || subscriptionCustomer!==stripeCustomerId || (session.metadata?.site && session.metadata.site!=='cafe-sativa')) break
-        const currentPeriodEnd = extractPeriodEnd(subscription)
-        const { error: membershipError } = await admin.from('memberships').upsert({
-          user_id: userId, tier, status: mapStripeStatus(subscription.status),
-          stripe_customer_id: stripeCustomerId, stripe_subscription_id: stripeSubscriptionId,
-          current_period_end: currentPeriodEnd,
-        }, { onConflict: 'user_id' })
-        if (membershipError) throw membershipError
-        console.log('[stripe-webhook] Membership synchronized')
+        if (session.mode !== 'subscription' || !stripeCustomerId) break
+        await syncCafeMembership(admin,stripe,{
+          userId,subscriptionId:stripeSubscriptionId,mode:'checkout',expectedCustomer:stripeCustomerId,expectedTier:tier,
+        })
         break
       }
 
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         const receivedSub = event.data.object as Stripe.Subscription
-        const sub = event.type === 'customer.subscription.deleted' ? receivedSub : await stripe.subscriptions.retrieve(receivedSub.id)
-        const userId = sub.metadata?.user_id
-        const tier = cafeSubscriptionTier(sub)
-        // This account is shared with other projects. Foreign prices never confer access.
-        if(!tier)break
-        const status = event.type === 'customer.subscription.deleted' ? 'canceled' : mapStripeStatus(sub.status)
+        // Resolve legacy records only by the exact linked subscription/customer.
+        let userId = receivedSub.metadata?.user_id
         if (!userId) {
-          const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
-          const { data: existing,error:existingError } = await admin.from('memberships').select('user_id,tier,stripe_subscription_id').eq('stripe_customer_id', customerId).maybeSingle()
-          if(existingError)throw existingError
-          if(existing?.stripe_subscription_id!==sub.id)break
-          if (!existing) { console.warn('[stripe-webhook] subscription event for unknown customer'); break }
-          const { error: updateError } = await admin.from('memberships').update({ status, current_period_end: extractPeriodEnd(sub) }).eq('user_id', existing.user_id)
-          if (updateError) throw updateError
-          break
+          const customer = typeof receivedSub.customer === 'string' ? receivedSub.customer : receivedSub.customer.id
+          const {data: existing,error} = await admin.from('memberships').select('user_id')
+            .eq('stripe_subscription_id',receivedSub.id).eq('stripe_customer_id',customer).maybeSingle()
+          if (error) throw error
+          if (!existing) break
+          userId = existing.user_id
         }
-        const stripeCustomerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
-        if (!['regular','vip'].includes(tier)) throw new Error('Invalid subscription tier')
-        const { error: subscriptionError } = await admin.from('memberships').upsert({
-          user_id: userId, tier, status, stripe_customer_id: stripeCustomerId,
-          stripe_subscription_id: sub.id, current_period_end: extractPeriodEnd(sub),
-        }, { onConflict: 'user_id' })
-        if (subscriptionError) throw subscriptionError
+        await syncCafeMembership(admin,stripe,{userId:userId!,subscriptionId:receivedSub.id,mode:'subscription'})
         break
       }
 
@@ -244,4 +202,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Webhook handler failed; retry required.' }, { status: 500 })
   }
 }
+
 

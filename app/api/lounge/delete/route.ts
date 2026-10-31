@@ -47,31 +47,24 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 })
   }
-  if (!body.message_id) {
+  if (!body || typeof body.message_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.message_id)) {
     return NextResponse.json(
       { error: 'message_id required.' },
       { status: 400 }
     )
   }
 
-  const { data, error } = await supabase
-    .from('lounge_messages')
-    .update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: authData.user.id,
-    })
-    .eq('id', body.message_id)
-    // RLS filters: this update only matches rows the user is allowed
-    // to touch (own message OR staff). If neither, .select() returns
-    // zero rows and we 403.
-    .select('id')
+  const { data, error } = await supabase.rpc('soft_delete_lounge_message', {
+    p_message_id: body.message_id,
+  })
 
   if (error) {
+    if (error.code === '42501') return NextResponse.json({ error: 'You can only delete your own messages, unless you are staff.', code: 'forbidden' }, { status: 403 })
     console.error('[lounge/delete] update failed', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  if (!data || data.length === 0) {
+  if (!data) {
     return NextResponse.json(
       {
         error: 'You can only delete your own messages.',

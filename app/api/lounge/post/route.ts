@@ -60,7 +60,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 })
   }
 
-  const content = (body.content || '').trim()
+  if (!body || typeof body.content !== 'string' || typeof body.room_id !== 'string') {
+    return NextResponse.json({ error: 'Invalid message.', code: 'invalid_body' }, { status: 400 })
+  }
+  const content = body.content.trim()
   if (!content) {
     return NextResponse.json(
       { error: 'Empty messages aren\u2019t posted.', code: 'empty' },
@@ -92,8 +95,7 @@ export async function POST(req: Request) {
 
   if (rlErr) {
     console.error('[lounge/post] rate-limit query failed', rlErr)
-    // Fail open — if we can't count, let the message through rather
-    // than block legitimate users on a DB hiccup.
+    return NextResponse.json({ error: 'Posting is temporarily unavailable. Please retry.', code: 'temporarily_unavailable' }, { status: 503 })
   } else if ((recentCount as number) >= MESSAGES_PER_MINUTE) {
     return NextResponse.json(
       {
@@ -146,6 +148,9 @@ export async function POST(req: Request) {
     // the row because the user's tier is below min_post_tier. Surface
     // that specifically so the UI can nudge them toward upgrading.
     const msg = insertError.message || ''
+    if (msg.includes('lounge_rate_limited')) {
+      return NextResponse.json({ error: 'Slow down — up to 10 messages per minute.', code: 'rate_limited' }, { status: 429 })
+    }
     if (msg.includes('policy') || msg.includes('row-level security')) {
       return NextResponse.json(
         {

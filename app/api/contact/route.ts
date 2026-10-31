@@ -27,10 +27,12 @@ const ALLOWED_TOPICS = new Set([
  * After a successful insert, we fire off two emails via Resend:
  *   1. Acknowledgment to the submitter so they know the message landed
  *   2. A forward to CONTACT_FORWARD_TO (team inbox) so we actually get it
- * Both are fire-and-forget — the API returns 200 as soon as the DB
- * write succeeds, regardless of email status. Resend failures log but
+ * Both attempts are awaited before the serverless request ends. The API
+ * still acknowledges the stored message even if email delivery fails. Resend failures log but
  * don't fail the submission.
  */
+const escapeHtml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+
 export async function POST(req: NextRequest) {
   let body: {
     name?: string
@@ -44,6 +46,12 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
   }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      ['name', 'email', 'topic', 'subject', 'message'].some(key => {
+        const value = (body as Record<string, unknown>)[key]
+        return value !== undefined && typeof value !== 'string'
+      })) return NextResponse.json({ error: 'Contact fields must be text.' }, { status: 400 })
 
   const name = (body.name || '').trim().slice(0, 200)
   const email = (body.email || '').trim().toLowerCase().slice(0, 200)
@@ -111,10 +119,9 @@ export async function POST(req: NextRequest) {
       )
       const { sendEmail } = await import('@/lib/email/send')
 
-      // Don't await these in parallel to avoid blocking the response.
-      // Promise.allSettled makes sure one failure doesn't prevent the
-      // other from attempting.
-      Promise.allSettled([
+      // Await both attempts so serverless request completion cannot freeze them.
+      // One notification failure must not discard the stored contact message.
+      await Promise.allSettled([
         sendContactAcknowledgment({
           to: email,
           name,
@@ -128,9 +135,9 @@ export async function POST(req: NextRequest) {
               to: process.env.CONTACT_FORWARD_TO,
               subject: `[${topic}] Contact form — ${name}`,
               html: `
-                <p><strong>From:</strong> ${name} &lt;${email}&gt;</p>
-                <p><strong>Topic:</strong> ${topic}</p>
-                ${subject ? `<p><strong>Subject:</strong> ${subject}</p>` : ''}
+                <p><strong>From:</strong> ${escapeHtml(name)} &lt;${escapeHtml(email)}&gt;</p>
+                <p><strong>Topic:</strong> ${escapeHtml(topic)}</p>
+                ${subject ? `<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>` : ''}
                 <hr>
                 <p style="white-space:pre-wrap">${message
                   .replace(/&/g, '&amp;')
@@ -160,3 +167,4 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+

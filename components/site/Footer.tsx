@@ -26,8 +26,8 @@ const EXPLORE_LINKS = [
 ]
 
 const CONNECT_LINKS = [
-  { href: 'https://www.instagram.com/truskoolcorp', label: 'Instagram', external: true },
-  { href: 'https://www.tiktok.com/@truskoolcorp', label: 'TikTok', external: true },
+  { href: 'https://www.instagram.com/cafesativainc/', label: 'Instagram', external: true },
+  { href: 'https://www.tiktok.com/@cafesativa', label: 'TikTok', external: true },
   { href: 'https://x.com/skool_tru', label: 'X (Twitter)', external: true },
   { href: '/contact', label: 'Contact Us', external: false },
 ]
@@ -126,3 +126,4 @@ export function Footer() {
     </footer>
   )
 }
+

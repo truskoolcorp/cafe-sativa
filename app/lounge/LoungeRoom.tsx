@@ -15,6 +15,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { confirmLoungeMessage, restoreLoungeMessage } from '@/lib/lounge-message-state'
 
 /**
  * Client-side Lounge room.
@@ -256,13 +257,7 @@ export function LoungeRoom({
 
       // Replace the optimistic message with the real one so the id matches
       // when the Realtime echo arrives.
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === localId
-            ? { ...m, id: data.id, created_at: data.created_at }
-            : m
-        )
-      )
+      setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
       setInput(content)
@@ -281,7 +276,7 @@ export function LoungeRoom({
 
   async function handleDelete(messageId: string) {
     // Remove locally first (optimistic)
-    const snapshot = messages
+    const removed = messages.find((message) => message.id === messageId)
     setMessages((prev) => prev.filter((m) => m.id !== messageId))
     try {
       const res = await fetch('/api/lounge/delete', {
@@ -291,12 +286,12 @@ export function LoungeRoom({
       })
       if (!res.ok) {
         // Roll back
-        setMessages(snapshot)
+        setMessages((prev) => removed ? restoreLoungeMessage(prev, removed) : prev)
         const data = await res.json().catch(() => ({}))
         setError(data?.error || 'Could not delete.')
       }
     } catch {
-      setMessages(snapshot)
+      setMessages((prev) => removed ? restoreLoungeMessage(prev, removed) : prev)
       setError('Could not delete.')
     }
   }

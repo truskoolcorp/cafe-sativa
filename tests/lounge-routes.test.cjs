@@ -2,7 +2,7 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 async function run(which,opts={}){
  const calls={inserts:0,rpc:[]};const source=stripTypeScriptTypes(fs.readFileSync(`${__dirname}/../app/api/lounge/${which}/route.ts`,'utf8').replace(/^import .*\n/gm,'')).replace('export async function POST','async function POST');
  const client={auth:{getUser:async()=>({data:{user:opts.anonymous?null:{id:'mock-user'}}})},rpc:async(name,args)=>{calls.rpc.push(name);return name==='soft_delete_lounge_message'?{data:'mock-message',error:opts.deleteError}:{data:opts.count??0,error:opts.countError}},from:table=>{const chain={select(){return chain},eq(){return chain},maybeSingle:async()=>({data:null}),insert(){calls.inserts++;return chain},single:async()=>({data:{id:'mock-message',created_at:'now'},error:opts.insertError})};return chain}};
- const context=vm.createContext({NextResponse:{json:(body,options={})=>({body,status:options.status??200})},createServerClient:()=>client,cookies:()=>({get:()=>undefined}),process:{env:{}},console:{error(){}}});vm.runInContext(source+';this.post=POST;',context);
+ const context=vm.createContext({loungeMembershipTier:()=> 'explorer',NextResponse:{json:(body,options={})=>({body,status:options.status??200})},createServerClient:()=>client,cookies:()=>({get:()=>undefined}),process:{env:{}},console:{error(){}}});vm.runInContext(source+';this.post=POST;',context);
  return {result:await context.post({json:async()=>opts.body??{room_id:'room',content:'hello',message_id:'00000000-0000-4000-8000-000000000000'}}),calls};
 }
 test('anonymous post and delete are denied',async()=>{for(const route of ['post','delete'])assert.equal((await run(route,{anonymous:true})).result.status,401)});

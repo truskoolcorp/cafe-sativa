@@ -128,7 +128,7 @@ export default async function LoungePage() {
   const data = await loadLoungeData()
 
   // Anonymous: sign-up gate
-  if (!data.user || data.tier === 'anonymous' || !data.room) {
+  if (!data.user || !data.room) {
     return <SignedOutState />
   }
 

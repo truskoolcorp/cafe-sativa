@@ -6,6 +6,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Button } from '@/components/ui/button'
 import { LoungeRoom } from './LoungeRoom'
+import { loungeMembershipTier } from '@/lib/lounge-membership'
 
 /**
  * /lounge — the member chat room.
@@ -82,7 +83,7 @@ async function loadLoungeData() {
   const [{ data: membership }, { data: profile }] = await Promise.all([
     supabase
       .from('memberships')
-      .select('tier, status')
+      .select('tier, status, current_period_end')
       .eq('user_id', user.id)
       .maybeSingle(),
     supabase
@@ -92,10 +93,7 @@ async function loadLoungeData() {
       .maybeSingle(),
   ])
 
-  const tier =
-    membership?.status === 'active' && membership.tier
-      ? (membership.tier as 'regular' | 'vip')
-      : 'explorer'
+  const tier = loungeMembershipTier(membership)
 
   const isStaff = Boolean(profile?.is_staff || profile?.is_admin)
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { loungeMembershipTier } from '@/lib/lounge-membership'
 
 /**
  * POST /api/lounge/post
@@ -118,7 +119,7 @@ export async function POST(req: Request) {
 
   const { data: membership } = await supabase
     .from('memberships')
-    .select('tier, status')
+    .select('tier, status, current_period_end')
     .eq('user_id', authData.user.id)
     .maybeSingle()
 
@@ -126,8 +127,7 @@ export async function POST(req: Request) {
     profile?.display_name ||
     authData.user.email?.split('@')[0] ||
     'Member'
-  const authorTier =
-    membership?.status === 'active' ? membership.tier : 'explorer'
+  const authorTier = loungeMembershipTier(membership)
   const isStaff = Boolean(profile?.is_staff || profile?.is_admin)
 
   const { data: inserted, error: insertError } = await supabase

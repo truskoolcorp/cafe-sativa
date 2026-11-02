@@ -9,6 +9,7 @@ import { Check, X, Sparkles, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { createMembershipStateLoader } from '@/lib/membership-state-loader'
 
 /**
  * /membership — the full tier feature matrix and paid-tier checkout.
@@ -175,62 +176,40 @@ function MembershipInner() {
   // from another tab reflects here without a refresh.
   useEffect(() => {
     let mounted = true
-    let unsub: (() => void) | null = null
-
-    async function loadAuth() {
-      try {
-        const supabase = createClient()
-        const { data } = await supabase.auth.getUser()
-
-        if (!mounted) return
-        const user = data.user
-        setIsSignedIn(Boolean(user))
-        setEmail(user?.email ?? null)
-        setIsContentAdmin(user?.app_metadata?.cafe_sativa_admin === true)
-
-        if (user) {
-          const { data: memberRow } = await supabase
-            .from('members_v')
-            .select('tier, status, current_period_end')
-            .eq('id', user.id)
-            .maybeSingle()
-
-          if (mounted && memberRow) {
-            setMembership({
-              tier: memberRow.tier,
-              status: memberRow.status,
-              currentPeriodEnd: memberRow.current_period_end,
-            })
-          }
-        }
-
-        const {
-          data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (!mounted) return
-          setIsSignedIn(Boolean(session?.user))
-          setEmail(session?.user?.email ?? null)
-          setIsContentAdmin(session?.user?.app_metadata?.cafe_sativa_admin === true)
-        })
-
-        unsub = () => subscription.unsubscribe()
-      } catch (err) {
-        console.error('Failed to load auth/membership', err)
-        if (mounted) {
-          setIsSignedIn(false)
-          setEmail(null)
-          setMembership(null)
-        }
-      } finally {
-        if (mounted) setAuthLoaded(true)
-      }
+    let authEventSeen = false
+    const supabase = createClient()
+    const membershipLoader = createMembershipStateLoader<MembershipState>(
+      async userId => {
+        const { data: memberRow, error } = await supabase.from('members_v')
+          .select('tier, status, current_period_end').eq('id', userId).maybeSingle()
+        if (error || !memberRow) return null
+        return { tier: memberRow.tier, status: memberRow.status, currentPeriodEnd: memberRow.current_period_end }
+      },
+      value => { if (mounted) setMembership(value) },
+    )
+    function applyUser(user: { id: string; email?: string; app_metadata?: Record<string, unknown> } | null) {
+      if (!mounted) return
+      setIsSignedIn(Boolean(user))
+      setEmail(user?.email ?? null)
+      setIsContentAdmin(user?.app_metadata?.cafe_sativa_admin === true)
+      membershipLoader.load(user?.id ?? null)
+      setAuthLoaded(true)
     }
-
-    loadAuth()
+    // Subscribe before the initial lookup; an older lookup cannot overwrite an auth event.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      authEventSeen = true
+      applyUser(session?.user ?? null)
+    })
+    void supabase.auth.getUser().then(({ data, error }) => {
+      if (!authEventSeen) applyUser(error ? null : data.user)
+    }).catch(() => {
+      if (!authEventSeen) applyUser(null)
+    })
 
     return () => {
       mounted = false
-      if (unsub) unsub()
+      membershipLoader.dispose()
+      subscription.unsubscribe()
     }
     // Re-run after Stripe redirect so the membership row refreshes
     // (successTier transitions from null → 'regular'/'vip' when we

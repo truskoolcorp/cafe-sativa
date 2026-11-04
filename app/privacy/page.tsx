@@ -32,8 +32,9 @@ export default function PrivacyPage() {
               Who we are
             </h2>
             <p className="text-muted-foreground">
-              Café Sativa is a virtual-first cultural venue operated by Tru Skool
-              Entertainment International Corp., Dallas, TX. Our website is located at{' '}
+              Café Sativa is a virtual-first cultural venue operated by Café Sativa LLC,
+              an Arizona limited liability company, with management and platform support
+              from Tru Skool Entertainment International Corp. Our website is located at{' '}
               <span className="text-foreground">www.cafe-sativa.com</span>. Questions
               about this policy can be directed to{' '}
               <a

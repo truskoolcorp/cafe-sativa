@@ -108,7 +108,7 @@ export function Footer() {
         {/* Bottom row */}
         <div className="mt-12 pt-8 border-t border-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <p className="text-xs text-muted-foreground/70 font-body">
-            © {new Date().getFullYear()} Café Sativa. A Tru Skool Entertainment venture.
+            © {new Date().getFullYear()} Café Sativa LLC. Managed with Tru Skool Entertainment International Corp.
           </p>
           <nav className="flex gap-6">
             {LEGAL_LINKS.map((link) => (

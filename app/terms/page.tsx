@@ -33,8 +33,9 @@ export default function TermsPage() {
             </h2>
             <p className="text-muted-foreground">
               These Terms of Service (&ldquo;Terms&rdquo;) govern your use of Café
-              Sativa, a virtual cultural venue operated by Tru Skool Entertainment
-              International Corp., Dallas, TX (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or
+              Sativa, a virtual cultural venue operated by Café Sativa LLC, an Arizona
+              limited liability company, with management and platform support from Tru
+              Skool Entertainment International Corp. (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or
               &ldquo;Café Sativa&rdquo;). By creating an account or accessing the
               venue, you agree to these Terms. If you do not agree, please do not use
               the platform.
@@ -145,9 +146,11 @@ export default function TermsPage() {
             <p className="text-muted-foreground">
               All content produced by Café Sativa — including the platform design,
               branding, host personas, original event recordings, and written materials
-              — is owned by Tru Skool Entertainment International Corp. and protected by
-              applicable copyright law. You may not reproduce, distribute, or create
-              derivative works without our written permission.
+              — includes core brand and intellectual property owned by Ingram Legacy
+              Holdings LLC and used through applicable licensing and operating
+              arrangements. It is protected by applicable copyright law. You may not
+              reproduce, distribute, or create derivative works without our written
+              permission.
             </p>
           </section>
 
@@ -158,8 +161,8 @@ export default function TermsPage() {
             <p className="text-muted-foreground">
               Café Sativa is provided on an &ldquo;as is&rdquo; basis. We do not
               warrant uninterrupted or error-free operation of the platform. To the
-              maximum extent permitted by law, Tru Skool Entertainment International
-              Corp. shall not be liable for indirect, incidental, or consequential
+              maximum extent permitted by law, Café Sativa LLC shall not be liable for
+              indirect, incidental, or consequential
               damages arising from your use of the platform.
             </p>
           </section>

@@ -1,3 +1,4 @@
+import { reuseApprovedWhilePaused } from '@/lib/content/reuse-approved'
 import { prepareVenueFrame } from '@/lib/content/venue-frame'
 import { planReferencePreviews } from '@/lib/content/reference-previews'
 import { createHash } from 'node:crypto'
@@ -15,6 +16,14 @@ export async function processContent(req: NextRequest, pilot = false, collectOnl
   const key = process.env.RUNWAYML_API_SECRET
   // Operator sets an all-in conservative quote after verifying provider pricing; no guessed rate.
   const quote = Number(process.env.CS_RUNWAY_FIVE_SECOND_QUOTE_CENTS)
+  if (!key && generationPaused && !collectOnly) {
+    try {
+      const reused = await reuseApprovedWhilePaused()
+      return NextResponse.json({mode:'paused',reason:'Paid generation paused; provider collection unavailable without a credential. Approved-media drafts remain review-gated.',checked:0,submitted:0,...reused})
+    } catch {
+      return NextResponse.json({error:'Approved-media reuse unavailable; no generation submitted'},{status:503})
+    }
+  }
   if (!key || (!collectOnly && !generationPaused && (!Number.isInteger(quote) || quote <= 0 || quote > CONTENT_POLICY.monthlyBudgetCents))) {
     return NextResponse.json({ error: 'Verified Runway credential and cost quote required' }, { status: 503 })
   }
@@ -84,7 +93,7 @@ export async function processContent(req: NextRequest, pilot = false, collectOnl
       }
     }
     if (collectOnly) return NextResponse.json({checked:pending.data?.length || 0,submitted:0})
-    if (generationPaused) return NextResponse.json({mode:'paused',reason:'New generation is paused; existing provider tasks were checked.',checked:pending.data?.length || 0,submitted:0})
+    if (generationPaused) return NextResponse.json({mode:'paused',reason:'Paid generation paused; existing tasks checked and approved-media drafts remain review-gated.',checked:pending.data?.length || 0,submitted:0,...await reuseApprovedWhilePaused()})
     await planReferencePreviews()
     // Missing references must not starve another room with an approved keyframe.
     const references = await db.from('cs_canonical_assets').select('*').eq('kind', 'venue').eq('active', true)

@@ -1,4 +1,8 @@
 import { METRICOOL_MCP } from '@/lib/content/metricool-oauth'
+// Preserve only the status, never provider bodies, headers or credentials.
+export class MetricoolHttpError extends Error {
+  constructor(readonly status:number) { super('Metricool MCP HTTP request failed'); this.name='MetricoolHttpError' }
+}
 // This connection proof performs reads only. Dispatch remains disabled.
 export async function metricoolSession(token:string) {
   let session:string|null=null
@@ -7,7 +11,7 @@ export async function metricoolSession(token:string) {
     const headers:Record<string,string>={'Authorization':`Bearer ${token}`,'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2025-06-18'}
     if(session)headers['Mcp-Session-Id']=session
     const response=await fetch(METRICOOL_MCP,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',...(id===null?{}:{id}),method,params}),cache:'no-store',redirect:'error',signal:AbortSignal.timeout(Math.max(1,deadline-Date.now()))})
-    if(!response.ok)throw new Error('Metricool MCP connection failed')
+    if(!response.ok)throw new MetricoolHttpError(response.status)
     session=response.headers.get('mcp-session-id') || session
     if(id===null){await response.body?.cancel();return null}
     const reader=response.body?.getReader()

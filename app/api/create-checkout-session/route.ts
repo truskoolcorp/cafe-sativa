@@ -158,7 +158,7 @@ export async function POST(req: Request) {
       },
       // These are read from NEXT_PUBLIC_SITE_URL so they resolve to prod
       // regardless of which Vercel preview URL the request came from.
-      success_url: `${siteUrl}/membership?success=1&tier=${tier}`,
+      success_url: `${siteUrl}/membership?success=1&tier=${tier}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/membership?canceled=1`,
     })
 
@@ -182,4 +182,5 @@ export async function POST(req: Request) {
     )
   }
 }
+
 

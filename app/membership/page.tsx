@@ -163,6 +163,8 @@ function MembershipInner() {
   const searchParams = useSearchParams()
   const successTier = searchParams.get('success') === '1' ? searchParams.get('tier') : null
   const wasCanceled = searchParams.get('canceled') === '1'
+  const checkoutSessionId = searchParams.get('session_id')
+  const [confirmingCheckout, setConfirmingCheckout] = useState(false)
 
   const [authLoaded, setAuthLoaded] = useState(false)
   const [isSignedIn, setIsSignedIn] = useState(false)
@@ -215,6 +217,29 @@ function MembershipInner() {
     // (successTier transitions from null → 'regular'/'vip' when we
     // land back here from Stripe).
   }, [successTier])
+
+  async function confirmCheckout() {
+    if (!checkoutSessionId || confirmingCheckout) return
+    setConfirmingCheckout(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/membership/confirm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: checkoutSessionId }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.synchronized !== true) {
+        setError(result.error || 'Could not confirm membership. Please retry.')
+        return
+      }
+      // Load the account afresh so access reflects the server-verified state.
+      window.location.assign('/account')
+    } catch {
+      setError('Could not confirm membership. Please retry.')
+    } finally {
+      setConfirmingCheckout(false)
+    }
+  }
 
   async function startCheckout(tier: Tier) {
     if (isContentAdmin) { router.push('/admin/content'); return }
@@ -412,6 +437,19 @@ function MembershipInner() {
                     </Link>{' '}
                     to see your confirmed plan and access.
                   </p>
+                  {checkoutSessionId && (
+                    <div className="mt-3">
+                      {authLoaded && !isSignedIn ? (
+                        <Link className="underline" href={`/auth/signin?redirect=${encodeURIComponent(`/membership?success=1&tier=${encodeURIComponent(successTier)}&session_id=${encodeURIComponent(checkoutSessionId)}`)}`}>
+                          Sign in to check your membership
+                        </Link>
+                      ) : (
+                        <Button onClick={confirmCheckout} disabled={!authLoaded || confirmingCheckout}>
+                          {confirmingCheckout ? 'Checking payment…' : 'Check payment and open account'}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -611,3 +649,4 @@ export default function MembershipPage() {
     </Suspense>
   )
 }
+

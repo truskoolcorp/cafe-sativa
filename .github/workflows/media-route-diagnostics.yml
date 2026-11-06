@@ -1,0 +1,25 @@
+name: Released media route guards
+on:
+  pull_request:
+    paths:
+      - 'app/api/content/media/**'
+      - 'lib/content/approved-media.ts'
+      - 'lib/content/media-access.ts'
+      - 'tests/media-route-diagnostics.cjs'
+      - '.github/workflows/media-route-diagnostics.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node tests/media-route-diagnostics.cjs
+      - run: node tests/media-download-access.cjs
+      - run: node tests/approved-media.cjs
+      - run: node tests/site-media.cjs

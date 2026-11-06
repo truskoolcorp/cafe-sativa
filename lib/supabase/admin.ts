@@ -9,6 +9,9 @@ export function createAdminClient() {
   }
 
   return createClient(url, serviceRoleKey, {
+    // Admin reads and short-lived Storage signatures must never enter Next's
+    // persistent fetch cache. A cached signed URL can outlive its JWT expiry.
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
     auth: {
       persistSession: false,
       autoRefreshToken: false,

@@ -5,6 +5,8 @@ on:
       - 'app/api/content/media/**'
       - 'lib/content/approved-media.ts'
       - 'lib/content/media-access.ts'
+      - 'lib/supabase/admin.ts'
+      - 'tests/admin-no-cache.cjs'
       - 'tests/media-route-diagnostics.cjs'
       - '.github/workflows/media-route-diagnostics.yml'
 permissions:
@@ -19,6 +21,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: node tests/admin-no-cache.cjs
       - run: node tests/media-route-diagnostics.cjs
       - run: node tests/media-download-access.cjs
       - run: node tests/approved-media.cjs

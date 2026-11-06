@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'lib/content/social-*.ts'
+      - 'lib/content/metricool-mcp.ts'
       - 'app/api/content/social/delivery/route.ts'
       - 'tests/social-receipts.test.cjs'
       - 'tests/social-receipt-worker.test.cjs'

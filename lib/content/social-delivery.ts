@@ -1,3 +1,4 @@
+import { MetricoolHttpError } from '@/lib/content/metricool-mcp'
 import { dueSocialReceipts } from '@/lib/content/social-receipts'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { approvedMediaJob } from '@/lib/content/approved-media'
@@ -42,8 +43,9 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
         if(!Array.isArray(result))throw new Error('Invalid social receipt response')
         posts=result
       }catch(error) {
-        // Authentication failures remain fail-closed through withSocialConnection.
-        if(options.readOnly || (error instanceof Error && /OAuth|401|403|unauthorized|forbidden/i.test(error.message)))throw error
+        // Only explicit request/range rejections can be isolated. Authentication,
+        // transport and unclassified MCP failures remain fail-closed.
+        if(options.readOnly || !(error instanceof MetricoolHttpError) || ![400,404,422].includes(error.status))throw error
         for(const row of cohort) {
           const failed=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),error:'Receipt lookup failed; publication remains unconfirmed. No resubmission attempted.'}).eq('id',row.id).eq('state','scheduled')
           if(failed.error)throw failed.error

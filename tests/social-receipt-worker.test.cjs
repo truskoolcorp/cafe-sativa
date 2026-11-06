@@ -4,7 +4,14 @@ const fs=require('node:fs')
 const vm=require('node:vm')
 const ts=require('typescript')
 const js=ts.transpileModule(fs.readFileSync('lib/content/social-delivery.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
-function harness({rows,error,readOnly=false,queued=null}={}) {
+const mcpJs=ts.transpileModule(fs.readFileSync('lib/content/metricool-mcp.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
+function loadMcp(fetch) {
+ const exports={}
+ vm.runInNewContext(mcpJs,{exports,require:()=>({METRICOOL_MCP:'https://example.invalid/mcp'}),fetch,Date,Error,Promise,Array,String,AbortSignal,TextDecoder,Uint8Array,JSON,Intl})
+ return exports
+}
+const {MetricoolHttpError}=loadMcp(()=>{throw Error('Unused fetch')})
+function harness({rows,error,readOnly=false,queued=null,httpStatus=null}={}) {
  const calls=[],writes=[],queueReads=[]
  const db={from(table){
    let patch=null,filters={}
@@ -15,8 +22,21 @@ function harness({rows,error,readOnly=false,queued=null}={}) {
      then(resolve,reject){if(patch)writes.push({patch,filters});return Promise.resolve({data:null,error:null}).then(resolve,reject)}
    };return q
  }}
- const session={call:async(name,args)=>{calls.push({name,args});if(error)throw error;return []}}
+ let session={call:async(name,args)=>{calls.push({name,args});if(error)throw error;return []}}
+ let HttpError=MetricoolHttpError
+ if(httpStatus!==null) {
+   const mcp=loadMcp(async(_url,options)=>{
+     const request=JSON.parse(options.body)
+     calls.push({name:request.method,args:request.params})
+     if(request.method==='tools/call')return new Response('secret provider body must not leak',{status:httpStatus})
+     if(request.method==='notifications/initialized')return new Response(null,{status:202})
+     return Response.json({jsonrpc:'2.0',id:request.id,result:request.method==='tools/list'?{tools:[{name:'getScheduledPosts'}]}:{}})
+   })
+   HttpError=mcp.MetricoolHttpError
+   session={call:async(...args)=>(await (session.ready ||= mcp.metricoolSession('placeholder-test-token'))).call(...args)}
+ }
  const imports={
+  '@/lib/content/metricool-mcp':{MetricoolHttpError:HttpError},
   '@/lib/content/social-receipts':{dueSocialReceipts:async()=>({data:rows,error:null})},
   '@/lib/supabase/admin':{createAdminClient:()=>db},
   '@/lib/content/social-connection':{withSocialConnection:fn=>fn({db,session,brand:{timezone:'America/Los_Angeles'},enabled:true})},
@@ -55,7 +75,7 @@ test('same-day rows share a single request and missing queue entries remain unco
  }
 })
 test('historical provider error is throttled without rewriting receipts or starving queue inspection',async()=>{
- const h=harness({rows:[old,recent],error:new Error('Historical range unavailable')})
+ const h=harness({rows:[old,recent],error:new MetricoolHttpError(422)})
  const result=await h.run()
  assert.equal(result.receiptErrors,1);assert.equal(result.reconciled,0)
  const write=h.writes.find(w=>w.filters.id==='old')
@@ -64,7 +84,7 @@ test('historical provider error is throttled without rewriting receipts or starv
  assert.equal(h.queueReads.length,1);assert.equal(h.calls.some(c=>c.name==='createScheduledPost'),false)
 })
 test('queued items retain approval gate after unrelated receipt failure',async()=>{
- const h=harness({rows:[old],error:new Error('Historical range unavailable'),queued:{id:'queued',content_item_id:'item'}})
+ const h=harness({rows:[old],error:new MetricoolHttpError(422),queued:{id:'queued',content_item_id:'item'}})
  const result=await h.run()
  assert.equal(result.status,'blocked')
  assert.equal(h.calls.some(c=>c.name==='createScheduledPost'),false)
@@ -84,4 +104,29 @@ test('read-only provider error never updates receipt ledger or touches queue',as
 test('read-only success never updates receipt ledger or touches queue',async()=>{
  const h=harness({rows:[old,recent],readOnly:true});await h.run()
  assert.equal(h.writes.length,0);assert.equal(h.queueReads.length,0);assert.equal(h.calls.length,1)
+})
+
+for(const httpStatus of [401,403])test('real MCP HTTP '+httpStatus+' stops worker before queue access',async()=>{
+ const h=harness({rows:[old],httpStatus})
+ await assert.rejects(h.run(),error=>{
+   assert.equal(error.status,httpStatus)
+   assert.equal(error.message,'Metricool MCP HTTP request failed')
+   assert.doesNotMatch(error.message,/placeholder-test-token|secret provider body/)
+   return true
+ })
+ assert.equal(h.queueReads.length,0)
+ assert.equal(h.writes.filter(w=>w.filters.id).length,0)
+ assert.equal(h.calls.filter(c=>c.name==='tools/call').length,1)
+})
+test('unclassified MCP failures remain fail-closed',async()=>{
+ const h=harness({rows:[old],error:new Error('Metricool operation failed')})
+ await assert.rejects(h.run(),/operation failed/)
+ assert.equal(h.queueReads.length,0);assert.equal(h.writes.filter(w=>w.filters.id).length,0)
+})
+test('real MCP range rejection is isolated without replay',async()=>{
+ const h=harness({rows:[old],httpStatus:422})
+ const result=await h.run()
+ assert.equal(result.receiptErrors,1)
+ assert.equal(h.queueReads.length,1)
+ assert.equal(h.calls.filter(c=>c.name==='tools/call').length,1)
 })

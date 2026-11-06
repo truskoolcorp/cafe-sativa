@@ -7,6 +7,7 @@ const job={id:jobId,room:'gallery',status:'approved',qa_approved_by:'owner',qa_a
 const asset={id:'reference',kind:'venue',subject:'gallery',active:true,approved_by:'owner',approved_at:'now',version:'1',url:'https://example.com/ref.png',sha256:'a'.repeat(64)};
 const db={from(table){let filters=[];const q={select(){return q},eq(k,v){filters.push(r=>r[k]===v);return q},in(k,v){filters.push(r=>v.includes(r[k]));return q},maybeSingle:async()=>{const row=table==='content_items'?item:table==='cs_content_jobs'?job:asset;return {data:filters.every(f=>f(row))?row:null,error:null}}};return q},storage:{from(){return {createSignedUrl:async()=>({data:{signedUrl:'https://private.example/token'}})}}}};
 const policy={exports:{},Date,Intl,URL};vm.runInNewContext(compile('lib/content/policy.ts'),policy);
+job.policy_version=policy.exports.CONTENT_POLICY.version;
 const helper={exports:{},require:n=>n.endsWith('/venue-programs')?programs.exports:n.endsWith('/policy')?policy.exports:{createAdminClient:()=>db}};vm.runInNewContext(compile('lib/content/approved-media.ts'),helper);
 let allowDownload=false;
 class NextResponse extends Response {}

@@ -1,3 +1,4 @@
+import { dueSocialReceipts } from '@/lib/content/social-receipts'
 import { NextRequest,NextResponse } from 'next/server'
 import { cronAuthorized } from '@/lib/content/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -14,10 +15,10 @@ export async function GET(req:NextRequest) {
     const [queued,stale,receipt]=await Promise.all([
       db.from('cs_social_deliveries').select('id').eq('state','queued').limit(1),
       db.from('cs_social_deliveries').select('id').eq('state','submitting').lt('submitted_at',new Date(now-600000).toISOString()).limit(1),
-      db.from('cs_social_deliveries').select('checked_at').eq('state','scheduled').gte('scheduled_at',new Date(now-7*86400000).toISOString()).order('checked_at',{ascending:true,nullsFirst:true}).limit(1),
+      dueSocialReceipts(db,now,1),
     ])
     if(queued.error || stale.error || receipt.error)throw Error('Delivery queue unavailable')
-    const needed=Boolean(queued.data?.length || stale.data?.length || receipt.data?.some(row=>!row.checked_at || new Date(row.checked_at).getTime()<now-3600000))
+    const needed=Boolean(queued.data?.length || stale.data?.length || receipt.data?.length)
     return NextResponse.json(needed?await processSocialDelivery():{status:'idle',reason:'No queued delivery or receipt check due'},{headers:{'Cache-Control':'no-store'}})
   }catch{return NextResponse.json({error:'Delivery check failed; inspect administrator status before retrying.'},{status:503})}
 }

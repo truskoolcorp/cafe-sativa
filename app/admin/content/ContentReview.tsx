@@ -45,7 +45,7 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
       const sources:Record<string,string>={}
       for(const job of body.jobs || []) {
         const asset=body.assets?.find((item:any)=>item.id===job.canonical_asset_id)
-        sources[job.id]=JSON.stringify([job.output_url,job.status,asset?.id,asset?.sha256,asset?.version,asset?.active,asset?.approved_at])
+        sources[job.id]=JSON.stringify([job.output_url,job.updated_at,job.status,asset?.id,asset?.sha256,asset?.version,asset?.active,asset?.approved_at])
       }
       const previous=reviewedSources.current
       setSelected(current=>Object.fromEntries(Object.entries(current).filter(([id])=>previous[id]===sources[id] && sources[id])))
@@ -71,12 +71,23 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
     const asset=data?.assets.find((item:any)=>item.id===job?.canonical_asset_id)
     setBusy(true); setError(''); setMessage('Saving your review…')
     try {
-      const r = await fetch('/api/content/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, reason, checks: selected[id], canonicalSnapshot:asset?{id:asset.id,sha256:asset.sha256,version:asset.version}:null }) })
+      const r = await fetch('/api/content/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action, reason, checks: selected[id], mediaSnapshot:{outputUrl:job?.output_url,updatedAt:job?.updated_at}, canonicalSnapshot:asset?{id:asset.id,sha256:asset.sha256,version:asset.version}:null }) })
       const body = await r.json()
       if (!r.ok) throw new Error(body.error)
       setSelected({}); setMessage(action !== 'reject' ? body.websiteDraftWarning || 'Clip accuracy approved. Open Website programming to review its caption, release time and optional social delivery.' : 'Clip rejected. No automatic paid retry will run.'); await load(); onChanged?.()
     } catch (e) { setMessage(''); setError(e instanceof Error ? e.message : 'Unable to save review.') }
     finally { setBusy(false) }
+  }
+  async function replaceVideo(job:any,asset:any,file:File) {
+    if(file.type!=='video/mp4' || file.size>3*1024*1024){setError('Choose an MP4 no larger than 3 MiB.');return}
+    setBusy(true);setError('');setMessage('Saving private replacement…')
+    try {
+      const r=await fetch('/api/content/video-replacement',{method:'POST',headers:{'Content-Type':'video/mp4','x-cs-job-id':job.id,'x-cs-job-revision':job.updated_at,'x-cs-canonical-id':asset.id,'x-cs-canonical-sha256':asset.sha256,'x-cs-canonical-version':asset.version},body:file})
+      const body=await r.json()
+      if(!r.ok)throw new Error(body.error || 'Replacement not confirmed')
+      setSelected({});setSocialPreviews({});setMessage(body.message);await load();onChanged?.()
+    }catch(e){const failure=e instanceof Error?e.message:'Replacement not confirmed. Refresh before retrying.';await load();setMessage('');setError(failure)}
+    finally{setBusy(false)}
   }
   const locked = busy || loading
   const venues = data?.assets.filter((asset: any) => asset.kind === 'venue') || []
@@ -118,6 +129,11 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
             {asset && <section><h4>{currentReference?'Approved reference':'Reference requires attention'}</h4><p className={styles.meta}>Version {asset.version} · {currentReference?'Current approved master':'Approval is blocked; refresh Master References'}</p><img src={asset.url} alt={`Approved ${asset.subject} reference`} className={styles.media} /><a className={styles.textLink} href={asset.url} target="_blank" rel="noreferrer">Open full-size reference ↗</a></section>}
           </div>
           {['pending_qa','failed'].includes(job.status) && !!job.previewUrl && currentReference && (job.status !== 'failed' || (job.blocker || '').includes('canonical accuracy review')) && <div className={styles.actions}><button className={`${styles.button} ${styles.approve}`} disabled={locked} onClick={() => { const reason=window.prompt('Owner override: explain why this conceptual video is acceptable despite automated visual QA (10–500 characters). Approval prepares it for publishing but does not post immediately.'); if (reason === null) return; if (reason.trim().length < 10 || reason.trim().length > 500) { setError('Owner override needs a reason between 10 and 500 characters. No approval was saved.'); return; } void review(job.id,'override',reason.trim()); }}>✓ Owner override — approve conceptual rendering</button></div>}
+          {job.status==='pending_qa' && currentReference && <section className={styles.notice}>
+            <h4>Replace inaccurate footage privately</h4>
+            <p>Upload an MP4 up to 3 MiB. It becomes a silent preview of up to five seconds, fitted without cropping. This replaces only this unapproved draft; accuracy approval and publishing remain separate.</p>
+            <input aria-label={`Replacement video for ${job.title}`} type="file" accept="video/mp4,.mp4" disabled={locked} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void replaceVideo(job,asset,file)}} />
+          </section>}
           {job.status === 'pending_qa' && <fieldset id={`review-${job.id}`} className={styles.checklist} disabled={locked}>
             <legend>Accuracy review · {count} of {Object.keys(checks).length} complete</legend>
             <p>Check each statement after watching the whole clip.</p>

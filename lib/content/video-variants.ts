@@ -13,7 +13,9 @@ const MAX_BYTES = 50 * 1024 * 1024
 const VERSION = 'preserve-frame-v1'
 
 export async function prepareVideoVariant(db: ReturnType<typeof createAdminClient>, job: { id: string; output_url: string }, format: VideoFormat) {
-  if (!MEDIA_UUID.test(job.id) || job.output_url !== `${job.id}.mp4`) throw new Error('Stored approved master required')
+  // Reviewed reuse can reference another job's private canonical master.
+  // Callers still enforce QA and canonical approval; accept only a flat UUID MP4.
+  if (!MEDIA_UUID.test(job.id) || typeof job.output_url !== 'string' || !job.output_url.endsWith('.mp4') || !MEDIA_UUID.test(job.output_url.slice(0,-4))) throw new Error('Stored approved master required')
   const bucket = db.storage.from('cafe-sativa-content')
   const master = await bucket.download(job.output_url)
   if (master.error || !master.data || master.data.size > MAX_BYTES) throw new Error('Master unavailable or too large for automatic export')

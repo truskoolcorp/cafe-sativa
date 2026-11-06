@@ -25,22 +25,43 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
     // pending-only endpoint does not establish publication or failure.
     const receipts=await dueSocialReceipts(db)
     if(receipts.error)throw receipts.error
+    let reconciled=0,receiptErrors=0
     if(receipts.data?.length) {
-      const times=receipts.data.map(row=>new Date(row.scheduled_at).getTime())
-      const found=await session.call('getScheduledPosts',{brandId:'5373515',fromDate:new Date(Math.min(...times)-86400000).toISOString(),toDate:new Date(Math.max(...times)+86400000).toISOString(),timezone:brand.timezone,extendedRange:false})
-      const posts=Array.isArray(found)?found:found.data
-      if(!Array.isArray(posts))throw new Error('Invalid social receipt response')
-      for(const row of receipts.data) {
-        const post=posts.find((post:any)=>String(post.uuid)===row.provider_uuid)
+      // One UTC-day cohort per invocation: at most a three-day provider window.
+      // Oldest checked_at ordering rotates other dates into later invocations.
+      const anchor=new Date(receipts.data[0].scheduled_at)
+      const day=Date.UTC(anchor.getUTCFullYear(),anchor.getUTCMonth(),anchor.getUTCDate())
+      const cohort=receipts.data.filter(row=>{
+        const time=new Date(row.scheduled_at).getTime()
+        return time>=day && time<day+86400000
+      })
+      let posts:any[]|null=null
+      try {
+        const found=await session.call('getScheduledPosts',{brandId:'5373515',fromDate:new Date(day-86400000).toISOString(),toDate:new Date(day+2*86400000).toISOString(),timezone:brand.timezone,extendedRange:false})
+        const result=Array.isArray(found)?found:found.data
+        if(!Array.isArray(result))throw new Error('Invalid social receipt response')
+        posts=result
+      }catch(error) {
+        // Authentication failures remain fail-closed through withSocialConnection.
+        if(options.readOnly || (error instanceof Error && /OAuth|401|403|unauthorized|forbidden/i.test(error.message)))throw error
+        for(const row of cohort) {
+          const failed=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),error:'Receipt lookup failed; publication remains unconfirmed. No resubmission attempted.'}).eq('id',row.id).eq('state','scheduled')
+          if(failed.error)throw failed.error
+          receiptErrors++
+        }
+      }
+      for(const row of posts?cohort:[]) {
+        const post=posts!.find((post:any)=>String(post.uuid)===row.provider_uuid)
         if (options.readOnly) continue
-        const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),...(post?{provider_post_id:post.id,receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,...(verifiedSocialPublication(post,row,brand.timezone) || {}),observation:verifiedSocialPublication(post,row,brand.timezone)?'Publication confirmed on approved Facebook and Threads destinations':'Provider publication not confirmed on both approved networks'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
+        const update=await db.from('cs_social_deliveries').update({checked_at:new Date().toISOString(),error:null,...(post?{provider_post_id:post.id,receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,...(verifiedSocialPublication(post,row,brand.timezone) || {}),observation:verifiedSocialPublication(post,row,brand.timezone)?'Publication confirmed on approved Facebook and Threads destinations':'Provider publication not confirmed on both approved networks'}}:{receipt:{...(row.receipt || {}),observation:'Not present in pending queue; publication remains unconfirmed'}})}).eq('id',row.id).eq('state','scheduled')
         if(update.error)throw update.error
+        reconciled++
       }
     }
-    if(!enabled || options.readOnly)return {status:'verified',dispatchEnabled:false,reconciled:receipts.data?.length || 0}
+    if(!enabled || options.readOnly)return {status:'verified',dispatchEnabled:false,reconciled,receiptErrors}
     const next=await db.from('cs_social_deliveries').select('*').eq('state','queued').order('scheduled_at').limit(1).maybeSingle()
     if(next.error)throw next.error
-    if(!next.data)return {status:'idle',reconciled:receipts.data?.length || 0}
+    if(!next.data)return {status:'idle',reconciled,receiptErrors}
     const row=next.data
     const fail=async(message:string,state='blocked')=>{const result=await db.from('cs_social_deliveries').update({state,error:message,updated_at:new Date().toISOString()}).eq('id',row.id).in('state',['queued','submitting']);if(result.error)throw result.error;return {status:state,error:message}}
     const item=await db.from('content_items').select('*').eq('id',row.content_item_id).maybeSingle()

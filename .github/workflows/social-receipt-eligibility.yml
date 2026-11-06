@@ -5,6 +5,7 @@ on:
       - 'lib/content/social-*.ts'
       - 'app/api/content/social/delivery/route.ts'
       - 'tests/social-receipts.test.cjs'
+      - 'tests/social-receipt-worker.test.cjs'
       - '.github/workflows/social-receipt-eligibility.yml'
 permissions:
   contents: read
@@ -18,4 +19,4 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/social-receipts.test.cjs tests/social-oauth-reconnect-guard.test.cjs
+      - run: node --test tests/social-receipts.test.cjs tests/social-receipt-worker.test.cjs tests/social-oauth-reconnect-guard.test.cjs

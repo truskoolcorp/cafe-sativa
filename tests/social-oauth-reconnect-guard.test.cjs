@@ -14,6 +14,7 @@ function run(lastError){
     if(n==='@/lib/content/auth')return {cronAuthorized:()=>true}
     if(n==='@/lib/supabase/admin')return {createAdminClient:()=>db}
     if(n==='@/lib/content/social-delivery')return {processSocialDelivery:async()=>{calls.push('dispatch');return {status:'sent'}}}
+    if(n==='@/lib/content/social-receipts')return {dueSocialReceipts:()=>{throw Error('Receipt query must not run while OAuth is blocked')}}
     throw Error('Unexpected import '+n)
   }
   vm.runInNewContext(js,{exports,require:requireMock,Date,Promise,Error,Boolean,JSON})

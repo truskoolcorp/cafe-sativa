@@ -1,0 +1,29 @@
+name: Private monthly programming planner
+on:
+  pull_request:
+    paths:
+      - 'lib/content/private-programming.ts'
+      - 'lib/content/policy.ts'
+      - 'app/api/content/cron/route.ts'
+      - 'app/api/admin/programming/proposals/**'
+      - 'app/admin/programming/proposals/**'
+      - 'supabase/migrations/*private_programming_proposals*'
+      - 'tests/private-programming.test.cjs'
+      - 'tests/content-planning.cjs'
+      - '.github/workflows/private-programming.yml'
+permissions:
+  contents: read
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/private-programming.test.cjs
+      - run: node tests/content-planning.cjs
+      - run: npx tsc --noEmit --incremental false

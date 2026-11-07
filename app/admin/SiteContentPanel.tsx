@@ -1,7 +1,8 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import styles from './dashboard.module.css'
 import SocialConnectionPanel from './SocialConnectionPanel'
+import { isSocialDestination, type SocialDestination } from '@/lib/content/social-destination'
 
 type Item = {cover_url?:string|null;id:string; title:string; site_category:string; status:string; copy_draft:string; copy_final:string|null; updated_at:string; scheduled_at:string|null; published_at:string|null; approval_notes:string|null; media_url:string|null}
 const PROGRAM_DETAILS: Record<string,{host:string;format:string;reference:string}> = {
@@ -38,6 +39,12 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   const [schedule,setSchedule]=useState('')
   const [confirmed,setConfirmed]=useState(false)
   const [publishSocial,setPublishSocial]=useState(false)
+  const [socialDestination,setSocialDestination]=useState<SocialDestination|null>(null)
+  const [recoveryRequired,setRecoveryRequired]=useState(false)
+  const recoveryBlocked=useRef(false)
+  const actionInFlight=useRef(false)
+  const contentReadInFlight=useRef<Promise<Item[]>|null>(null)
+  const [refreshing,setRefreshing]=useState(false)
   const [busy,setBusy]=useState(false)
   const [message,setMessage]=useState('')
   const [podcastSyncBusy,setPodcastSyncBusy]=useState(false)
@@ -55,33 +62,66 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
   },[])
   useEffect(()=>{void refreshPodcastHistory()},[refreshPodcastHistory])
 
-  const load=useCallback(async()=>{
-    const [response,referenceResponse]=await Promise.all([fetch('/api/content/site',{cache:'no-store'}),fetch('/api/content/references',{cache:'no-store'})])
-    const referenceBody=await referenceResponse.json()
-    setCovers(Object.fromEntries((referenceBody.candidates || []).filter((c:any)=>c.kind==='venue' && c.approved).map((c:any)=>[c.subject,c.approved.url])))
-    setReadiness(referenceResponse.ok?referenceBody.programmingReadiness || []:[])
-    const body=await response.json()
-    if(!response.ok) throw new Error(body.error || 'Unable to load website content')
-    setItems(body.items || [])
-    return body.items as Item[]
+  const load=useCallback(()=>{
+    // Coalesce reads, and do not allow a mutation to overtake an older refresh.
+    if(contentReadInFlight.current)return contentReadInFlight.current
+    setRefreshing(true);setConfirmed(false);setPublishSocial(false);setSocialDestination(null)
+    const pending=(async()=>{
+      const [response,referenceResponse]=await Promise.all([fetch('/api/content/site',{cache:'no-store'}),fetch('/api/content/references',{cache:'no-store'})])
+      const referenceBody=await referenceResponse.json()
+      setCovers(Object.fromEntries((referenceBody.candidates || []).filter((c:any)=>c.kind==='venue' && c.approved).map((c:any)=>[c.subject,c.approved.url])))
+      setReadiness(referenceResponse.ok?referenceBody.programmingReadiness || []:[])
+      const body=await response.json()
+      if(!response.ok) throw new Error(body.error || 'Unable to load website content')
+      setItems(body.items || [])
+      setSocialDestination(isSocialDestination(body.socialDestination)?body.socialDestination:null)
+      recoveryBlocked.current=false;setRecoveryRequired(false)
+      return body.items as Item[]
+    })().finally(()=>{contentReadInFlight.current=null;setRefreshing(false)})
+    contentReadInFlight.current=pending
+    return pending
   },[])
+  async function refreshStatus() {
+    if(actionInFlight.current)return
+    try{await load()}catch(e){setMessage(e instanceof Error?e.message:'Unable to refresh status')}
+  }
   useEffect(()=>{void load().then(rows=>{const id=new URL(window.location.href).searchParams.get('item');const item=rows.find(row=>row.id===id);if(item)open(item)}).catch(e=>setMessage(e.message))},[load])
   function open(item:Item) {setSelected(item);setCopy(item.copy_draft || '');setSchedule(item.scheduled_at || '');setConfirmed(false);setPublishSocial(false);setMessage('')}
+  function reviewItem(item:Item) {
+    if(actionInFlight.current || contentReadInFlight.current || recoveryBlocked.current)return
+    open(item)
+  }
+  function closeItem() {
+    if(actionInFlight.current || contentReadInFlight.current)return
+    setSelected(null);setMessage('')
+  }
   async function act(action:string) {
+    if(actionInFlight.current || contentReadInFlight.current || recoveryBlocked.current)return
+    actionInFlight.current=true
     setBusy(true);setMessage('Saving…')
+    let outcome:any=null
     try {
-      const response=await fetch('/api/content/site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:selected?.id,copy,expectedUpdatedAt:selected?.updated_at,scheduledAt:schedule,confirmAccuracy:confirmed,publishSocial:action==='approve' && publishSocial})})
+      const response=await fetch('/api/content/site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id:selected?.id,copy,expectedUpdatedAt:selected?.updated_at,scheduledAt:schedule,confirmAccuracy:confirmed,publishSocial:action==='approve' && publishSocial,socialDestination:action==='approve' && publishSocial?socialDestination:undefined})})
       const body=await response.json()
+      outcome=body
       if(!response.ok) throw new Error(body.error || 'Website action failed')
       const fresh=await load()
-      if(selected){const item=fresh.find(i=>i.id===selected.id);if(action==='approve' && item && item.status!=='pending_approval'){const next=fresh.find(i=>i.status==='pending_approval' && i.id!==selected.id);if(next){open(next)}else{setSelected(null);setQueueFilter('pending')}}else if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
+      if(body.refreshRequired){setSelected(null);setQueueFilter('all')}
+      else if(selected){const item=fresh.find(i=>i.id===selected.id);if(action==='approve' && item && item.status!=='pending_approval'){const next=fresh.find(i=>i.status==='pending_approval' && i.id!==selected.id);if(next){open(next)}else{setSelected(null);setQueueFilter('pending')}}else if(item){setSelected(item);setSchedule(item.scheduled_at || '')}}
       setConfirmed(false)
       setPublishSocial(false)
-      setMessage(action==='approve' ? (body.published ? 'Approval saved and published. Advanced to next pending item.' : 'Approval saved. Advanced to next pending item; publishing will occur when due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='prepare_clips' ? `${body.planned} approved clip drafts prepared. Existing cards and schedules were preserved.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
+      setMessage(action==='approve' ? (body.published ? `Approval saved. ${body.published} due website items published; check this item's status below.` : 'Approval saved. Publishing will occur when due.') : action==='plan' ? `${body.planned} program drafts prepared.` : action==='prepare_clips' ? `${body.planned} approved clip drafts prepared. Existing cards and schedules were preserved.` : action==='publish_due' ? `${body.published} due items published.` : action==='return' ? 'Returned for revision.' : 'Draft saved. Approval is required before publication.')
       if(body.socialWarning)setMessage(body.socialWarning)
-      else if(body.socialQueued)setMessage(`Website approved. Social delivery status: ${body.socialDeliveryStatus || 'queued'}. Check its receipt in Social delivery connection; publication is not confirmed yet.`)
-    }catch(e){setMessage(e instanceof Error?e.message:'Unable to save')}
-    finally{setBusy(false)}
+      else if(body.socialQueued)setMessage(`Website approved and social delivery queued. Delivery worker check: ${body.socialWorkerStatus || 'not completed'} (may refer to another queued item). Check this item's receipt in Social delivery connection; publication is not confirmed yet.`)
+    }catch(e){
+      // A lost response or failed refresh is not proof the mutation failed.
+      // Discard the old approval; only fresh records may be opened again.
+      setSelected(null);setConfirmed(false);setPublishSocial(false);recoveryBlocked.current=true;setRecoveryRequired(true)
+      let refreshed=false
+      try{await load();refreshed=true}catch{}
+      setMessage(`${outcome?.saved===true?'Website changes were saved. ':''}${e instanceof Error?e.message:'Action outcome unavailable.'} ${refreshed?'Status refreshed. Review the item and social receipts before approving again.':'Status could not be refreshed. Use Refresh status before any further action.'} Do not resubmit blindly.`)
+    }
+    finally{actionInFlight.current=false;setBusy(false)}
   }
   async function syncPodcasts(){
     setPodcastSyncBusy(true);setPodcastSyncMessage('Checking approved public Café Sativa feeds…')
@@ -106,10 +146,10 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
       </div></div>
     <p>Program introductions use recovered Café Sativa intentions. Approval here publishes website text when due. Social posts and character media follow their separate review paths.</p>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'16px 0'}}>
-      <button className={styles.primary} disabled={busy} onClick={()=>act('plan')}>Prepare program drafts</button>
-      <button className={styles.primary} disabled={busy} onClick={()=>act('prepare_clips')}>Prepare approved clip drafts</button>
-      <button className={styles.secondary} disabled={busy} onClick={()=>act('publish_due')}>Publish approved due items</button>
-      <button className={styles.secondary} disabled={busy} onClick={()=>void load().catch(e=>setMessage(e.message))}>Refresh status</button>
+      <button className={styles.primary} disabled={busy || refreshing || recoveryRequired} onClick={()=>act('plan')}>Prepare program drafts</button>
+      <button className={styles.primary} disabled={busy || refreshing || recoveryRequired} onClick={()=>act('prepare_clips')}>Prepare approved clip drafts</button>
+      <button className={styles.secondary} disabled={busy || refreshing || recoveryRequired} onClick={()=>act('publish_due')}>Publish approved due items</button>
+      <button className={styles.secondary} disabled={busy || refreshing} onClick={()=>void refreshStatus()}>Refresh status</button>
     </div>
     {!selected && <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:12}}><button className={styles.secondary} aria-pressed={queueFilter==='pending'} onClick={()=>setQueueFilter('pending')}>Needs approval ({items.filter(i=>i.status==='pending_approval').length})</button><button className={styles.secondary} aria-pressed={queueFilter==='all'} onClick={()=>setQueueFilter('all')}>All content</button></div>}
     <details className={styles.programDetails}><summary>How references and recurring programming work</summary>
@@ -119,28 +159,28 @@ export default function SiteContentPanel({onReviewReferences}:{onReviewReference
     </details>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {selected ? <div className={styles.card} style={{padding:24}}>
-      <button className={styles.secondary} disabled={busy} onClick={()=>{setSelected(null);setMessage('')}}>← Back to website overview</button>
+      <button className={styles.secondary} disabled={busy || refreshing} onClick={closeItem}>← Back to website overview</button>
       {(selected.cover_url || covers[selected.site_category]) && <img src={(selected.cover_url || covers[selected.site_category])} alt={`${selected.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover}/>}
       <p>{(selected.cover_url || covers[selected.site_category])?'Approved canonical room reference':'Approved cover unavailable — review Master references'}</p>
       <ProgramDetails item={selected}/>
       <ReferenceChecks status={readiness.find(r=>r.category===selected.site_category)} onReview={onReviewReferences}/>
       <h3>{selected.title}</h3><p>{selected.site_category.replaceAll('_',' ')} · {selected.status}</p>
       <label htmlFor="site-copy">Full website copy</label>
-      <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false)}}/>
+      <textarea id="site-copy" className={styles.copyEditor} maxLength={15000} value={copy} disabled={busy || refreshing || !!locked} onChange={e=>{setCopy(e.target.value);setConfirmed(false);setPublishSocial(false)}}/>
       <label htmlFor="site-schedule">Publication time (your device's local time)</label>
-      <input id="site-schedule" type="datetime-local" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={localSchedule(schedule)} disabled={busy || !!locked} onChange={e=>{setSchedule(e.target.value?new Date(e.target.value).toISOString():'');setConfirmed(false)}}/>
+      <input id="site-schedule" type="datetime-local" style={{display:'block',width:'100%',padding:12,margin:'8px 0',color:'#e8ddd0',background:'#161008'}} value={localSchedule(schedule)} disabled={busy || refreshing || !!locked} onChange={e=>{setSchedule(e.target.value?new Date(e.target.value).toISOString():'');setConfirmed(false);setPublishSocial(false)}}/>
       {schedule && <p>Chicago release: {new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'short'}).format(new Date(schedule))}</p>}
       <p>{selected.approval_notes}</p>{selected.media_url && <p>This item uses a clip that passed accuracy review. You can review its website caption and release time here. Changing the clip requires a separate accuracy review.</p>}
-      {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
-      {selected.media_url && <label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={publishSocial} onChange={e=>setPublishSocial(e.target.checked)}/>Also schedule this approved clip and this exact caption on Tru Skool Facebook and Threads at the release time above. Maximum 500 characters; choose a time at least 30 minutes ahead.</label>}
+      {!locked && <><label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={confirmed} disabled={busy || refreshing || recoveryRequired} onChange={e=>setConfirmed(e.target.checked)}/>I reviewed the program names, hosts, historical dates and future-venue wording for website publication.</label>
+      {selected.media_url && <label style={{display:'flex',gap:10,padding:'16px 0'}}><input type="checkbox" checked={publishSocial} disabled={busy || refreshing || recoveryRequired || !socialDestination} onChange={e=>setPublishSocial(e.target.checked)}/>{socialDestination?`Also schedule only this approved clip and exact caption at the release time above on Tru Skool: Facebook page ${socialDestination.facebookPageId} and Threads @${socialDestination.threadsHandle}, via Metricool brand ${socialDestination.brandId}, account ${socialDestination.userId} (${socialDestination.version}). This approves this item only, not future posts. Maximum 500 characters; choose a time at least 30 minutes ahead.`:'Social destination details unavailable or changed. Refresh status before social approval.'}</label>}
       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-        <button className={styles.secondary} disabled={busy || !copy.trim()} onClick={()=>act('save')}>Save edits</button>
-        <button className={styles.approve} disabled={busy || !confirmed || !copy.trim()} onClick={()=>act('approve')}>✓ Approve website publication</button>
-        <button className={styles.reject} disabled={busy} onClick={()=>act('return')}>Return for revision</button>
+        <button className={styles.secondary} disabled={busy || refreshing || recoveryRequired || !copy.trim()} onClick={()=>act('save')}>Save edits</button>
+        <button className={styles.approve} disabled={busy || refreshing || recoveryRequired || !confirmed || !copy.trim()} onClick={()=>act('approve')}>✓ Approve website publication</button>
+        <button className={styles.reject} disabled={busy || refreshing || recoveryRequired} onClick={()=>act('return')}>Return for revision</button>
       </div></>}
       {selected.published_at && <p>Website published: {new Date(selected.published_at).toLocaleString()}</p>}
       <p><a href={selected.site_category==='venue'?`/venue#feature-${selected.id}`:`/events?category=${selected.site_category}#feature-${selected.id}`} target="_blank" rel="noreferrer">Open category page ↗</a></p>
-    </div> : <div className={styles.cards}>{items.filter(item=>queueFilter==='all' || item.status==='pending_approval').map(item=><article className={styles.card} key={item.id}>{(item.cover_url || covers[item.site_category]) && <img src={(item.cover_url || covers[item.site_category])} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/>}<div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} onClick={()=>open(item)}>Open draft and review →</button></div></article>)}</div>}
+    </div> : <div className={styles.cards}>{items.filter(item=>queueFilter==='all' || item.status==='pending_approval').map(item=><article className={styles.card} key={item.id}>{(item.cover_url || covers[item.site_category]) && <img src={(item.cover_url || covers[item.site_category])} alt={`${item.site_category.replaceAll('_',' ')} concept cover`} className={styles.programCover} loading="lazy"/>}<div className={styles.cardBody}><p>{item.site_category.replaceAll('_',' ')} · {item.status}</p><h3>{item.title}</h3><p>{item.copy_draft.slice(0,180)}…</p><ProgramDetails item={item}/><ReferenceChecks status={readiness.find(r=>r.category===item.site_category)} onReview={onReviewReferences}/><button className={styles.primary} disabled={busy || refreshing || recoveryRequired} onClick={()=>reviewItem(item)}>Open draft and review →</button></div></article>)}</div>}
     {!items.length && <p>No website drafts prepared yet.</p>}
     {!!items.length && !selected && queueFilter==='pending' && !items.some(item=>item.status==='pending_approval') && <p role="status">All caught up — no website items need approval.</p>}
   </section>

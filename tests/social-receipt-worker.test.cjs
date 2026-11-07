@@ -5,9 +5,10 @@ const vm=require('node:vm')
 const ts=require('typescript')
 const js=ts.transpileModule(fs.readFileSync('lib/content/social-delivery.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
 const mcpJs=ts.transpileModule(fs.readFileSync('lib/content/metricool-mcp.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText
+const destination=require('./helpers/load-ts.cjs')('lib/content/social-destination.ts')
 function loadMcp(fetch) {
  const exports={}
- vm.runInNewContext(mcpJs,{exports,require:()=>({METRICOOL_MCP:'https://example.invalid/mcp'}),fetch,Date,Error,Promise,Array,String,AbortSignal,TextDecoder,Uint8Array,JSON,Intl})
+ vm.runInNewContext(mcpJs,{exports,require:n=>n.endsWith('/social-destination')?destination:({METRICOOL_MCP:'https://example.invalid/mcp'}),fetch,Date,Error,Promise,Array,String,AbortSignal,TextDecoder,Uint8Array,JSON,Intl})
  return exports
 }
 const {MetricoolHttpError}=loadMcp(()=>{throw Error('Unused fetch')})
@@ -36,6 +37,7 @@ function harness({rows,error,readOnly=false,queued=null,httpStatus=null}={}) {
    session={call:async(...args)=>(await (session.ready ||= mcp.metricoolSession('placeholder-test-token'))).call(...args)}
  }
  const imports={
+  '@/lib/content/social-destination':destination,
   '@/lib/content/metricool-mcp':{MetricoolHttpError:HttpError},
   '@/lib/content/social-receipts':{dueSocialReceipts:async()=>({data:rows,error:null})},
   '@/lib/supabase/admin':{createAdminClient:()=>db},

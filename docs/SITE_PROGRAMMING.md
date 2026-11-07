@@ -18,3 +18,29 @@ site keys prevent duplicate initial drafts. Approval freezes final copy; the dai
 cron publishes due approved text. Character media and external social delivery
 require their own canonical and scheduler receipts. The initial introductions are
 text only; no paid generation occurs.
+
+## Per-item social destination approval
+
+The configured delivery route remains Metricool brand 5373515 / account 4174093,
+Facebook page 146219355471397 and Threads @truskoolcorp. This configuration is not
+standing approval to publish future items. The website review form displays the
+versioned destination descriptor, and social approval must submit that exact
+descriptor with the individual clip, caption and release time. Copy/time edits,
+refreshes and reopening a card clear both approval checkboxes.
+
+New queue records preserve the approved destination in
+`cs_social_deliveries.receipt.approvedDestination`. New dispatch requires the
+current descriptor in addition to the existing caption, time, approval and QA
+checks. Scheduling and later receipt checks retain that snapshot. Legacy
+scheduled receipts remain historical evidence and continue to reconcile; no
+snapshot is backfilled. A legacy queued record without the snapshot is blocked
+before media preparation or a new provider submission. It requires investigation
+and a new explicit approval, never automatic migration into consent.
+
+A lost response is not evidence that a save, queue insertion or publication did
+not happen. The form closes stale edits, refreshes status and requires renewed
+review. If that read fails, mutations remain disabled until status can be read.
+Inspect existing social receipts before any further delivery action. Website
+publication counts and worker results describe their whole batches, not necessarily
+the selected item. No schema, route expansion, recurring approval or dispatch
+configuration change is part of this guard.

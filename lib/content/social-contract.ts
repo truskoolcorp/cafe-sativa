@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
+import { SOCIAL_DESTINATION, isSocialDestination } from '@/lib/content/social-destination'
 export const SOCIAL_NETWORKS=['facebook','threads'] as const
 export function captionHash(caption:string) {return createHash('sha256').update(caption).digest('hex')}
 export function validSocialApproval(row:any,item:any,now=new Date()) {
-  return Boolean(row?.approved_by && row.approved_at && row.caption?.trim() && Array.from(row.caption).length<=500 && row.caption_hash===captionHash(row.caption) && item?.approved_by && item.approved_at && ['approved','scheduled','published'].includes(item.status) && item.copy_final===row.caption && item.source_job_id===row.source_job_id && new Date(item.scheduled_at).getTime()===new Date(row.scheduled_at).getTime() && new Date(row.scheduled_at).getTime()>now.getTime()+60000)
+  return Boolean(isSocialDestination(row?.receipt?.approvedDestination) && row?.approved_by && row.approved_at && row.caption?.trim() && Array.from(row.caption).length<=500 && row.caption_hash===captionHash(row.caption) && item?.approved_by && item.approved_at && ['approved','scheduled','published'].includes(item.status) && item.copy_final===row.caption && item.source_job_id===row.source_job_id && new Date(item.scheduled_at).getTime()===new Date(row.scheduled_at).getTime() && new Date(row.scheduled_at).getTime()>now.getTime()+60000)
 }
 export function providerLocalDate(iso:string,timezone:string) {
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(iso))
@@ -21,8 +22,9 @@ export function socialPostMatches(post:any,row:any,timezone:string) {
   return post.text===row.caption && networks==='facebook,threads' && post.publicationDate?.timezone===timezone && post.publicationDate?.dateTime===providerLocalDate(row.scheduled_at,timezone)
 }
 export function socialCreateArguments(row:any,timezone:string,mediaUrl:string) {
+  if(!isSocialDestination(row?.receipt?.approvedDestination))throw new Error('Exact per-item social destination approval required')
   const local=providerLocalDate(row.scheduled_at,timezone)
-  return {blogId:'5373515',date:local,mediaFiles:[mediaUrl],info:JSON.stringify({text:row.caption,providers:SOCIAL_NETWORKS.map(network=>({network})),publicationDate:{dateTime:local,timezone},autoPublish:true,draft:false,facebookData:{type:'POST'},threadsData:{type:'POST',replyControl:'EVERYONE',shareAsInstagramStory:false}})}
+  return {blogId:String(SOCIAL_DESTINATION.brandId),date:local,mediaFiles:[mediaUrl],info:JSON.stringify({text:row.caption,providers:SOCIAL_NETWORKS.map(network=>({network})),publicationDate:{dateTime:local,timezone},autoPublish:true,draft:false,facebookData:{type:'POST'},threadsData:{type:'POST',replyControl:'EVERYONE',shareAsInstagramStory:false}})}
 }
 
 /** Require identity, exact approved destinations and both provider-issued publication URLs. */

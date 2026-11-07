@@ -1,0 +1,36 @@
+name: Per-item social destination approval
+on:
+  pull_request:
+    paths:
+      - 'app/admin/SiteContentPanel.tsx'
+      - 'app/admin/SocialConnectionPanel.tsx'
+      - 'app/api/content/site/route.ts'
+      - 'lib/content/social-*.ts'
+      - 'lib/content/metricool-mcp.ts'
+      - 'tests/helpers/load-ts.cjs'
+      - 'tests/site-approval-outcomes.test.cjs'
+      - 'tests/site-content-panel.test.cjs'
+      - 'tests/social-destination-approval.test.cjs'
+      - 'tests/social-delivery.cjs'
+      - 'tests/social-publication-receipts.test.cjs'
+      - 'tests/social-receipt-worker.test.cjs'
+      - 'tests/metricool-oauth.cjs'
+      - '.github/workflows/social-destination-approval.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-approval-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test --test-concurrency=1 tests/social-destination-approval.test.cjs tests/site-approval-outcomes.test.cjs tests/site-content-panel.test.cjs tests/social-publication-receipts.test.cjs tests/social-receipt-worker.test.cjs tests/social-readonly-safety.test.cjs tests/social-receipts.test.cjs tests/social-oauth-reconnect-guard.test.cjs
+      - run: node tests/social-delivery.cjs
+      - run: node tests/metricool-oauth.cjs
+      - run: npx tsc --noEmit

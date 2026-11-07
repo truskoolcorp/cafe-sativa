@@ -1,3 +1,4 @@
+import { SOCIAL_DESTINATION, isSocialDestination } from '@/lib/content/social-destination'
 import { MetricoolHttpError } from '@/lib/content/metricool-mcp'
 import { dueSocialReceipts } from '@/lib/content/social-receipts'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -8,9 +9,11 @@ import { withSocialConnection } from '@/lib/content/social-connection'
 import { prepareVideoVariant } from '@/lib/content/video-variants'
 import { videoFormatFor } from '@/lib/content/video-formats'
 
-export async function queueSocialFeature(item:any,userId:string) {
-  if(!item.media_url || !item.source_job_id || !await siteMediaApproved(item) || Array.from(item.copy_final || '').length>500 || new Date(item.scheduled_at).getTime()<Date.now()+1800000)throw new Error('Approved clip, caption up to 500 characters and future release time required')
-  const result=await createAdminClient().from('cs_social_deliveries').insert({content_item_id:item.id,source_job_id:item.source_job_id,state:'queued',caption:item.copy_final,caption_hash:captionHash(item.copy_final),scheduled_at:item.scheduled_at,approved_by:userId,approved_at:new Date().toISOString()})
+export async function queueSocialFeature(item:any,userId:string,destination:unknown) {
+  if(!isSocialDestination(destination))throw new Error('Exact per-item social destination approval required')
+  const row={content_item_id:item.id,source_job_id:item.source_job_id,state:'queued',caption:item.copy_final,caption_hash:captionHash(item.copy_final || ''),scheduled_at:item.scheduled_at,approved_by:userId,approved_at:new Date().toISOString(),receipt:{approvedDestination:{...SOCIAL_DESTINATION}}}
+  if(!validSocialApproval(row,item) || item.approved_by!==userId || !item.media_url || !item.source_job_id || !await siteMediaApproved(item) || new Date(item.scheduled_at).getTime()<Date.now()+1800000)throw new Error('Approved clip, caption up to 500 characters and future release time required')
+  const result=await createAdminClient().from('cs_social_deliveries').insert(row)
   if(result.error)throw result.error
 }
 
@@ -38,7 +41,7 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
       })
       let posts:any[]|null=null
       try {
-        const found=await session.call('getScheduledPosts',{brandId:'5373515',fromDate:new Date(day-86400000).toISOString(),toDate:new Date(day+2*86400000).toISOString(),timezone:brand.timezone,extendedRange:false})
+        const found=await session.call('getScheduledPosts',{brandId:String(SOCIAL_DESTINATION.brandId),fromDate:new Date(day-86400000).toISOString(),toDate:new Date(day+2*86400000).toISOString(),timezone:brand.timezone,extendedRange:false})
         const result=Array.isArray(found)?found:found.data
         if(!Array.isArray(result))throw new Error('Invalid social receipt response')
         posts=result
@@ -68,10 +71,10 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
     const fail=async(message:string,state='blocked')=>{const result=await db.from('cs_social_deliveries').update({state,error:message,updated_at:new Date().toISOString()}).eq('id',row.id).in('state',['queued','submitting']);if(result.error)throw result.error;return {status:state,error:message}}
     const item=await db.from('content_items').select('*').eq('id',row.content_item_id).maybeSingle()
     if(item.error)throw item.error
-    if(!validSocialApproval(row,item.data))return fail('Website approval, caption or release time changed. Review delivery again.')
+    if(!validSocialApproval(row,item.data))return fail('Per-item destination approval, website approval, caption or release time is missing or changed. Review delivery again.')
     const job=await approvedMediaJob(item.data)
     if(!job)return fail('Current approved clip and canonical room reference required')
-    const window={brandId:'5373515',fromDate:new Date(new Date(row.scheduled_at).getTime()-86400000).toISOString(),toDate:new Date(new Date(row.scheduled_at).getTime()+86400000).toISOString(),timezone:brand.timezone,extendedRange:false}
+    const window={brandId:String(SOCIAL_DESTINATION.brandId),fromDate:new Date(new Date(row.scheduled_at).getTime()-86400000).toISOString(),toDate:new Date(new Date(row.scheduled_at).getTime()+86400000).toISOString(),timezone:brand.timezone,extendedRange:false}
     const before=await session.call('getScheduledPosts',window)
     const posts=Array.isArray(before)?before:before.data
     if(!Array.isArray(posts))throw new Error('Invalid scheduled-post response')
@@ -92,7 +95,7 @@ export async function processSocialDelivery(options:{readOnly?:boolean}={}) {
       const saved=(Array.isArray(after)?after:after.data)?.filter((post:any)=>socialPostMatches(post,row,brand.timezone) && post.autoPublish===true && post.draft===false && post.media?.length>0 && post.media.every((url:unknown)=>typeof url==='string' && url.startsWith('https://static.metricool.com/')) && post.uuid && post.id)
       if(!Array.isArray(saved) || saved.length!==1)return fail('Submission result is ambiguous. Inspect Metricool; no automatic retry.','submission_unknown')
       const post=saved[0]
-      const receipt=await db.from('cs_social_deliveries').update({state:'scheduled',provider_post_id:post.id,provider_uuid:String(post.uuid),receipt:{uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,mediaExport:{format:media.format,sourceSha256:media.sourceSha256,version:media.version},observation:'Scheduling confirmed, not publication'},error:null,checked_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',row.id).eq('state','submitting')
+      const receipt=await db.from('cs_social_deliveries').update({state:'scheduled',provider_post_id:post.id,provider_uuid:String(post.uuid),receipt:{...(row.receipt || {}),uuid:post.uuid,providers:post.providers,publicationDate:post.publicationDate,autoPublish:post.autoPublish,mediaExport:{format:media.format,sourceSha256:media.sourceSha256,version:media.version},observation:'Scheduling confirmed, not publication'},error:null,checked_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',row.id).eq('state','submitting')
       if(receipt.error)throw receipt.error
       return {status:'scheduled',deliveryId:row.id,postId:post.id}
     }catch{return fail('Submission may have reached Metricool. Inspect before any manual retry.','submission_unknown')}

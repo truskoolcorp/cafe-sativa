@@ -1,3 +1,4 @@
+import { SOCIAL_DESTINATION } from '@/lib/content/social-destination'
 import { METRICOOL_MCP } from '@/lib/content/metricool-oauth'
 // Preserve only the status, never provider bodies, headers or credentials.
 export class MetricoolHttpError extends Error {
@@ -53,12 +54,12 @@ export async function metricoolSession(token:string) {
 }
 export function verifiedMetricoolBrand(data:any) {
   const rows=Array.isArray(data)?data:data?.data
-  const brand=rows?.find((row:{id:number;userId:number})=>Number(row.id)===5373515 && Number(row.userId)===4174093)
-  if(!brand || brand.networksData?.facebookData!=='146219355471397' || brand.networksData?.threadsData!=='truskoolcorp')throw new Error('Expected Tru Skool Facebook and Threads accounts were not verified')
+  const brand=rows?.find((row:{id:number;userId:number})=>Number(row.id)===SOCIAL_DESTINATION.brandId && Number(row.userId)===SOCIAL_DESTINATION.userId)
+  if(!brand || brand.networksData?.facebookData!==SOCIAL_DESTINATION.facebookPageId || brand.networksData?.threadsData!==SOCIAL_DESTINATION.threadsHandle)throw new Error('Expected Tru Skool Facebook and Threads accounts were not verified')
   const timezone=brand.timezone
   if(typeof timezone!=='string')throw new Error('Metricool timezone unavailable')
   new Intl.DateTimeFormat('en-US',{timeZone:timezone}).format(new Date())
-  return {brandId:5373515,userId:4174093,label:brand.label || 'Tru Skool',timezone,networks:['facebook','threads']}
+  return {brandId:SOCIAL_DESTINATION.brandId,userId:SOCIAL_DESTINATION.userId,label:brand.label || 'Tru Skool',timezone,networks:['facebook','threads']}
 }
 export async function verifyMetricoolConnection(token:string) {
   const session=await metricoolSession(token)

@@ -116,7 +116,6 @@ export default async function EventsPage({
           })}
         </div>
 
-        <SiteFeatures category={filter ?? undefined} />
         {/* Results */}
         <div className="mt-16">
           {events.length === 0 ? (
@@ -164,6 +163,7 @@ export default async function EventsPage({
             </>
           )}
         </div>
+        <SiteFeatures category={filter ?? undefined} />
       </div>
     </div>
   )

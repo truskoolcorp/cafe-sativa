@@ -95,3 +95,19 @@ test('request parser rejects non-object payloads, nonstring coercion and malform
     assert.equal(parse({ ...body, ...patch }).valid, false)
   }
 })
+
+test('UUIDv7 replay issuance is immutable, bounded and binds all 48 timestamp bits', () => {
+  const { createDurableRequestIdentity: create, durableRequestIssuedAt: issuedAt, validateConciergeRequest: parse }=load('lib/concierge/request.ts')
+  for(const time of [0,1,Date.now(),0xffffffffffff]) {
+    const id=create(time,ID)
+    assert.equal(issuedAt(id.request_id),time)
+    assert.match(id.request_id,/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    const body={...id,host:'laviche',surface:'web-chat',message:'Original'}
+    assert.equal(parse(body).valid,true)
+    assert.equal(parse({...body,issued_at:time+1}).valid,false)
+    assert.equal(parse({...body,issued_at:String(time)}).valid,false)
+    assert.equal(parse({...body,request_id:ID}).valid,false)
+  }
+  for(const time of [-1,0.5,NaN,Infinity,0x1000000000000]) assert.throws(()=>create(time,ID))
+  assert.equal(issuedAt(ID),null)
+})

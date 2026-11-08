@@ -22,15 +22,27 @@ CREATE TABLE concierge_private.policy (
  legacy_cutoff timestamptz,
  legacy_drained boolean NOT NULL DEFAULT false,
  charged_failures_approved boolean NOT NULL DEFAULT false,
- retention_seconds bigint CHECK (retention_seconds >= 86400)
+ -- Explicit operator decisions, not approved product defaults. Technical max: 100 years.
+ retention_seconds bigint CHECK (retention_seconds BETWEEN 86400 AND 3155760000),
+ content_retention_seconds bigint CHECK (content_retention_seconds BETWEEN 1 AND 3155760000),
+ replay_max_age_seconds bigint CHECK (replay_max_age_seconds BETWEEN 1 AND 3155760000),
+ max_future_skew_seconds integer CHECK (max_future_skew_seconds BETWEEN 0 AND 300)
 );
 INSERT INTO concierge_private.policy(singleton) VALUES(true);
+-- This global rejection floor contains no user content and must never be reset.
+-- It prevents policy enlargement from reviving a key after its tombstone is pruned.
+CREATE TABLE concierge_private.lifecycle (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+ reject_before_ms bigint NOT NULL DEFAULT 0 CHECK(reject_before_ms>=0),
+ last_cleanup_at timestamptz
+);
+INSERT INTO concierge_private.lifecycle(singleton) VALUES(true);
 CREATE TABLE concierge_private.requests (
  requester text NOT NULL,
  request_id uuid NOT NULL,
  user_id uuid,
  session_id text,
- host text NOT NULL CHECK (host IN ('laviche','ginger','ahnika')),
+ host text CHECK (host IN ('laviche','ginger','ahnika')),
  conversation_id uuid REFERENCES public.host_conversations(id) ON DELETE RESTRICT,
  payload jsonb,
  fingerprint bytea,
@@ -38,25 +50,35 @@ CREATE TABLE concierge_private.requests (
  state text NOT NULL CHECK (state IN ('reserved','dispatching','uncertain','completed','cancelled','failed')),
  charged boolean NOT NULL DEFAULT true,
  admitted_at timestamptz NOT NULL,
+ issued_at bigint CHECK(issued_at BETWEEN 0 AND 281474976710655),
+ content_expires_at timestamptz,
+ tombstone_retention_seconds bigint CHECK(tombstone_retention_seconds BETWEEN 86400 AND 3155760000),
+ redacted_at timestamptz,
+ quarantined_at timestamptz,
+ provider_receipt jsonb,
  lease_until timestamptz NOT NULL,
  dispatch_marked_at timestamptz,
  finished_at timestamptz,
- owner_token uuid NOT NULL DEFAULT gen_random_uuid(),
- user_message_id uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
- assistant_message_id uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
- tier text NOT NULL CHECK (tier IN ('anonymous','explorer','regular','vip')),
- policy_version text NOT NULL,
- remaining_at_admission integer NOT NULL CHECK (remaining_at_admission >= 0),
+ owner_token uuid DEFAULT gen_random_uuid(),
+ user_message_id uuid UNIQUE DEFAULT gen_random_uuid(),
+ assistant_message_id uuid UNIQUE DEFAULT gen_random_uuid(),
+ tier text CHECK (tier IN ('anonymous','explorer','regular','vip')),
+ policy_version text,
+ remaining_at_admission integer CHECK (remaining_at_admission >= 0),
  reserved_cost_microusd bigint NOT NULL CHECK (reserved_cost_microusd > 0),
- max_reply_chars integer NOT NULL CHECK (max_reply_chars BETWEEN 1 AND 16384),
+ max_reply_chars integer CHECK (max_reply_chars BETWEEN 1 AND 16384),
  response jsonb,
  PRIMARY KEY(requester,request_id),
- CHECK ((user_id IS NOT NULL AND session_id IS NULL AND requester='u:'||user_id::text)
+ CHECK ((redacted AND state IN ('completed','cancelled','failed') AND user_id IS NULL AND session_id IS NULL)
+   OR (user_id IS NOT NULL AND session_id IS NULL AND requester='u:'||user_id::text)
    OR (user_id IS NULL AND session_id IS NOT NULL AND requester='s:'||session_id)),
  CHECK ((state='cancelled') = (NOT charged)),
  CHECK (redacted OR ((state='completed') = (response IS NOT NULL))),
- CHECK ((redacted AND payload IS NULL AND fingerprint IS NULL AND response IS NULL)
+ CHECK ((redacted AND payload IS NULL AND fingerprint IS NULL AND response IS NULL AND provider_receipt IS NULL)
    OR (NOT redacted AND conversation_id IS NOT NULL AND jsonb_typeof(payload)='object' AND octet_length(fingerprint)=32)),
+ CHECK (redacted OR (host IS NOT NULL AND owner_token IS NOT NULL AND user_message_id IS NOT NULL
+   AND assistant_message_id IS NOT NULL AND tier IS NOT NULL AND policy_version IS NOT NULL
+   AND remaining_at_admission IS NOT NULL AND max_reply_chars IS NOT NULL)),
  CHECK (user_message_id<>assistant_message_id),
  CHECK (lease_until>admitted_at)
 );
@@ -66,10 +88,11 @@ CREATE INDEX requests_conversation ON concierge_private.requests(conversation_id
 CREATE INDEX requests_inflight ON concierge_private.requests(state) WHERE state IN ('reserved','dispatching','uncertain');
 ALTER TABLE concierge_private.requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE concierge_private.policy ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON concierge_private.requests, concierge_private.policy FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE concierge_private.lifecycle ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON concierge_private.requests, concierge_private.policy, concierge_private.lifecycle FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT,INSERT,UPDATE ON concierge_private.requests TO service_role;
-GRANT SELECT ON concierge_private.policy TO service_role;
--- No DELETE privilege, purge function, retention job, or automatic tombstone expiry.
+GRANT SELECT ON concierge_private.policy, concierge_private.lifecycle TO service_role;
+-- No service DELETE/TRUNCATE, policy/watermark writes, or automated cleanup job.
 
 CREATE FUNCTION concierge_private.lock_v1() RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path='' SET lock_timeout='2s' AS $$
 BEGIN
@@ -92,8 +115,11 @@ LANGUAGE plpgsql IMMUTABLE SECURITY INVOKER SET search_path='' AS $$
 BEGIN
  RETURN coalesce(jsonb_typeof(p)='object'
   AND p ?& ARRAY['version','host','message','conversation_id','surface','room_id']
-  AND (SELECT count(*)=6 FROM jsonb_object_keys(p))
-  AND p->'version'='1'::jsonb
+  AND ((p->'version'='1'::jsonb AND (SELECT count(*)=6 FROM jsonb_object_keys(p)))
+    OR (p->'version'='2'::jsonb AND (SELECT count(*)=7 FROM jsonb_object_keys(p))
+      AND p ? 'issued_at' AND jsonb_typeof(p->'issued_at')='number'
+      AND p->>'issued_at' ~ '^[0-9]{1,15}$'
+      AND (p->>'issued_at')::numeric BETWEEN 0 AND 281474976710655))
   AND jsonb_typeof(p->'host')='string' AND p->>'host' IN ('laviche','ginger','ahnika')
   AND jsonb_typeof(p->'message')='string' AND length(p->>'message') BETWEEN 1 AND 2000
   AND p->>'message'=btrim(p->>'message')
@@ -102,6 +128,51 @@ BEGIN
     AND p->>'conversation_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'))
   AND (p->'room_id'='null'::jsonb OR (jsonb_typeof(p->'room_id')='string'
     AND length(p->>'room_id') BETWEEN 1 AND 128 AND length(btrim(p->>'room_id'))>0 AND p->>'room_id' !~ '[[:cntrl:]]')),false);
+EXCEPTION WHEN OTHERS THEN RETURN false;
+END $$;
+-- UUIDv7 fixes issuance into the key itself: changing a body timestamp cannot
+-- revive the same missing key. No client-provided wall clock is authoritative.
+CREATE FUNCTION concierge_private.issued_at_v2(p_id uuid) RETURNS bigint
+LANGUAGE plpgsql IMMUTABLE SECURITY INVOKER SET search_path='' AS $$
+BEGIN
+ IF p_id::text !~ '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN RETURN NULL; END IF;
+ RETURN ('x'||left(replace(p_id::text,'-',''),12))::bit(48)::bigint;
+END $$;
+CREATE FUNCTION concierge_private.missing_error_v2(p_id uuid,p_payload jsonb,p concierge_private.policy,t timestamptz)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path='' AS $$
+DECLARE issued bigint; now_ms bigint; floor_ms bigint;
+BEGIN
+ IF p_payload->'version'<>'2'::jsonb THEN RETURN 'request_expired'; END IF;
+ issued:=concierge_private.issued_at_v2(p_id);
+ IF issued IS NULL OR issued IS DISTINCT FROM (p_payload->>'issued_at')::bigint THEN RETURN 'invalid_request'; END IF;
+ IF p.replay_max_age_seconds IS NULL OR p.max_future_skew_seconds IS NULL THEN RETURN 'policy_unavailable'; END IF;
+ now_ms:=floor(extract(epoch FROM t)*1000)::bigint;
+ SELECT reject_before_ms INTO floor_ms FROM concierge_private.lifecycle WHERE singleton;
+ IF floor_ms IS NULL THEN RETURN 'policy_unavailable'; END IF;
+ -- Inclusive expiration boundary, shared by status, admission and cleanup.
+ IF issued<=floor_ms OR issued<=now_ms-p.replay_max_age_seconds*1000 THEN RETURN 'request_expired'; END IF;
+ IF issued>now_ms+p.max_future_skew_seconds*1000 THEN RETURN 'invalid_request'; END IF;
+ RETURN NULL;
+END $$;
+-- Age alone is not irreversible: a future policy expansion or DB clock change
+-- could admit that missing key. Only immutable v1 rejection or the committed
+-- monotonic floor permits a client to clear its original pending turn safely.
+CREATE FUNCTION concierge_private.expired_terminal_v2(p_id uuid,p_payload jsonb) RETURNS boolean
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path='' AS $$
+ SELECT coalesce(p_payload->'version'='1'::jsonb
+   OR concierge_private.issued_at_v2(p_id)<=(SELECT reject_before_ms FROM concierge_private.lifecycle WHERE singleton),false)
+$$;
+CREATE FUNCTION concierge_private.valid_receipt_v1(p jsonb) RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE SECURITY INVOKER SET search_path='' AS $$
+BEGIN
+ IF p IS NULL THEN RETURN true; END IF;
+ RETURN coalesce(jsonb_typeof(p)='object'
+  AND p ?& ARRAY['request_id','message_id','input_tokens','output_tokens']
+  AND (SELECT count(*)=4 FROM jsonb_object_keys(p))
+  AND (p->'request_id'='null'::jsonb OR (jsonb_typeof(p->'request_id')='string' AND p->>'request_id' ~ '^[A-Za-z0-9_-]{1,128}$'))
+  AND (p->'message_id'='null'::jsonb OR (jsonb_typeof(p->'message_id')='string' AND p->>'message_id' ~ '^[A-Za-z0-9_-]{1,128}$'))
+  AND (p->'input_tokens'='null'::jsonb OR (jsonb_typeof(p->'input_tokens')='number' AND p->>'input_tokens' ~ '^[0-9]{1,10}$' AND (p->>'input_tokens')::numeric<=2147483647))
+  AND (p->'output_tokens'='null'::jsonb OR (jsonb_typeof(p->'output_tokens')='number' AND p->>'output_tokens' ~ '^[0-9]{1,10}$' AND (p->>'output_tokens')::numeric<=2147483647)),false);
 EXCEPTION WHEN OTHERS THEN RETURN false;
 END $$;
 CREATE FUNCTION concierge_private.owned_v1(c public.host_conversations,r concierge_private.requests,allow_ended boolean)
@@ -120,7 +191,7 @@ $$;
 CREATE FUNCTION public.concierge_admit_v1(p_user_id uuid,p_session_id text,p_request_id uuid,p_payload jsonb,p_tier text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' SET lock_timeout='2s' SET statement_timeout='5s' AS $$
 DECLARE k text; r concierge_private.requests; c public.host_conversations; p concierge_private.policy;
- t timestamptz; cid uuid; lim integer; win interval; used bigint; legacy bigint; active bigint; global_used bigint; cost numeric;
+ t timestamptz; missing_error text; cid uuid; lim integer; win interval; used bigint; legacy bigint; active bigint; global_used bigint; cost numeric;
 BEGIN
  k:=concierge_private.requester_v1(p_user_id,p_session_id);
  IF k IS NULL OR p_request_id IS NULL OR NOT concierge_private.valid_payload_v1(p_payload)
@@ -130,7 +201,8 @@ BEGIN
  t:=clock_timestamp();
  SELECT * INTO r FROM concierge_private.requests WHERE requester=k AND request_id=p_request_id FOR UPDATE;
  IF FOUND THEN
-  IF r.redacted THEN RETURN jsonb_build_object('error','gone'); END IF;
+  IF r.redacted OR r.content_expires_at<=t THEN RETURN jsonb_build_object('error','gone')
+   || CASE WHEN r.state IN ('completed','cancelled','failed') THEN jsonb_build_object('terminal',true) ELSE '{}'::jsonb END; END IF;
   IF r.payload IS DISTINCT FROM p_payload THEN RETURN jsonb_build_object('error','conflict'); END IF;
   SELECT * INTO c FROM public.host_conversations WHERE id=r.conversation_id FOR UPDATE;
   IF NOT concierge_private.owned_v1(c,r,r.state='completed') THEN RETURN jsonb_build_object('error','forbidden'); END IF;
@@ -153,7 +225,11 @@ BEGIN
    OR p.global_budget_microusd IS NULL OR p.max_request_cost_microusd IS NULL
    OR p.max_prompt_bytes IS NULL OR p.max_input_messages IS NULL OR p.max_output_tokens IS NULL
    OR p.max_reply_chars IS NULL OR p.lease_seconds IS NULL OR p.legacy_cutoff IS NULL OR p.legacy_cutoff>t
-   OR p.retention_seconds IS NULL THEN RETURN jsonb_build_object('error','policy_unavailable'); END IF;
+   OR p.retention_seconds IS NULL OR p.content_retention_seconds IS NULL
+   OR p.replay_max_age_seconds IS NULL OR p.max_future_skew_seconds IS NULL THEN RETURN jsonb_build_object('error','policy_unavailable'); END IF;
+ missing_error:=concierge_private.missing_error_v2(p_request_id,p_payload,p,t);
+ IF missing_error IS NOT NULL THEN RETURN jsonb_build_object('error',missing_error)
+   || CASE WHEN missing_error='request_expired' AND concierge_private.expired_terminal_v2(p_request_id,p_payload) THEN jsonb_build_object('terminal',true) ELSE '{}'::jsonb END; END IF;
  -- Only undispatched reservations may expire/refund. Dispatch uncertainty never expires.
  UPDATE concierge_private.requests SET state='cancelled',charged=false,finished_at=t WHERE state='reserved' AND lease_until<=t;
  lim:=CASE p_tier WHEN 'anonymous' THEN 10 WHEN 'explorer' THEN 50 WHEN 'regular' THEN 200 ELSE 1000 END;
@@ -184,9 +260,10 @@ BEGIN
    VALUES(p_user_id,CASE WHEN p_user_id IS NULL THEN p_session_id ELSE NULL END,p_payload->>'host',p_payload->>'surface',p_payload->>'room_id') RETURNING id INTO cid;
  END IF;
  INSERT INTO concierge_private.requests(requester,request_id,user_id,session_id,host,conversation_id,payload,fingerprint,
-   state,admitted_at,lease_until,tier,policy_version,remaining_at_admission,reserved_cost_microusd,max_reply_chars)
+   state,admitted_at,issued_at,content_expires_at,tombstone_retention_seconds,lease_until,tier,policy_version,remaining_at_admission,reserved_cost_microusd,max_reply_chars)
  VALUES(k,p_request_id,p_user_id,CASE WHEN p_user_id IS NULL THEN p_session_id ELSE NULL END,p_payload->>'host',cid,p_payload,
-   pg_catalog.sha256(pg_catalog.convert_to(p_payload::text,'UTF8')),'reserved',t,t+make_interval(secs=>p.lease_seconds),p_tier,p.version,
+   pg_catalog.sha256(pg_catalog.convert_to(p_payload::text,'UTF8')),'reserved',t,(p_payload->>'issued_at')::bigint,
+   t+make_interval(secs=>p.content_retention_seconds),p.retention_seconds,t+make_interval(secs=>p.lease_seconds),p_tier,p.version,
    lim-used-1,p.max_request_cost_microusd,p.max_reply_chars) RETURNING * INTO r;
  RETURN concierge_private.result_v1(r)||jsonb_build_object('admitted',true,'requester',k,'owner_token',r.owner_token,
   'policy',jsonb_build_object('version',p.version,'max_prompt_bytes',p.max_prompt_bytes,'max_input_messages',p.max_input_messages,
@@ -201,7 +278,8 @@ BEGIN
  SELECT * INTO r FROM concierge_private.requests WHERE requester=p_requester AND request_id=p_request_id FOR UPDATE;
  IF NOT FOUND THEN RETURN jsonb_build_object('error','request_missing'); END IF;
  IF r.owner_token IS DISTINCT FROM p_owner_token THEN RETURN jsonb_build_object('error','invalid_token'); END IF;
- IF r.redacted THEN RETURN jsonb_build_object('error','gone'); END IF;
+ IF r.redacted OR r.content_expires_at<=clock_timestamp() THEN RETURN jsonb_build_object('error','gone')
+   || CASE WHEN r.state IN ('completed','cancelled','failed') THEN jsonb_build_object('terminal',true) ELSE '{}'::jsonb END; END IF;
  SELECT * INTO c FROM public.host_conversations WHERE id=r.conversation_id FOR UPDATE;
  IF NOT concierge_private.owned_v1(c,r,false) THEN RETURN jsonb_build_object('error','forbidden'); END IF;
  t:=clock_timestamp();
@@ -214,7 +292,7 @@ BEGIN
  RETURN jsonb_build_object('dispatch_granted',true,'state','dispatching');
 END $$;
 
-CREATE FUNCTION public.concierge_complete_v1(p_requester text,p_request_id uuid,p_owner_token uuid,p_user_text text,p_reply text,p_provider_terminal boolean)
+CREATE FUNCTION public.concierge_complete_v1(p_requester text,p_request_id uuid,p_owner_token uuid,p_user_text text,p_reply text,p_provider_terminal boolean,p_provider_receipt jsonb DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' SET lock_timeout='2s' SET statement_timeout='5s' AS $$
 DECLARE r concierge_private.requests; c public.host_conversations; t timestamptz; mt timestamptz; reply jsonb;
 BEGIN
@@ -222,16 +300,18 @@ BEGIN
  SELECT * INTO r FROM concierge_private.requests WHERE requester=p_requester AND request_id=p_request_id FOR UPDATE;
  IF NOT FOUND THEN RETURN jsonb_build_object('error','request_missing'); END IF;
  IF r.owner_token IS DISTINCT FROM p_owner_token THEN RETURN jsonb_build_object('error','invalid_token'); END IF;
- IF r.redacted THEN RETURN jsonb_build_object('error','gone'); END IF;
+ IF r.redacted OR r.content_expires_at<=clock_timestamp() THEN RETURN jsonb_build_object('error','gone')
+   || CASE WHEN r.state IN ('completed','cancelled','failed') THEN jsonb_build_object('terminal',true) ELSE '{}'::jsonb END; END IF;
  SELECT * INTO c FROM public.host_conversations WHERE id=r.conversation_id FOR UPDATE;
  IF NOT concierge_private.owned_v1(c,r,r.state='completed') THEN RETURN jsonb_build_object('error','forbidden'); END IF;
  IF r.state='completed' THEN RETURN concierge_private.result_v1(r); END IF;
+ IF NOT concierge_private.valid_receipt_v1(p_provider_receipt) THEN RETURN jsonb_build_object('error','invalid_receipt'); END IF;
  IF p_user_text IS DISTINCT FROM r.payload->>'message' OR p_reply IS NULL OR length(btrim(p_reply))=0 OR length(p_reply)>r.max_reply_chars
  THEN RETURN jsonb_build_object('error','invalid_request'); END IF;
  t:=clock_timestamp();
  IF r.state='reserved' AND r.lease_until<=t THEN
   UPDATE concierge_private.requests SET state='cancelled',charged=false,finished_at=t WHERE requester=p_requester AND request_id=p_request_id;
-  RETURN jsonb_build_object('error','expired');
+  RETURN jsonb_build_object('error','expired','terminal',true);
  END IF;
  IF (r.state='reserved' AND p_provider_terminal IS DISTINCT FROM false)
    OR (r.state IN ('dispatching','uncertain') AND p_provider_terminal IS DISTINCT FROM true)
@@ -241,11 +321,11 @@ BEGIN
    (r.user_message_id,r.conversation_id,'user',p_user_text,mt),
    (r.assistant_message_id,r.conversation_id,'assistant',p_reply,mt+interval '1 microsecond');
  reply:=jsonb_build_object('message',p_reply,'conversation_id',r.conversation_id,'host',r.host,'remaining',r.remaining_at_admission,'memory_saved',true);
- UPDATE concierge_private.requests SET state='completed',response=reply,finished_at=t WHERE requester=p_requester AND request_id=p_request_id RETURNING * INTO r;
+ UPDATE concierge_private.requests SET state='completed',response=reply,finished_at=t,provider_receipt=coalesce(p_provider_receipt,provider_receipt) WHERE requester=p_requester AND request_id=p_request_id RETURNING * INTO r;
  RETURN concierge_private.result_v1(r);
 END $$;
 
-CREATE FUNCTION public.concierge_finish_v1(p_requester text,p_request_id uuid,p_owner_token uuid,p_outcome text)
+CREATE FUNCTION public.concierge_finish_v1(p_requester text,p_request_id uuid,p_owner_token uuid,p_outcome text,p_provider_receipt jsonb DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' SET lock_timeout='2s' SET statement_timeout='5s' AS $$
 DECLARE r concierge_private.requests; t timestamptz;
 BEGIN
@@ -254,10 +334,14 @@ BEGIN
  IF NOT FOUND THEN RETURN jsonb_build_object('error','request_missing'); END IF;
  IF r.owner_token IS DISTINCT FROM p_owner_token THEN RETURN jsonb_build_object('error','invalid_token'); END IF;
  t:=clock_timestamp();
+ -- A terminal-success commit racing a failed acknowledgment must win. Never
+ -- downgrade COMPLETED or expose its content through this reconciliation path.
+ IF r.state='completed' THEN RETURN jsonb_build_object('state',r.state,'request_id',r.request_id); END IF;
+ IF NOT concierge_private.valid_receipt_v1(p_provider_receipt) THEN RETURN jsonb_build_object('error','invalid_receipt'); END IF;
  IF p_outcome='no_dispatch' AND r.state='reserved' THEN
   UPDATE concierge_private.requests SET state='cancelled',charged=false,finished_at=t WHERE requester=p_requester AND request_id=p_request_id RETURNING * INTO r;
  ELSIF p_outcome='provider_terminal_failure' AND r.state IN ('dispatching','uncertain') THEN
-  UPDATE concierge_private.requests SET state='failed',finished_at=t WHERE requester=p_requester AND request_id=p_request_id RETURNING * INTO r;
+  UPDATE concierge_private.requests SET state='failed',finished_at=t,provider_receipt=CASE WHEN redacted OR content_expires_at<=t THEN NULL ELSE coalesce(p_provider_receipt,provider_receipt) END WHERE requester=p_requester AND request_id=p_request_id RETURNING * INTO r;
  ELSIF p_outcome='uncertain' AND r.state IN ('dispatching','uncertain') THEN
   UPDATE concierge_private.requests SET state='uncertain' WHERE requester=p_requester AND request_id=p_request_id RETURNING * INTO r;
  ELSE RETURN jsonb_build_object('error','invalid_state'); END IF;
@@ -267,7 +351,7 @@ END $$;
 
 CREATE FUNCTION public.concierge_status_v1(p_user_id uuid,p_session_id text,p_request_id uuid,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' SET lock_timeout='2s' SET statement_timeout='5s' AS $$
-DECLARE k text; r concierge_private.requests; c public.host_conversations;
+DECLARE k text; r concierge_private.requests; c public.host_conversations; p concierge_private.policy; missing_error text; t timestamptz;
 BEGIN
  k:=concierge_private.requester_v1(p_user_id,p_session_id);
  IF k IS NULL OR p_request_id IS NULL OR NOT concierge_private.valid_payload_v1(p_payload) THEN RETURN jsonb_build_object('error','invalid_request'); END IF;
@@ -275,8 +359,16 @@ BEGIN
  PERFORM concierge_private.lock_v1();
  SELECT * INTO r FROM concierge_private.requests WHERE requester=k AND request_id=p_request_id;
  SELECT * INTO c FROM public.host_conversations WHERE id=r.conversation_id;
- IF r.request_id IS NULL THEN RETURN jsonb_build_object('error','request_missing'); END IF;
- IF r.redacted THEN RETURN jsonb_build_object('error','gone'); END IF;
+ t:=clock_timestamp();
+ IF r.request_id IS NULL THEN
+  SELECT * INTO p FROM concierge_private.policy WHERE singleton;
+  missing_error:=concierge_private.missing_error_v2(p_request_id,p_payload,p,t);
+  IF missing_error IS NOT NULL THEN RETURN jsonb_build_object('error',missing_error)
+   || CASE WHEN missing_error='request_expired' AND concierge_private.expired_terminal_v2(p_request_id,p_payload) THEN jsonb_build_object('terminal',true) ELSE '{}'::jsonb END; END IF;
+  RETURN jsonb_build_object('error','request_missing','recovery_required',true);
+ END IF;
+ IF r.redacted OR r.content_expires_at<=t THEN RETURN jsonb_build_object('error','gone')
+   || CASE WHEN r.state IN ('completed','cancelled','failed') THEN jsonb_build_object('terminal',true) ELSE '{}'::jsonb END; END IF;
  IF r.payload IS DISTINCT FROM p_payload THEN RETURN jsonb_build_object('error','conflict'); END IF;
  IF NOT concierge_private.owned_v1(c,r,r.state='completed') THEN RETURN jsonb_build_object('error','forbidden'); END IF;
  RETURN concierge_private.result_v1(r)||jsonb_build_object('recovery_required',r.state='reserved' AND r.lease_until<=clock_timestamp());
@@ -295,7 +387,7 @@ BEGIN
  IF TG_OP='DELETE' THEN
   -- Keep charge, state, timestamps, identity and key. No replay and no dispatch refund.
   -- Detached tombstones have no message/payload/response/hash content.
-  UPDATE concierge_private.requests SET redacted=true,payload=NULL,fingerprint=NULL,response=NULL,conversation_id=NULL
+  UPDATE concierge_private.requests SET redacted=true,redacted_at=coalesce(redacted_at,clock_timestamp()),payload=NULL,fingerprint=NULL,response=NULL,provider_receipt=NULL,conversation_id=NULL
    WHERE conversation_id=OLD.id;
   RETURN OLD;
  END IF;
@@ -329,7 +421,7 @@ BEGIN
  END IF;
  IF TG_OP='UPDATE' AND (NEW.id,NEW.conversation_id,NEW.created_at,NEW.role) IS DISTINCT FROM (OLD.id,OLD.conversation_id,OLD.created_at,OLD.role)
  THEN RAISE EXCEPTION 'message identity, ordering and role are immutable' USING ERRCODE='55000'; END IF;
- UPDATE concierge_private.requests SET redacted=true,payload=NULL,fingerprint=NULL,response=NULL
+ UPDATE concierge_private.requests SET redacted=true,redacted_at=coalesce(redacted_at,clock_timestamp()),payload=NULL,fingerprint=NULL,response=NULL,provider_receipt=NULL
    WHERE conversation_id=OLD.conversation_id AND (user_message_id=OLD.id OR assistant_message_id=OLD.id);
  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
  RETURN NEW;
@@ -339,13 +431,118 @@ CREATE TRIGGER concierge_message_statement BEFORE INSERT OR UPDATE OR DELETE OR 
 CREATE TRIGGER concierge_message_row BEFORE INSERT OR UPDATE OR DELETE ON public.host_messages
  FOR EACH ROW EXECUTE FUNCTION concierge_private.guard_message_v1();
 
+-- Key issuance and the rejection floor are immutable/monotonic even for direct
+-- service-table writers. These guards do not authorize otherwise untrusted SQL.
+CREATE FUNCTION concierge_private.guard_request_identity_v2() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
+BEGIN
+ IF TG_OP='UPDATE' AND (NEW.requester,NEW.request_id,NEW.issued_at) IS DISTINCT FROM (OLD.requester,OLD.request_id,OLD.issued_at)
+ THEN RAISE EXCEPTION 'request identity and issuance are immutable' USING ERRCODE='55000'; END IF;
+ IF TG_OP='INSERT' AND NEW.payload->'version'='2'::jsonb
+   AND (concierge_private.issued_at_v2(NEW.request_id) IS NULL
+     OR NEW.issued_at IS DISTINCT FROM concierge_private.issued_at_v2(NEW.request_id)
+     OR NEW.issued_at IS DISTINCT FROM (NEW.payload->>'issued_at')::bigint)
+ THEN RAISE EXCEPTION 'request issuance must match its UUIDv7 key' USING ERRCODE='22023'; END IF;
+ IF NOT concierge_private.valid_receipt_v1(NEW.provider_receipt)
+ THEN RAISE EXCEPTION 'invalid provider receipt' USING ERRCODE='22023'; END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER concierge_request_statement BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON concierge_private.requests
+ FOR EACH STATEMENT EXECUTE FUNCTION concierge_private.guard_statement_v1();
+CREATE TRIGGER concierge_request_identity BEFORE INSERT OR UPDATE ON concierge_private.requests
+ FOR EACH ROW EXECUTE FUNCTION concierge_private.guard_request_identity_v2();
+CREATE FUNCTION concierge_private.guard_lifecycle_v1() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
+BEGIN
+ IF TG_OP<>'UPDATE' OR NEW.reject_before_ms<OLD.reject_before_ms OR NEW.singleton IS DISTINCT FROM OLD.singleton
+ THEN RAISE EXCEPTION 'replay rejection floor cannot be removed or decreased' USING ERRCODE='55000'; END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER concierge_lifecycle_statement BEFORE UPDATE OR DELETE OR TRUNCATE ON concierge_private.lifecycle
+ FOR EACH STATEMENT EXECUTE FUNCTION concierge_private.guard_statement_v1();
+CREATE TRIGGER concierge_lifecycle_monotonic BEFORE UPDATE OR DELETE ON concierge_private.lifecycle
+ FOR EACH ROW EXECUTE FUNCTION concierge_private.guard_lifecycle_v1();
+
+-- OWNER-ONLY candidate. No service-role execute/delete grant, scheduler or cron.
+-- A separately approved operator job must invoke bounded transactions and alert
+-- on quarantined rows. Do not run against real data under test authorization.
+CREATE FUNCTION concierge_private.maintain_v1(p_limit integer) RETURNS jsonb
+LANGUAGE plpgsql SECURITY INVOKER SET search_path='' SET lock_timeout='2s' SET statement_timeout='5s' AS $$
+DECLARE p concierge_private.policy; r concierge_private.requests; t timestamptz; floor_ms bigint;
+ seen integer:=0; cancelled integer:=0; redacted_count integer:=0; quarantined integer:=0; compacted integer:=0; pruned integer:=0;
+BEGIN
+ IF p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 1000 THEN RETURN jsonb_build_object('error','invalid_batch_limit'); END IF;
+ PERFORM concierge_private.lock_v1();
+ t:=clock_timestamp();
+ SELECT * INTO p FROM concierge_private.policy WHERE singleton;
+ IF NOT FOUND OR p.content_retention_seconds IS NULL OR p.retention_seconds IS NULL
+   OR p.replay_max_age_seconds IS NULL OR p.max_future_skew_seconds IS NULL
+ THEN RETURN jsonb_build_object('error','policy_unavailable'); END IF;
+ -- Advance before pruning in the same transaction and lock as admission/status.
+ -- Even a later wider replay policy cannot revive any old purged UUIDv7 key.
+ UPDATE concierge_private.lifecycle
+ SET reject_before_ms=greatest(reject_before_ms,greatest(0,floor(extract(epoch FROM t)*1000)::bigint-p.replay_max_age_seconds*1000)),last_cleanup_at=t
+ WHERE singleton RETURNING reject_before_ms INTO floor_ms;
+ IF floor_ms IS NULL THEN RAISE EXCEPTION 'replay rejection floor is missing' USING ERRCODE='55000'; END IF;
+ FOR r IN SELECT * FROM concierge_private.requests q
+ WHERE (q.state='reserved' AND q.lease_until<=t)
+   OR (NOT q.redacted AND coalesce(q.content_expires_at,q.admitted_at+make_interval(secs=>p.content_retention_seconds))<=t)
+   OR (q.redacted AND q.state IN ('reserved','dispatching','uncertain') AND q.quarantined_at IS NULL)
+   OR (q.redacted AND q.state IN ('completed','cancelled','failed') AND q.owner_token IS NOT NULL)
+   OR (q.redacted AND q.state IN ('completed','cancelled','failed') AND q.finished_at IS NOT NULL
+       AND q.finished_at<t-make_interval(secs=>greatest(coalesce(q.tombstone_retention_seconds,p.retention_seconds),p.retention_seconds))
+       AND q.admitted_at<t-interval '1 day'
+       AND (concierge_private.issued_at_v2(q.request_id) IS NULL OR concierge_private.issued_at_v2(q.request_id)<=floor_ms))
+ ORDER BY q.admitted_at,q.requester,q.request_id LIMIT p_limit FOR UPDATE SKIP LOCKED
+ LOOP
+  seen:=seen+1;
+  -- No provider call can have happened before a RESERVED lease is cancelled.
+  IF r.state='reserved' AND r.lease_until<=t THEN
+   UPDATE concierge_private.requests SET state='cancelled',charged=false,finished_at=t
+    WHERE requester=r.requester AND request_id=r.request_id RETURNING * INTO r;
+   cancelled:=cancelled+1;
+  END IF;
+  IF NOT r.redacted AND coalesce(r.content_expires_at,r.admitted_at+make_interval(secs=>p.content_retention_seconds))<=t THEN
+   UPDATE concierge_private.requests SET redacted=true,redacted_at=t,payload=NULL,fingerprint=NULL,response=NULL,provider_receipt=NULL
+    WHERE requester=r.requester AND request_id=r.request_id RETURNING * INTO r;
+   redacted_count:=redacted_count+1;
+  END IF;
+  IF r.redacted AND r.state IN ('reserved','dispatching','uncertain') AND r.quarantined_at IS NULL THEN
+   UPDATE concierge_private.requests SET quarantined_at=t,state=CASE WHEN state='dispatching' THEN 'uncertain' ELSE state END
+    WHERE requester=r.requester AND request_id=r.request_id RETURNING * INTO r;
+   quarantined:=quarantined+1;
+  END IF;
+  IF r.redacted AND r.state IN ('completed','cancelled','failed') AND r.owner_token IS NOT NULL THEN
+   -- Keep only key, lifecycle, accounting and retention/replay evidence. The
+   -- requester namespace still identifies a person/session until final pruning.
+   UPDATE concierge_private.requests SET user_id=NULL,session_id=NULL,host=NULL,conversation_id=NULL,
+    owner_token=NULL,user_message_id=NULL,assistant_message_id=NULL,tier=NULL,policy_version=NULL,
+    remaining_at_admission=NULL,max_reply_chars=NULL,provider_receipt=NULL
+    WHERE requester=r.requester AND request_id=r.request_id RETURNING * INTO r;
+   compacted:=compacted+1;
+  END IF;
+  IF r.redacted AND r.state IN ('completed','cancelled','failed') AND r.finished_at IS NOT NULL
+    AND r.finished_at<t-make_interval(secs=>greatest(coalesce(r.tombstone_retention_seconds,p.retention_seconds),p.retention_seconds))
+    AND r.admitted_at<t-interval '1 day'
+    AND (concierge_private.issued_at_v2(r.request_id) IS NULL OR concierge_private.issued_at_v2(r.request_id)<=floor_ms)
+  THEN
+   DELETE FROM concierge_private.requests WHERE requester=r.requester AND request_id=r.request_id;
+   pruned:=pruned+1;
+  END IF;
+ END LOOP;
+ RETURN jsonb_build_object('processed',seen,'cancelled',cancelled,'redacted',redacted_count,
+  'quarantined',quarantined,'compacted',compacted,'pruned',pruned,'reject_before_ms',floor_ms);
+END $$;
+
 -- All new function default PUBLIC execute privileges revoked in this transaction.
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA concierge_private FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA concierge_private TO service_role;
+-- Explicitly remove broad inherited/default execute privileges from maintenance.
+REVOKE ALL ON FUNCTION concierge_private.maintain_v1(integer) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.concierge_admit_v1(uuid,text,uuid,jsonb,text),
- public.concierge_dispatch_v1(text,uuid,uuid),public.concierge_complete_v1(text,uuid,uuid,text,text,boolean),
- public.concierge_finish_v1(text,uuid,uuid,text),public.concierge_status_v1(uuid,text,uuid,jsonb) FROM PUBLIC,anon,authenticated;
+ public.concierge_dispatch_v1(text,uuid,uuid),public.concierge_complete_v1(text,uuid,uuid,text,text,boolean,jsonb),
+ public.concierge_finish_v1(text,uuid,uuid,text,jsonb),public.concierge_status_v1(uuid,text,uuid,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.concierge_admit_v1(uuid,text,uuid,jsonb,text),
- public.concierge_dispatch_v1(text,uuid,uuid),public.concierge_complete_v1(text,uuid,uuid,text,text,boolean),
- public.concierge_finish_v1(text,uuid,uuid,text),public.concierge_status_v1(uuid,text,uuid,jsonb) TO service_role;
+ public.concierge_dispatch_v1(text,uuid,uuid),public.concierge_complete_v1(text,uuid,uuid,text,text,boolean,jsonb),
+ public.concierge_finish_v1(text,uuid,uuid,text,jsonb),public.concierge_status_v1(uuid,text,uuid,jsonb) TO service_role;
 COMMIT;

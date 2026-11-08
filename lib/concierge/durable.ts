@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { randomUUID } from 'node:crypto'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getSiteContent } from '@/lib/content/site'
 import { getUpcomingEvents, type EventRow } from '@/lib/events'
@@ -17,9 +16,26 @@ export function durableMode(): 'off' | 'on' | 'invalid' {
   const value = process.env.CONCIERGE_DURABLE_MODE
   return !value || value === 'off' ? 'off' : value === 'on' ? 'on' : 'invalid'
 }
+/** Deployment-local admission gate only. Old workers need a coordinated drain. */
+export function textMaintenance(): 'off' | 'on' | 'invalid' {
+  const value = process.env.CONCIERGE_TEXT_MAINTENANCE
+  return !value || value === 'off' ? 'off' : value === 'on' ? 'on' : 'invalid'
+}
 export function durablePayload(body: ConciergeRequest) {
-  return { version: 1, host: body.host, message: body.message, conversation_id: body.conversation_id,
+  // Omit issued_at entirely for retained v1 bodies to preserve their hashes.
+  return { ...(body.issued_at == null ? { version: 1 } : { version: 2, issued_at: body.issued_at }), host: body.host, message: body.message, conversation_id: body.conversation_id,
     surface: body.surface, room_id: body.room_id }
+}
+/** Only bounded opaque identifiers and token counts, never provider content or
+ * exception bodies. A receipt is evidence to inspect, not dispatch authority. */
+export function sanitizedProviderReceipt(value: unknown) {
+  const source = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const usage = source.usage && typeof source.usage === 'object' ? source.usage as Record<string, unknown> : {}
+  const id = (candidate: unknown) => typeof candidate === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(candidate) ? candidate : null
+  const tokens = (candidate: unknown) => typeof candidate === 'number' && Number.isSafeInteger(candidate)
+    && candidate >= 0 && candidate <= 2147483647 ? candidate : null
+  return { request_id: id(source._request_id), message_id: id(source.id),
+    input_tokens: tokens(usage.input_tokens), output_tokens: tokens(usage.output_tokens) }
 }
 type Admin = { rpc: (name: string, args: Record<string, unknown>) => any; from: (table: string) => any }
 type Context = { req: Request; body: ConciergeRequest; admin: Admin; userId: string | null; tier: Tier }
@@ -34,8 +50,9 @@ function reply(req: Request, data: any, requestId: string, admissionError = fals
     const code = String(data.error)
     const status = code === 'conflict' ? 409 : ['forbidden', 'invalid_token', 'conversation_unavailable'].includes(code) ? 403
       : code === 'quota_exceeded' ? 429 : code === 'request_missing' ? 404
-      : code === 'invalid_request' ? 400 : ['gone', 'expired', 'invalid_state'].includes(code) ? 409 : 503
+      : code === 'invalid_request' ? 400 : ['gone', 'expired', 'request_expired', 'invalid_state'].includes(code) ? 409 : 503
     return jsonWithCors({ ...base, error: 'This request could not proceed.', code,
+      ...(data.terminal === true && ['gone', 'expired', 'request_expired'].includes(code) ? { terminal: true } : {}),
       ...(admissionError && ['quota_exceeded', 'capacity_busy', 'policy_unavailable', 'invalid_request'].includes(code) || (admissionError && code === 'conversation_unavailable' && data.admitted === false) ? { admitted: false } : {}),
       rate_limited: code === 'quota_exceeded' }, { request: req, status })
   }
@@ -54,13 +71,15 @@ export async function durableStatus({ req, body, admin, userId }: Omit<Context, 
   try {
     const data = await rpc(admin, 'status', { p_user_id: userId, p_session_id: body.session_id,
       p_request_id: body.request_id, p_payload: durablePayload(body) })
-    if (durableMode() === 'on' && data.error === 'request_missing') {
-      // A delayed original admission races safely under the same ledger key.
-      // This grants admission retry only, never provider dispatch authority.
+    const canReplay = durableMode() === 'on' && textMaintenance() === 'off'
+    if (canReplay && data.error === 'request_missing' && data.recovery_required === true && body.issued_at != null) {
+      // Only the database can authorize this: it owns the clock, policy and
+      // monotonic purge watermark. Old SQL/old clients fail closed on MISSING.
+      // A delayed original still competes for exactly the same immutable key.
       return jsonWithCors({ durable: true, request_id: body.request_id, state: 'MISSING',
         code: 'request_missing', recovery_required: true }, { request: req, status: 202 })
     }
-    if (durableMode() !== 'on') data.recovery_required = false
+    if (!canReplay) data.recovery_required = false
     return reply(req, data, body.request_id)
   } catch {
     return jsonWithCors({ error: 'Request status is unavailable. Keep this request ID and check again.',
@@ -68,7 +87,10 @@ export async function durableStatus({ req, body, admin, userId }: Omit<Context, 
   }
 }
 export async function durablePost({ req, body, admin, userId, tier }: Context) {
-  const requestId = body.request_id ?? randomUUID()
+  // Never mint a new identity/time on behalf of an old caller or recovery.
+  if (!body.request_id) return jsonWithCors({ error: 'Update this client before sending durable chat.',
+    code: 'request_upgrade_required', admitted: false, durable: true }, { request: req, status: 409 })
+  const requestId = body.request_id
   const args = { p_user_id: userId, p_session_id: body.session_id, p_request_id: requestId, p_payload: durablePayload(body) }
   const pending = (code: string) => jsonWithCors({ error: 'Your request may still be pending. Check this same request ID; do not send it as a new request.',
     code, request_id: requestId, durable: true, legacy_request_id: !body.request_id }, { request: req, status: 503 })
@@ -83,7 +105,24 @@ export async function durablePost({ req, body, admin, userId, tier }: Context) {
   if (admission.state !== 'RESERVED' || admission.requester !== expectedRequester
     || !UUID_PATTERN.test(admission.owner_token ?? '') || !UUID_PATTERN.test(admission.conversation_id ?? '')) return pending('admission_unknown')
   const owned = { p_requester: expectedRequester, p_request_id: requestId, p_owner_token: admission.owner_token }
-  const finish = async (outcome: string) => { try { await rpc(admin, 'finish', { ...owned, p_outcome: outcome }) } catch { /* fail closed */ } }
+  let providerReceipt: ReturnType<typeof sanitizedProviderReceipt> | null = null
+  const finish = async (outcome: string) => {
+    try { return await rpc(admin, 'finish', { ...owned, p_outcome: outcome, p_provider_receipt: providerReceipt }) }
+    catch { return null } // No acknowledgement is not proof of terminal storage.
+  }
+  const terminalReply = async (finished: any) => {
+    if (!finished) return null
+    if (['FAILED', 'CANCELLED'].includes(finished.state)) return reply(req, finished, requestId)
+    if (finished.state === 'COMPLETED') {
+      // Finish acknowledges state only, not cache contents. A concurrent commit
+      // wins, but only a fresh authorized status read may expose its response.
+      try {
+        const status = await rpc(admin, 'status', args)
+        if (status.state === 'COMPLETED' || status.error) return reply(req, status, requestId)
+      } catch { /* keep the original request when the cache cannot be verified */ }
+    }
+    return null
+  }
   let dispatchAttempted = false
   let providerTerminal = false
   try {
@@ -119,6 +158,7 @@ export async function durablePost({ req, body, admin, userId, tier }: Context) {
       const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 25000, maxRetries: 0 })
       const completion = await anthropic.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: policy.max_output_tokens, system, messages })
       providerTerminal = true
+      providerReceipt = sanitizedProviderReceipt(completion)
       answer = completion.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('').trim()
       if (!answer) answer = "Sorry, I didn't catch that — try me again?"
     }
@@ -126,20 +166,31 @@ export async function durablePost({ req, body, admin, userId, tier }: Context) {
     // Retry only this atomic database transaction, never the paid operation.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const completed = await rpc(admin, 'complete', { ...owned, p_user_text: body.message, p_reply: answer, p_provider_terminal: providerTerminal })
-        if (completed.state === 'COMPLETED' || completed.error) return reply(req, completed, requestId)
+        const completed = await rpc(admin, 'complete', { ...owned, p_user_text: body.message, p_reply: answer, p_provider_terminal: providerTerminal, p_provider_receipt: providerReceipt })
+        if (completed.state === 'COMPLETED') return reply(req, completed, requestId)
+        // A privacy/deletion or validation error after provider terminality is
+        // not proof of terminal ledger state. Reconcile status/finish below.
+        if (completed.error && !providerTerminal) return reply(req, completed, requestId)
       } catch { /* response loss and transaction failure are both safely retried */ }
     }
     try {
       const status = await rpc(admin, 'status', args)
       if (status.state === 'COMPLETED') return reply(req, status, requestId)
     } catch { /* keep the uncommitted answer private */ }
-    if (dispatchAttempted) await finish('uncertain')
+    if (dispatchAttempted) {
+      const finished = await finish(providerTerminal ? 'provider_terminal_failure' : 'uncertain')
+      const response = await terminalReply(finished)
+      if (response) return response
+    }
     return pending('save_pending')
   } catch {
     // Even a received HTTP error is conservatively unknown unless the provider
     // explicitly proves terminal execution. Never log provider exception text.
-    await finish(!dispatchAttempted ? 'no_dispatch' : providerTerminal ? 'provider_terminal_failure' : 'uncertain')
+    const finished = await finish(!dispatchAttempted ? 'no_dispatch' : providerTerminal ? 'provider_terminal_failure' : 'uncertain')
+    if (providerTerminal) {
+      const response = await terminalReply(finished)
+      if (response) return response
+    }
     return pending(dispatchAttempted ? 'dispatch_unknown' : 'preparation_failed')
   }
 }

@@ -23,6 +23,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { createDurableRequestIdentity } from '@/lib/concierge/request'
 import { createChatStorage } from '@/lib/concierge/browser-session'
 import { createPendingChatStorage, sameChatIdentity, chatRequestResolved, recoverChatRequest, type PendingChatRequest } from '@/lib/concierge/browser-requests'
 import LiveVoiceConversation from '@/components/LiveVoiceConversation'
@@ -146,7 +147,9 @@ function AskInner() {
   const [storageBlocked, setStorageBlocked] = useState(false)
   const [storageUnavailable, setStorageUnavailable] = useState(false)
   const [durableEnabled, setDurableEnabled] = useState<boolean | null>(null)
-  const chatBlocked = durableEnabled === null || storageBlocked || (durableEnabled && storageUnavailable)
+  const [textPaused, setTextPaused] = useState(false)
+  const recoveryBlocked = durableEnabled === null || storageBlocked || (durableEnabled && storageUnavailable)
+  const chatBlocked = recoveryBlocked || textPaused
   const pendingRef = useRef<PendingChatRequest | null>(null)
   const [liveActive, setLiveActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -240,8 +243,12 @@ function AskInner() {
       try {
         const response = await fetch('/api/concierge/status', { method: 'GET', cache: 'no-store', signal: controller.signal })
         const data = await response.json()
-        if (!response.ok || typeof data.durable_enabled !== 'boolean') throw new Error('Capability unavailable')
-        if (active) setDurableEnabled(data.durable_enabled)
+        if (!response.ok || typeof data.durable_enabled !== 'boolean' || typeof data.text_admissions_enabled !== 'boolean'
+          || (data.durable_enabled && data.durable_payload_version !== 2)) throw new Error('Capability unavailable')
+        if (active) {
+          setDurableEnabled(data.durable_enabled)
+          setTextPaused(!data.text_admissions_enabled)
+        }
       } catch {
         if (active) setError('Chat availability could not be checked. Reload to try again; no message has been sent.')
       } finally { clearTimeout(timeout) }
@@ -302,7 +309,7 @@ function AskInner() {
     if (!trimmed || sendingRef.current || liveActive || isSignedIn === null || pendingRef.current || chatBlocked) return
     const request: PendingChatRequest = {
       requester: requesterRef.current, host: activeHost,
-      body: JSON.stringify({ ...(durableEnabled ? { request_id: crypto.randomUUID() } : {}), host: activeHost, message: trimmed,
+      body: JSON.stringify({ ...(durableEnabled ? createDurableRequestIdentity() : {}), host: activeHost, message: trimmed,
         session_id: sessionIdRef.current, conversation_id: conversationIdRef.current, surface: 'web-chat' }),
     }
     if (durableEnabled) try {
@@ -341,17 +348,17 @@ function AskInner() {
     stopListening()
     stopAudio()
     try {
-      let res: Response, data: Record<string, any>, lookup = recovery
+      let res: Response, data: Record<string, any>
       if (recovery) {
         const result = await recoverChatRequest(request, fetch, controller.signal, current)
-        res = result.response; data = result.data; lookup = result.recovery
+        res = result.response; data = result.data
       } else {
         res = await fetch('/api/concierge', { signal: controller.signal, method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Concierge-Durable': retained ? '1' : '0', 'X-Concierge-Requester': request.requester }, body: request.body })
         data = await res.json().catch(() => ({}))
       }
       if (!current()) return
-      const resolved = !retained || chatRequestResolved(res.status, data, lookup)
+      const resolved = !retained || chatRequestResolved(res.status, data, recovery)
       if (resolved && retained) {
         pendingStorage.clear(request)
         loadPending(request.host, requesterRef.current)
@@ -366,6 +373,13 @@ function AskInner() {
         if (data.memory_saved === false && typeof data.warning === 'string') setError(data.warning)
         succeeded = true
         if (voiceModeRef.current) await speak(data.message, request.host, reply.timestamp)
+      } else if (data.code === 'text_maintenance') {
+        setTextPaused(true)
+        setError(retained
+          ? 'Text chat is paused. Your original message is retained; check it for an existing reply or return after maintenance.'
+          : 'Text chat is paused. Your draft is kept here; reload after maintenance.')
+      } else if (data.code === 'request_expired' && !resolved) {
+        setError('This message is too old to replay safely. It is retained and will not be resent. Contact support to resolve its outcome.')
       } else if (data.code === 'durable_disabled') {
         setError('Recovery is unavailable while durable chat is disabled. The original message may have completed. It is retained and will not be resent; enable recovery or contact support to resolve it.')
       } else if (!resolved) {
@@ -378,6 +392,7 @@ function AskInner() {
           chatStorage.clearConversation(request.host, request.requester)
           setError('That conversation has ended or belongs to another session. Send your message again to start a new conversation.')
         } else if (res.status === 429 && data.rate_limited) setRateLimited(data.error || 'You have hit the message limit.')
+        else if (data.terminal === true && ['gone', 'expired', 'request_expired'].includes(data.code)) setError('This message has ended and its saved reply is no longer available. You can start a new message.')
         else if (data.code === 'mode_changed') setError('Chat mode changed. Reload this page before sending again; this message was not admitted.')
         else setError(data.error || 'This request ended without a reply.')
         setInput(JSON.parse(request.body).message)
@@ -816,6 +831,9 @@ function AskInner() {
             </div>
           )}
 
+          {textPaused && (
+            <p className="mx-6 mb-4 text-sm" role="status">Text chat is paused for maintenance. You can still check an existing message. Event pages and shared YouTube chat remain available.</p>
+          )}
           {durableEnabled === true && storageUnavailable && (
             <p className="mx-6 mb-4 text-sm" role="alert">Chat recovery storage is unavailable. Enable browser storage before sending.</p>
           )}
@@ -831,7 +849,7 @@ function AskInner() {
           )}
 
           <div className="px-4 lg:px-6">
-            {!pending && !chatBlocked && <LiveVoiceConversation key={activeHost} host={activeHost} conversationId={conversationIdRef.current}
+            {!pending && !recoveryBlocked && <LiveVoiceConversation key={activeHost} host={activeHost} conversationId={conversationIdRef.current}
               signedIn={Boolean(isSignedIn)} onActive={setLiveActive}
               onStart={() => { voiceModeRef.current = false; setVoiceMode(false); stopListening(); stopAudio() }} />}
           </div>

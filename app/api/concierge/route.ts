@@ -1,4 +1,4 @@
-import { durableMode, durablePost } from '@/lib/concierge/durable'
+import { durableMode, durablePost, textMaintenance } from '@/lib/concierge/durable'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getSiteContent } from '@/lib/content/site'
 import { getUpcomingEvents, type EventRow } from '@/lib/events'
@@ -73,6 +73,13 @@ async function handlePost(req: Request) {
   // running server work. Reject an unapproved browser origin before any I/O.
   if (!conciergeOriginAllowed(req)) {
     return jsonWithCors({ error: 'This chat origin is not allowed.', code: 'origin_not_allowed' }, { status: 403, request: req })
+  }
+  // This text-only gate runs before auth, database, quota and provider access.
+  // Do not claim non-admission: this may be a retry of an already admitted ID.
+  const maintenance = textMaintenance()
+  if (maintenance !== 'off') {
+    return jsonWithCors({ error: 'Text chat is paused. Existing messages can still be checked.',
+      code: maintenance === 'on' ? 'text_maintenance' : 'policy_unavailable' }, { status: 503, request: req })
   }
   if (req.headers.get('x-concierge-durable') === '0' && durableMode() !== 'off') {
     return jsonWithCors({ error: 'Chat mode changed. Please try again.', code: 'mode_changed', admitted: false }, { status: 503, request: req })

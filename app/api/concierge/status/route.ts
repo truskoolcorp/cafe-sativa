@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { durableStatus, durableMode } from '@/lib/concierge/durable'
+import { durableStatus, durableMode, textMaintenance } from '@/lib/concierge/durable'
 import { validateConciergeRequest, conciergeRequesterMatches } from '@/lib/concierge/request'
 import { conciergeOriginAllowed } from '@/lib/concierge/request-origin'
 import { jsonWithCors, preflight } from '@/lib/cors'
@@ -31,9 +31,11 @@ export async function OPTIONS(req: Request) { return preflight(req) }
 // the worker configuration. The durable request header also fences mode changes.
 export async function GET(req: Request) {
   if (!conciergeOriginAllowed(req)) return jsonWithCors({ error: 'Origin not allowed.' }, { request: req, status: 403 })
-  const mode = durableMode()
-  const response = jsonWithCors(mode === 'invalid' ? { code: 'policy_unavailable' } : { durable_enabled: mode === 'on' },
-    { request: req, status: mode === 'invalid' ? 503 : 200 })
+  const mode = durableMode(), maintenance = textMaintenance()
+  const invalid = mode === 'invalid' || maintenance === 'invalid'
+  const response = jsonWithCors(invalid ? { code: 'policy_unavailable' } : { durable_enabled: mode === 'on',
+    durable_payload_version: 2, text_admissions_enabled: maintenance === 'off' },
+    { request: req, status: invalid ? 503 : 200 })
   response.headers.set('Cache-Control', 'no-store')
   return response
 }

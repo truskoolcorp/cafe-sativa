@@ -88,9 +88,11 @@ export function createPendingChatStorage(getStorage: () => StorageLike) {
 /** Only explicit safe outcomes release the composer. Unknown failures stay retained. */
 export function chatRequestResolved(status: number, data: Record<string, unknown>, recovery = false): boolean {
   if (status === 200 && typeof data.message === 'string' && data.message.trim()) return true
-  if (data.terminal === true || data.admitted === false) return true
-  // A status lookup rejection says nothing about the original request's admission.
+  if (data.terminal === true) return true
+  // Neither a status lookup nor a recovery POST rejection fences an older
+  // in-flight original. A transient denial creates no rejection tombstone.
   if (recovery) return false
+  if (data.admitted === false) return true
   return status === 400 || (status === 429 && data.rate_limited === true)
     || ['origin_not_allowed', 'conversation_unavailable', 'missing_session', 'not_configured'].includes(String(data.code))
 }
@@ -104,7 +106,8 @@ export async function recoverChatRequest(request: PendingChatRequest, fetcher: t
   if (stillCurrent() && response.status === 202 && data.recovery_required === true) {
     response = await fetcher('/api/concierge', init)
     data = await response.json().catch(() => ({}))
-    return { response, data, recovery: false }
   }
+  // This remains the original recovery chain even after another admission
+  // attempt. Only verified terminal state or a committed response may end it.
   return { response, data, recovery: true }
 }

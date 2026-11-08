@@ -25,20 +25,32 @@ resolved image digests, and starts a unique project named from that CI run.
 PostgreSQL data lives in container tmpfs. Cleanup is restricted to that project.
 Existing containers in the same project cause refusal rather than reuse.
 
-Both services use a Docker **internal** network with no normal external egress.
-Published ports bind only to loopback (`55432` for PostgreSQL and `59999` for
-Auth). All credentials are fixed disposable test values. No application `.env`
-is read or mounted. The Python runner replaces all inherited libpq settings,
-uses a fixed local Auth URL, disables HTTP proxies and redirects, and allows
-only its explicit Auth endpoints. Emails use `example.invalid`, email signup
+Both services use a Docker **internal** network with no normal external egress
+and **no published ports**. Docker does not publish ports for containers attached
+only to internal networks because there is no default-gateway network. On the
+Linux GitHub host, the runner instead reaches the private container IPs directly.
+`isolation.py` discovers them from local Docker metadata and verifies the current
+run's exact Compose ownership labels, pinned image names, running state, one
+internal bridge, private subnet, distinct matching addresses, no published
+bindings, no additional networks and exactly the two expected network members.
+It accepts no environment-supplied or guessed host/URL. Failure of any check
+stops acceptance before an Auth or SQL request. No external network or proxy is
+added to make the service reachable.
+
+All credentials are fixed disposable test values. No application `.env` is read
+or mounted. The Python runner replaces all inherited libpq settings, uses only
+the verified private endpoints on container ports `5432` and `9999`, disables
+HTTP proxies and redirects, and allows only its explicit Auth endpoints. Emails use `example.invalid`, email signup
 auto-confirms, and SMTP points to an unusable loopback port. No email, SMS, OAuth,
 payment, LLM or other external provider is contacted.
 The isolated service's email/OTP/token/verify rate limits are raised explicitly
 for the fixture volume; they do not describe or alter hosted project limits.
 
-Failure diagnostics show only container state, not raw Auth logs, database
-connection strings, access/refresh tokens, passwords, or arbitrary Auth response
-bodies. The runner retains full synthetic rows only in memory to compare
+Failure diagnostics show owned container state and fixed startup event names
+(migrations applied, API listening port, configuration/connect/migration failure,
+or error details withheld). Raw logs are captured privately, classified and
+never echoed. Environment values, database connection strings, access/refresh
+tokens, passwords and arbitrary Auth response bodies are not emitted. The runner retains full synthetic rows only in memory to compare
 transaction rollback. Do not add raw request/response logging.
 
 ## Fixture boundary
@@ -122,19 +134,27 @@ These checks run without Docker, servers, network requests or credentials:
 
 ```sh
 python3 -m unittest discover -s tests/auth-service -p 'test_*.py' -v
-python3 -m py_compile tests/auth-service/run.py tests/auth-service/test_harness.py
+python3 -m py_compile tests/auth-service/*.py
 bash -n tests/auth-service/run-ci.sh
 ```
 
 Offline tests cover endpoint/credential isolation, proxy/redirect rejection,
 runtime gating, real HTTP deletion routing, no direct Auth DML/schema fallback,
 required backend/wait evidence, synthetic JWT generation, safe error reporting,
-the exact signup hook and pinned internal Compose configuration. They validate
+the exact signup hook, pinned internal Compose configuration, Docker-owned
+endpoint validation, rejection of external/mixed/mismatched topology and safe
+startup-log classification. They validate
 the harness; they do **not** prove that the containers start or that service
 acceptance passes. Report a service pass only after this job succeeds on the
 exact candidate commit and reports its migration digest. A missing image,
 startup/migration/configuration error, missing observed wait or failed assertion
 fails the job. Do not replace it with a mocked success or another Auth version.
+
+The first service CI attempt on `dd866ddb` failed before any API lifecycle test:
+containers were running, but host loopback `/health` was refused. The original
+internal-only Compose topology relied on ineffective published ports. The
+current direct-private-address design fixes that configuration defect; it still
+requires a successful new CI run to establish startup and acceptance results.
 
 ## Official version-pinned sources
 
@@ -150,6 +170,9 @@ fails the job. Do not replace it with a mocked success or another Auth version.
 - [Configuration definitions](https://github.com/supabase/auth/blob/v2.197.0/internal/conf/configuration.go)
   and [HTTP error response versions](https://github.com/supabase/auth/blob/v2.197.0/internal/api/errors.go).
 - [Exact signup/user/token rate-limit configuration mapping](https://github.com/supabase/auth/blob/v2.197.0/internal/api/apilimiter/apilimiter.go).
+
+- [Docker internal-network semantics and host-to-container access](https://docs.docker.com/reference/cli/docker/network/create/).
+- [Moby maintainer explanation of internal-only port publishing and direct Linux-host access](https://github.com/moby/moby/discussions/53256).
 
 Sources establish the intended configuration and transaction path. Image pull,
 startup and actual runtime evidence are deliberately left to the isolated CI job.

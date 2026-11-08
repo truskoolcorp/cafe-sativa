@@ -61,6 +61,7 @@ jobs:
       CAFE_DISPOSABLE_DB: '1'
     steps:
       - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests/db -p 'test_*.py' -v
       - run: python3 tests/db/run.py --bootstrap
 
   isolated-auth-service:

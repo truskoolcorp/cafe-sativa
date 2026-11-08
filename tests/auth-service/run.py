@@ -24,7 +24,7 @@ import uuid
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 MIGRATION = ROOT / 'supabase/migrations/20261108090000_durable_concierge_admission.sql'
-AUTH_URL = 'http://127.0.0.1:59999'
+AUTH_URL = None  # Set only from verified, job-owned internal Docker metadata.
 AUTH_VERSION = 'v2.197.0'
 JWT_SECRET = b'synthetic-auth-ci-only-not-a-real-project-secret-2026'
 PASSWORD = 'Synthetic-only-Password-42!'
@@ -35,19 +35,22 @@ spec = importlib.util.spec_from_file_location('cafe_database_helpers', ROOT / 't
 db = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(db)
 sql, literal, as_role = db.sql, db.literal, db.as_role
+isolation_spec = importlib.util.spec_from_file_location('cafe_auth_isolation', HERE / 'isolation.py')
+isolation = importlib.util.module_from_spec(isolation_spec)
+isolation_spec.loader.exec_module(isolation)
 
 
 def configure_environment():
-    if (os.environ.get('CAFE_DISPOSABLE_AUTH') != '1'
-            or os.environ.get('GITHUB_ACTIONS') != 'true'
-            or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
-        raise SystemExit('Actual Auth acceptance requires the isolated GitHub-hosted CI job.')
+    global AUTH_URL
+    isolation.project_name()  # Validate opt-in before any Docker inspection.
+    endpoints = isolation.discover_endpoints()
     # Never consume a repository .env, real credentials, libpq hostaddr/service,
     # an environment-supplied URL, a proxy, or a user's password file.
     for key in list(os.environ):
         if key.startswith('PG'):
             del os.environ[key]
-    os.environ.update(PGHOST='127.0.0.1', PGPORT='55432', PGUSER='postgres',
+    AUTH_URL = f"http://{endpoints['auth']}:9999"
+    os.environ.update(PGHOST=endpoints['db'], PGPORT='5432', PGUSER='postgres',
                       PGPASSWORD='synthetic-postgres-ci-only',
                       PGDATABASE='cafe_auth_service_test', PGPASSFILE='/dev/null',
                       PGCONNECT_TIMEOUT='3', PGAPPNAME='cafe-auth-acceptance',
@@ -77,6 +80,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def http(method, path, body=None, *, admin=False, token=None):
     if not re.fullmatch(r'/(?:health|signup|user|token\?grant_type=(?:password|refresh_token)|admin/users(?:/[0-9a-f-]{36})?)', path):
         raise ValueError('Only explicit local Auth acceptance endpoints are permitted.')
+    if AUTH_URL is None:
+        raise RuntimeError('Auth endpoint has not been verified against the disposable Docker project.')
     headers = {'Content-Type': 'application/json'}
     if admin or token:
         headers['Authorization'] = 'Bearer ' + (admin_token() if admin else token)

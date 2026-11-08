@@ -27,7 +27,7 @@ cleanup() {
   trap - EXIT
   if (( result != 0 )); then
     echo 'Isolated Auth acceptance failed. Container state follows; raw service logs are not emitted.' >&2
-    "${compose[@]}" ps --all --format '{{.Service}} {{.State}} {{.Health}} {{.ExitCode}}' || true
+    python3 tests/auth-service/isolation.py || true
   fi
   "${compose[@]}" down --volumes --remove-orphans || true
   exit "$result"
@@ -41,4 +41,7 @@ done
 "${compose[@]}" up --detach --wait --wait-timeout 120 db
 "${compose[@]}" up --detach auth
 
+# Internal-only bridges have no gateway network on which Docker can publish a
+# host port. The Linux host runner discovers and validates these owned container
+# addresses directly, without adding outbound routing to either service.
 CAFE_DISPOSABLE_AUTH=1 python3 tests/auth-service/run.py

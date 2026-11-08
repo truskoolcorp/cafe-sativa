@@ -7,8 +7,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: synthetic-postgres-ci-only
       POSTGRES_DB: cafe_auth_service_test
-    ports:
-      - '127.0.0.1:55432:5432'
     volumes:
       - ./init-roles.sql:/docker-entrypoint-initdb.d/01-cafe-roles.sql:ro
     tmpfs:
@@ -57,8 +55,6 @@ services:
       GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: 'true'
       GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: '0'
       GOTRUE_LOG_LEVEL: info
-    ports:
-      - '127.0.0.1:59999:9999'
     networks: [isolated]
 networks:
   isolated:

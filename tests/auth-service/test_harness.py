@@ -1,6 +1,7 @@
 """Offline tests only: no database, subprocess service, socket or Auth request."""
 import ast
 import base64
+import copy
 import hashlib
 import hmac
 import importlib.util
@@ -24,6 +25,12 @@ def decode(part):
 
 
 class HarnessTests(unittest.TestCase):
+    def setUp(self):
+        # HTTP tests use a fake, known local origin and a mocked opener only.
+        endpoint = patch.object(runner, 'AUTH_URL', 'http://127.0.0.1:59999')
+        endpoint.start()
+        self.addCleanup(endpoint.stop)
+
     def test_runtime_requires_explicit_hosted_ci(self):
         for env in ({}, {'CAFE_DISPOSABLE_AUTH': '1'},
                     {'CAFE_DISPOSABLE_AUTH': '1', 'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'self-hosted'}):
@@ -34,12 +41,15 @@ class HarnessTests(unittest.TestCase):
     def test_libpq_environment_is_replaced_not_inherited(self):
         with patch.dict(os.environ, {
             'CAFE_DISPOSABLE_AUTH': '1', 'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+            'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1',
             'PGHOST': 'live.invalid', 'PGHOSTADDR': '192.0.2.1', 'PGSERVICE': 'live',
             'PGSERVICEFILE': '/tmp/untrusted.conf', 'PGPASSWORD': 'not-a-real-password',
-        }, clear=True):
+        }, clear=True), patch.object(runner.isolation, 'discover_endpoints',
+                                    return_value={'db': '172.30.0.2', 'auth': '172.30.0.3'}):
             runner.configure_environment()
-            self.assertEqual(os.environ['PGHOST'], '127.0.0.1')
-            self.assertEqual(os.environ['PGPORT'], '55432')
+            self.assertEqual(os.environ['PGHOST'], '172.30.0.2')
+            self.assertEqual(os.environ['PGPORT'], '5432')
+            self.assertEqual(runner.AUTH_URL, 'http://172.30.0.3:9999')
             self.assertEqual(os.environ['PGDATABASE'], 'cafe_auth_service_test')
             self.assertEqual(os.environ['PGPASSWORD'], 'synthetic-postgres-ci-only')
             self.assertEqual(os.environ['PGPASSFILE'], '/dev/null')
@@ -77,6 +87,12 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(build.call_args.args[0].proxies, {})
             self.assertIsInstance(build.call_args.args[1], runner.NoRedirect)
             self.assertEqual(build.return_value.open.call_args.kwargs['timeout'], 8)
+
+    def test_http_refuses_an_unverified_origin(self):
+        with patch.object(runner, 'AUTH_URL', None), patch.object(runner.urllib.request, 'build_opener') as build:
+            with self.assertRaises(RuntimeError):
+                runner.http('GET', '/health')
+            build.assert_not_called()
 
     def test_redirect_is_rejected(self):
         with self.assertRaises(RuntimeError):
@@ -157,8 +173,7 @@ class HarnessTests(unittest.TestCase):
         self.assertIn('image: supabase/gotrue:v2.197.0', compose)
         self.assertIn('image: postgres:17.6', compose)
         self.assertIn('internal: true', compose)
-        self.assertIn("'127.0.0.1:55432:5432'", compose)
-        self.assertIn("'127.0.0.1:59999:9999'", compose)
+        self.assertNotIn('ports:', compose)
         self.assertIn("GOTRUE_SMTP_PORT: '1'", compose)
         self.assertIn("GOTRUE_MAILER_AUTOCONFIRM: 'true'", compose)
         self.assertNotIn('${', compose)
@@ -176,6 +191,97 @@ class HarnessTests(unittest.TestCase):
         self.assertNotRegex(shell, r'compose\[@\].*logs')
         self.assertNotIn('docker system prune', shell)
         self.assertIn('"${compose[@]}" down --volumes --remove-orphans', shell)
+
+
+class IsolationTests(unittest.TestCase):
+    def topology(self):
+        project = 'cafe-auth-123-1'
+        name = project + '_isolated'
+        net_id = 'c' * 64
+        containers = {}
+        for i, service in enumerate(('db', 'auth'), 2):
+            containers[service] = {
+                'id': ('a' if service == 'auth' else 'b') * 64,
+                'image': runner.isolation.IMAGES[service], 'project': project,
+                'service': service, 'status': 'running', 'bindings': {},
+                'networks': {name: {'NetworkID': net_id, 'IPAddress': f'172.30.0.{i}'}},
+            }
+        network = {'name': name, 'id': net_id, 'project': project, 'network': 'isolated',
+                   'driver': 'bridge', 'internal': True, 'ipam': [{'Subnet': '172.30.0.0/16'}],
+                   'containers': {data['id']: {'IPv4Address': data['networks'][name]['IPAddress'] + '/16'}
+                                  for data in containers.values()}}
+        return project, network, containers
+
+    def test_accepts_only_owned_internal_topology(self):
+        project, network, containers = self.topology()
+        self.assertEqual(runner.isolation.validate_topology(project, network, containers),
+                         {'db': '172.30.0.2', 'auth': '172.30.0.3'})
+
+    def test_rejects_external_network_mixed_membership_or_unowned_services(self):
+        project, original_net, original_containers = self.topology()
+        mutations = (
+            lambda n, c: n.update(internal=False),
+            lambda n, c: n.update(project='different-project'),
+            lambda n, c: n.update(driver='overlay'),
+            lambda n, c: n['containers'].update({'d' * 64: {}}),
+            lambda n, c: c['auth'].update(project='different-project'),
+            lambda n, c: c['auth'].update(image='supabase/gotrue:latest'),
+            lambda n, c: c['auth'].update(status='exited'),
+            lambda n, c: c['auth'].update(bindings={'9999/tcp': [{'HostIp': '127.0.0.1', 'HostPort': '59999'}]}),
+            lambda n, c: c['auth']['networks'].update({'external': {}}),
+            lambda n, c: c['auth']['networks'][project + '_isolated'].update(NetworkID='d' * 64),
+            lambda n, c: n.update(ipam=[{'Subnet': '8.8.8.0/24'}]),
+        )
+        for mutation in mutations:
+            network, containers = copy.deepcopy(original_net), copy.deepcopy(original_containers)
+            mutation(network, containers)
+            with self.assertRaises(RuntimeError):
+                runner.isolation.validate_topology(project, network, containers)
+
+    def test_rejects_guessed_public_loopback_and_mismatched_addresses(self):
+        project, original_net, original_containers = self.topology()
+        for address in ('8.8.8.8', '127.0.0.1', '169.254.169.254', '172.31.0.3',
+                        '172.30.0.0', '172.30.255.255', '172.30.0.2', 'not-an-ip'):
+            network, containers = copy.deepcopy(original_net), copy.deepcopy(original_containers)
+            containers['auth']['networks'][project + '_isolated']['IPAddress'] = address
+            with self.subTest(address=address), self.assertRaises((RuntimeError, ValueError)):
+                runner.isolation.validate_topology(project, network, containers)
+        network, containers = self.topology()[1:]
+        network['containers']['a' * 64]['IPv4Address'] = '172.30.0.4/16'
+        with self.assertRaises(RuntimeError):
+            runner.isolation.validate_topology(project, network, containers)
+
+    def test_startup_diagnostics_never_echo_untrusted_log_fields(self):
+        raw = '\n'.join(json.dumps(entry) for entry in (
+            {'msg': 'GoTrue migrations applied successfully', 'count': 123, 'password': 'do-not-print'},
+            {'msg': 'GoTrue API started on: 0.0.0.0:9999', 'access_token': 'do-not-print'},
+            {'msg': 'Failed to load configuration: do-not-print', 'level': 'fatal'},
+            {'msg': 'error opening database: postgres://do-not-print', 'level': 'fatal'},
+            {'msg': 'do-not-print running db migrations', 'level': 'fatal'},
+            {'msg': 'do-not-print', 'level': 'error'},
+            {'msg': 'GoTrue API started on: do-not-print', 'level': 'info'},
+            {'msg': 'audit_event', 'access_token': 'do-not-print'},
+        ))
+        events = runner.isolation.startup_events(raw)
+        self.assertEqual(len(events), 6)
+        self.assertNotIn('do-not-print', json.dumps(events))
+        self.assertEqual(events[0], {'event': 'auth_migrations_applied', 'count': 123})
+        self.assertEqual(events[1], {'event': 'auth_api_listening', 'port': 9999})
+
+    def test_docker_inspection_ignores_remote_daemon_environment(self):
+        with patch.dict(os.environ, {'DOCKER_HOST': 'tcp://remote.invalid', 'DOCKER_CONTEXT': 'remote'}), \
+                patch.object(runner.isolation.subprocess, 'run') as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = '{}'
+            runner.isolation.docker('network', 'inspect', 'synthetic')
+            self.assertEqual(run.call_args.args[0][:3], ['docker', '--context', 'default'])
+            self.assertNotIn('DOCKER_HOST', run.call_args.kwargs['env'])
+            self.assertNotIn('DOCKER_CONTEXT', run.call_args.kwargs['env'])
+
+    def test_inspection_projection_does_not_request_secrets_or_raw_logs(self):
+        self.assertNotIn('.Config.Env', runner.isolation.CONTAINER_FORMAT)
+        self.assertNotIn('.State.Error', runner.isolation.CONTAINER_FORMAT)
+        self.assertNotIn('.Health.Log', runner.isolation.CONTAINER_FORMAT)
 
 
 if __name__ == '__main__':

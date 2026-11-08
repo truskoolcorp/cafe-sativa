@@ -7,6 +7,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -120,6 +121,15 @@ def captured(call):
 
 def assert_fk_or_success(result):
     assert 'ok' in result or ('23503' in result.get('error', '') and 'foreign key constraint' in result['error']), result
+
+def assert_lounge_moderator_denied(result):
+    # The UPDATE snapshot can still see staff=true after waiting, while its
+    # volatile row guard sees the committed profile deletion and denies ownership.
+    # Accept only either exact permission denial, never a lock failure or a SQL
+    # error whose CONTEXT happens to mention one of these messages.
+    errors = re.findall(r'^ERROR:\s+([0-9A-Z]{5}): ([^\r\n]+)$', result.get('error', ''), re.MULTILINE)
+    assert len(errors) == 1 and errors[0][0] == '42501' and errors[0][1] in (
+        'Message unavailable or not owned', 'Message ownership required'), result
 
 def assert_auth_removed(uid, cid):
     assert sql(f'SELECT count(*) FROM auth.users WHERE id={literal(uid)}::uuid;') == '0'
@@ -426,7 +436,7 @@ def lounge_auth_race():
         sql(f'DELETE FROM public.lounge_messages WHERE id={literal(other)}::uuid;')
         auth_delete(uid)
     else:
-        assert '42501' in results[0]['error'] and 'Message unavailable or not owned' in results[0]['error'],results
+        assert_lounge_moderator_denied(results[0])
         assert 'ok' in results[1],results
         assert sql(f'SELECT deleted_at IS NULL AND deleted_by IS NULL FROM public.lounge_messages WHERE id={literal(other)}::uuid;')=='t'
     assert_auth_removed(uid,cid)

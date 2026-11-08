@@ -1,5 +1,6 @@
 -- Full catalog FK-edge coverage, abbreviated synthetic row shapes. Isolated DB only.
--- No auth DELETE trigger or additional auth-admin private/public DML privilege.
+-- Uses the candidate auth statement guard, no test-acquired coordination lock.
+-- No additional auth-admin private/public DML privilege.
 BEGIN;
 CREATE FUNCTION pg_temp.assert_true(value boolean,label text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN IF value IS DISTINCT FROM true THEN RAISE EXCEPTION 'assertion failed: %',label; END IF; END $$;
@@ -34,9 +35,8 @@ BEGIN
    PERFORM public.concierge_finish_v1(a->>'requester',rid,(a->>'owner_token')::uuid,'uncertain');
   END IF;
   RESET ROLE;
-  -- This is an explicitly coordinated deletion path, not the hosted Auth API.
+  -- Raw modeled Auth-owner deletion; the installed guard must coordinate it.
   SET LOCAL ROLE supabase_auth_admin;
-  PERFORM pg_catalog.pg_advisory_xact_lock(1128351301,1);
   DELETE FROM auth.users WHERE id=uid;
   RESET ROLE;
   FOREACH rel IN ARRAY ARRAY['auth.users','auth.identities','auth.sessions','auth.refresh_tokens','auth.mfa_amr_claims',
@@ -110,8 +110,7 @@ BEGIN
    WHEN 'order_item_artist' THEN 'order_items_artist_id_fkey' END;
   BEGIN
    SET LOCAL ROLE supabase_auth_admin;
-   PERFORM pg_catalog.pg_advisory_xact_lock(1128351301,1);
-   DELETE FROM auth.users WHERE id=uid;
+    DELETE FROM auth.users WHERE id=uid;
    RAISE EXCEPTION 'expected account deletion blocker: %',case_name;
   EXCEPTION WHEN foreign_key_violation THEN
    GET STACKED DIAGNOSTICS violation_constraint=CONSTRAINT_NAME;

@@ -13,6 +13,7 @@ on:
       - 'tests/hit-em-premiere.test.cjs'
       - 'tests/lounge-membership.test.cjs'
       - 'tests/db/**'
+      - 'tests/auth-service/**'
       - 'supabase/migrations/20261108090000_durable_concierge_admission.sql'
       - '.github/workflows/concierge-launch-gate.yml'
   workflow_dispatch:
@@ -61,3 +62,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 tests/db/run.py --bootstrap
+
+  isolated-auth-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CAFE_DISPOSABLE_AUTH: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s tests/auth-service -p 'test_*.py' -v
+      - run: bash tests/auth-service/run-ci.sh

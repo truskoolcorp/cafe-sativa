@@ -25,6 +25,27 @@ def sql(statement):
 def file(path):
     sql(path.read_text())
 
+def migration_drift_checks():
+    # A fresh isolated bootstrap must reject unexpected existing writer code/ACLs
+    # atomically rather than partially installing Auth guards or overwriting it.
+    signature='public.cs_record_gallery_payment(jsonb,uuid,uuid,integer)'
+    variants=[
+        ('body', "CREATE OR REPLACE FUNCTION public.cs_record_gallery_payment(receipt jsonb,product_uuid uuid,artist_uuid uuid,quantity integer) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN RETURN '{}'::jsonb; END $$;"),
+        ('security',f'ALTER FUNCTION {signature} SECURITY INVOKER;'),
+        ('permissions',f'GRANT EXECUTE ON FUNCTION {signature} TO authenticated;'),
+        ('configuration',f'ALTER FUNCTION {signature} SET search_path=public;'),
+        ('missing',f'DROP FUNCTION {signature};'),
+    ]
+    for label,change in variants:
+        sql(change)
+        result=captured(lambda: file(ROOT/'supabase/migrations/20261108090000_durable_concierge_admission.sql'))
+        assert 'error' in result and '55000' in result['error'] and 'reviewed commerce writer missing or changed' in result['error'],(label,result)
+        assert sql("SELECT to_regnamespace('concierge_private') IS NULL AND to_regprocedure('public.concierge_auth_statement_v1()') IS NULL;")=='t',label
+        assert sql("SELECT count(*) FROM pg_trigger WHERE tgname IN ('concierge_auth_delete_statement','concierge_auth_identity_statement','concierge_lounge_update_statement');")=='0',label
+        file(HERE/'commerce_functions.sql')
+    print('PASS migration rejects body/security/permission/configuration/missing-writer drift atomically')
+
+
 def literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -79,18 +100,17 @@ def configure(**overrides):
     settings.update(overrides)
     sql('UPDATE concierge_private.policy SET '+','.join(k+'='+str(v) for k,v in settings.items())+';')
 
-def as_role(statement, role, coordinated=False):
-    # Explicit transaction coordination is test setup, not an installed auth guard.
-    lock = 'SELECT pg_catalog.pg_advisory_xact_lock(1128351301,1);' if coordinated else ''
-    return sql(f'BEGIN; SET LOCAL ROLE {role}; {lock} {statement} COMMIT;')
+def as_role(statement, role):
+    # Exercise the installed entrypoint. Never hide missing guards behind a test lock.
+    return sql(f'BEGIN; SET LOCAL ROLE {role}; {statement} COMMIT;')
 
 def member_admit(uid, rid, cid=None):
     return json.loads(as_role(
         f"SELECT public.concierge_admit_v1({literal(uid)}::uuid,NULL,{literal(rid)}::uuid,{literal(payload(rid,cid))}::jsonb,'explorer');",
         'service_role'))
 
-def auth_delete(uid, coordinated=True):
-    return as_role(f'DELETE FROM auth.users WHERE id={literal(uid)}::uuid;', 'supabase_auth_admin', coordinated)
+def auth_delete(uid):
+    return as_role(f'DELETE FROM auth.users WHERE id={literal(uid)}::uuid;', 'supabase_auth_admin')
 
 def captured(call):
     try:
@@ -139,7 +159,7 @@ def full_auth_races():
                 assert sql(f'SELECT redacted AND charged FROM concierge_private.requests WHERE request_id={literal(rid)}::uuid;') == 't'
                 finish(a)
         assert_auth_removed(uid, cid)
-    print('PASS coordinated full-auth deletion/admission races (explicit and new conversation)')
+    print('PASS raw full-auth deletion/admission races (explicit and new conversation)')
 
     uid, cid = seed_auth_conversation()
     rid = request_id(); a = member_admit(uid, rid, cid)
@@ -154,9 +174,9 @@ def full_auth_races():
     # This fixture made no provider call. Simulate documented terminal evidence;
     # deletion must never have automatically refunded an already dispatched turn.
     finish(a, 'provider_terminal_failure')
-    print('PASS coordinated full-auth deletion/provider-completion race; no surviving cache')
+    print('PASS raw full-auth deletion/provider-completion race; no surviving cache')
 
-    for mutation in ('voice_insert', 'message_edit', 'message_delete', 'conversation_end', 'profile_identity', 'profile_reference_insert', 'auth_reference_insert'):
+    for mutation in ('voice_insert', 'message_edit', 'message_delete', 'conversation_end', 'profile_identity'):
         uid, cid = seed_auth_conversation()
         mid, extra = str(uuid.uuid4()), str(uuid.uuid4())
         sql(f"INSERT INTO public.host_messages(id,conversation_id,role,content) VALUES({literal(mid)}::uuid,{literal(cid)}::uuid,'user','synthetic previous message');")
@@ -171,19 +191,15 @@ def full_auth_races():
         elif mutation == 'profile_identity':
             sql(f'INSERT INTO auth.users(id) VALUES({literal(extra)}::uuid); DELETE FROM public.profiles WHERE id={literal(extra)}::uuid;')
             statement = f'UPDATE public.profiles SET id={literal(extra)}::uuid WHERE id={literal(uid)}::uuid;'
-        elif mutation == 'profile_reference_insert':
-            statement = f'INSERT INTO public.memberships(id,user_id) VALUES({literal(extra)}::uuid,{literal(uid)}::uuid);'
-        else:
-            statement = f'INSERT INTO public.orders(id,user_id) VALUES({literal(extra)}::uuid,{literal(uid)}::uuid);'
         results = race([
-            lambda: captured(lambda: as_role(statement, 'service_role', coordinated=True)),
+            lambda: captured(lambda: as_role(statement, 'service_role')),
             lambda: auth_delete(uid),
         ])
         assert_fk_or_success(results[0])
         assert_auth_removed(uid, cid)
         assert sql(f'SELECT count(*) FROM public.memberships WHERE user_id={literal(uid)}::uuid;') == '0'
         assert sql(f'SELECT count(*) FROM public.orders WHERE user_id={literal(uid)}::uuid;') == '0'
-    print('PASS coordinated full-auth deletion against seven writer mutations; no orphaned rows')
+    print('PASS raw full-auth deletion against five guarded writer mutations; no orphaned rows')
 
     for operation in ('admission', 'completion'):
         uid, cid = seed_auth_conversation()
@@ -213,41 +229,35 @@ def full_auth_races():
         auth_delete(uid)
         assert_auth_removed(uid, cid)
     print('PASS NO ACTION blocked full-auth deletion races roll back without losing admission/completion')
-    uncoordinated_auth_lock_inversion()
+    raw_auth_before_tuple_lock()
+    single_statement_writer_orders()
 
 
-def uncoordinated_auth_lock_inversion():
-    # Negative regression: direct Auth deletion already owns auth.users before its
-    # profile cascade waits for global. A global-first orders FK writer then waits
-    # for that auth tuple. Without a coordinated deletion entry point a bounded
-    # deadlock/lock-timeout is EXPECTED, not proof that arbitrary callers are safe.
+def raw_auth_before_tuple_lock():
+    # Regression for the former inversion: a REAL admission entrypoint holds
+    # global; raw DELETE must wait before locking auth.users, so that same real
+    # transaction can still acquire an auth FK reference. No test lock is added.
     uid, cid = seed_auth_conversation()
-    rid = request_id(); a = member_admit(uid, rid, cid)
-    as_role(f"SELECT public.concierge_complete_v1({literal(a['requester'])},{literal(rid)}::uuid,{literal(a['owner_token'])}::uuid,'hello','negative-race rollback cache',false);", 'service_role')
-    before = sql(f'SELECT to_jsonb(r) FROM concierge_private.requests r WHERE request_id={literal(rid)}::uuid;')
-    marker = str(uuid.uuid4())
+    rid, marker = request_id(), str(uuid.uuid4())
     writer = subprocess.Popen(['psql','-X','-qAt','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose'],
                               stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-    writer.stdin.write("BEGIN; SET LOCAL ROLE service_role; SELECT pg_advisory_xact_lock(1128351301,1); SELECT 'writer-locked';\n")
+    writer.stdin.write(f"BEGIN; SET LOCAL ROLE service_role; SELECT public.concierge_admit_v1({literal(uid)}::uuid,NULL,{literal(rid)}::uuid,{literal(payload(rid,cid))}::jsonb,'explorer'); SELECT 'writer-admitted';\n")
     writer.stdin.flush()
-    while writer.stdout.readline().strip() != 'writer-locked':
+    while writer.stdout.readline().strip() != 'writer-admitted':
         if writer.poll() is not None:
-            raise RuntimeError('uncoordinated race writer barrier failed')
+            raise RuntimeError('raw-auth ordering admission barrier failed')
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        deletion = pool.submit(lambda: captured(lambda: auth_delete(uid, coordinated=False)))
-        queued = False
+        deletion = pool.submit(lambda: captured(lambda: auth_delete(uid)))
         try:
             deadline = time.monotonic() + 1.4
             while time.monotonic() < deadline:
                 waiting = int(sql("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=1128351301 AND objid=1 AND NOT granted;"))
                 if waiting == 1:
-                    queued = True
                     break
                 time.sleep(.02)
-            if not queued:
-                raise AssertionError('auth deletion never reached global-lock wait; no negative-race pass claimed')
-            # Marker write must never commit, whichever statement is chosen victim.
-            writer.stdin.write(f"INSERT INTO public.orders(id,user_id) VALUES({literal(marker)}::uuid,{literal(uid)}::uuid); ROLLBACK;\n")
+            else:
+                raise AssertionError('raw auth deletion never reached global-lock wait')
+            writer.stdin.write(f"INSERT INTO public.orders(id,user_id) VALUES({literal(marker)}::uuid,{literal(uid)}::uuid); COMMIT;\n")
             writer.stdin.close()
             writer.wait(timeout=8)
             writer_error = writer.stderr.read()
@@ -255,19 +265,174 @@ def uncoordinated_auth_lock_inversion():
         finally:
             if writer.poll() is None:
                 writer.stdin.write('ROLLBACK;\n'); writer.stdin.close(); writer.wait(timeout=8)
-        errors = [writer_error, deleted.get('error','')]
-        assert any('40P01' in e or '55P03' in e for e in errors), (errors, deleted)
-        assert sql(f'SELECT count(*) FROM public.orders WHERE id={literal(marker)}::uuid;') == '0'
-        # Failed deletion retains its complete graph; successful retry/deletion
-        # must have removed everything, never leave half-redacted private content.
-        present = sql(f'SELECT count(*) FROM auth.users WHERE id={literal(uid)}::uuid;') == '1'
-        if present:
-            assert sql(f'SELECT to_jsonb(r) FROM concierge_private.requests r WHERE request_id={literal(rid)}::uuid;') == before
-            assert sql(f'SELECT count(*) FROM auth.sessions WHERE user_id={literal(uid)}::uuid;') == '1'
-            assert sql(f'SELECT count(*) FROM public.host_conversations WHERE id={literal(cid)}::uuid;') == '1'
-            auth_delete(uid)
+        assert writer.returncode == 0, writer_error
+        assert 'ok' in deleted, deleted
+        assert sql(f'SELECT user_id IS NULL FROM public.orders WHERE id={literal(marker)}::uuid;') == 't'
+        assert sql(f'SELECT redacted AND charged FROM concierge_private.requests WHERE request_id={literal(rid)}::uuid;') == 't'
         assert_auth_removed(uid, cid)
-    print('PASS negative raw-auth-deletion lock inversion: bounded failure and atomic rollback; coordinated entry point still required')
+    print('PASS raw auth DELETE waits before auth tuple: real admission then auth-FK insert commits without inversion')
+
+
+def overlap_after_statement(statement, role, contender):
+    # Hold an ordinary entrypoint transaction after its first statement. The
+    # contender must be observed waiting on THIS backend, not merely scheduled.
+    # This adds no advisory or row lock beyond the statement under test.
+    first = subprocess.Popen(['psql','-X','-qAt','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose'],
+                             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    first.stdin.write(f"BEGIN; SET LOCAL ROLE {role}; {statement} SELECT 'backend:'||pg_backend_pid();\n")
+    first.stdin.flush()
+    while True:
+        line = first.stdout.readline().strip()
+        if line.startswith('backend:'):
+            pid = int(line.split(':')[1]); break
+        if first.poll() is not None:
+            raise RuntimeError('writer statement failed: '+first.stderr.read())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(contender)
+        try:
+            deadline=time.monotonic()+1.4
+            while time.monotonic()<deadline:
+                blocked=int(sql(f'SELECT count(*) FROM pg_stat_activity WHERE {pid}=ANY(pg_blocking_pids(pid));'))
+                if blocked:
+                    break
+                time.sleep(.02)
+            else:
+                raise AssertionError('contender did not wait on the first real writer transaction')
+        finally:
+            first.stdin.write('COMMIT;\n'); first.stdin.close(); first.wait(timeout=8)
+        assert first.returncode == 0, first.stderr.read()
+        return future.result(timeout=8)
+
+
+def single_statement_writer_orders():
+    # PostgREST membership/commerce statements do not themselves call concierge.
+    # Test both FK-key-share-first and delete-first ordering, without pretending
+    # these entrypoints take the global lock or altering their transaction shape.
+    for mutation in ('membership_insert', 'membership_update', 'order_insert', 'order_update'):
+        for deletion_first in (False, True):
+            uid, cid = seed_auth_conversation()
+            extra=str(uuid.uuid4())
+            if mutation == 'membership_insert':
+                sql(f'DELETE FROM public.memberships WHERE user_id={literal(uid)}::uuid;')
+                statement=f'INSERT INTO public.memberships(id,user_id) VALUES({literal(extra)}::uuid,{literal(uid)}::uuid) ON CONFLICT(user_id) DO NOTHING;'
+            elif mutation == 'membership_update':
+                statement=f"UPDATE public.memberships SET tier='vip',status='active' WHERE id={literal(uid)}::uuid;"
+            elif mutation == 'order_insert':
+                statement=f'INSERT INTO public.orders(id,user_id) VALUES({literal(extra)}::uuid,{literal(uid)}::uuid);'
+            else:
+                statement=f'UPDATE public.orders SET updated_at=clock_timestamp() WHERE id={literal(uid)}::uuid;'
+            delete=f'DELETE FROM auth.users WHERE id={literal(uid)}::uuid;'
+            if deletion_first:
+                result=overlap_after_statement(delete,'supabase_auth_admin',
+                    lambda: captured(lambda: as_role(statement,'service_role')))
+                assert_fk_or_success(result)
+            else:
+                result=overlap_after_statement(statement,'service_role',lambda: captured(lambda: auth_delete(uid)))
+                assert 'ok' in result,result
+            assert_auth_removed(uid,cid)
+            assert sql(f'SELECT count(*) FROM public.memberships WHERE user_id={literal(uid)}::uuid;') == '0'
+            assert sql(f'SELECT count(*) FROM public.orders WHERE user_id={literal(uid)}::uuid;') == '0'
+    print('PASS direct membership/order writes in both transaction orders against raw auth deletion')
+
+
+def commerce_auth_races():
+    configure()
+    for self_artist in (False, True):
+        uid,cid=seed_auth_conversation()
+        seller=uid if self_artist else seed_auth_conversation()[0]
+        sql(f"UPDATE public.products SET stock_count=2,kind='physical' WHERE id={literal(seller)}::uuid;")
+        session='synthetic-gallery-'+str(uuid.uuid4())
+        receipt=json.dumps(dict(session_id=session,payment_status='paid',user_id=uid,
+            email='fixture@example.invalid',subtotal_cents=1200,total_cents=1200,currency='usd',application_fee_cents=120))
+        call=f"SELECT public.cs_record_gallery_payment({literal(receipt)}::jsonb,{literal(seller)}::uuid,{literal(seller)}::uuid,1);"
+        results=race([lambda: captured(lambda: json.loads(as_role(call,'service_role'))),
+                      lambda: captured(lambda: auth_delete(uid))])
+        if 'ok' in results[0]:
+            order=results[0]['ok'];assert order.get('created') is True,results
+            assert sql(f'SELECT stock_count FROM public.products WHERE id={literal(seller)}::uuid;') == '1'
+            assert sql(f"SELECT count(*) FROM public.order_items WHERE order_id={literal(order['id'])}::uuid;") == '1'
+            if self_artist:
+                assert 'error' in results[1] and '23503' in results[1]['error'],results
+                assert sql(f'SELECT count(*) FROM auth.users WHERE id={literal(uid)}::uuid;') == '1'
+                # Documented restrictive commerce FK, not a coordination failure.
+                sql(f"DELETE FROM public.order_items WHERE order_id={literal(order['id'])}::uuid;")
+                auth_delete(uid)
+            else:
+                assert 'ok' in results[1],results
+                assert sql(f"SELECT user_id IS NULL FROM public.orders WHERE id={literal(order['id'])}::uuid;") == 't'
+        else:
+            error=results[0]['error']
+            assert ('23503' in error or (self_artist and 'Product or artist mismatch' in error)),results
+            assert 'ok' in results[1],results
+            assert sql(f'SELECT count(*) FROM public.orders WHERE stripe_checkout_session_id={literal(session)};') == '0'
+        assert_auth_removed(uid,cid)
+    print('PASS actual gallery payment RPC/raw auth deletion: buyer SET NULL, artist RESTRICT, atomic receipt/inventory')
+
+    for paid in (False, True):
+        uid,cid=seed_auth_conversation()
+        sql(f'DELETE FROM public.tickets WHERE user_id={literal(uid)}::uuid; UPDATE public.events SET ticket_price_cents={500 if paid else 0} WHERE id={literal(uid)}::uuid;')
+        call=f'SELECT public.cs_reserve_ticket({literal(uid)}::uuid,{literal(uid)}::uuid);'
+        results=race([lambda: captured(lambda: json.loads(as_role(call,'service_role'))),
+                      lambda: captured(lambda: auth_delete(uid))])
+        if 'ok' in results[0] and paid:
+            assert results[0]['ok'].get('reservation_id'),results
+            assert 'error' in results[1] and '23503' in results[1]['error'],results
+            sql(f'DELETE FROM public.cs_ticket_reservations WHERE user_id={literal(uid)}::uuid;')
+            auth_delete(uid)
+        else:
+            assert_fk_or_success(results[0]);assert 'ok' in results[1],results
+        assert_auth_removed(uid,cid)
+    print('PASS actual ticket reservation RPC/raw auth deletion: free cascade and paid reservation NO ACTION')
+
+    uid,cid=seed_auth_conversation()
+    sql(f'DELETE FROM public.tickets WHERE user_id={literal(uid)}::uuid;')
+    reserved=json.loads(as_role(f'SELECT public.cs_reserve_ticket({literal(uid)}::uuid,{literal(uid)}::uuid);','service_role'))
+    hold=reserved['reservation_id']
+    receipt=json.dumps(dict(site='cafe-sativa',payment_status='paid',currency='usd',user_id=uid,
+        event_id=uid,amount_cents=500,session_id='synthetic-ticket-'+hold,payment_intent_id='synthetic-intent-'+hold))
+    call=f'SELECT public.cs_record_ticket_payment({literal(hold)}::uuid,{literal(receipt)}::jsonb);'
+    results=race([lambda: json.loads(as_role(call,'service_role')),lambda: captured(lambda: auth_delete(uid))])
+    assert results[0].get('created') is True and results[0].get('state')=='fulfilled',results
+    assert 'error' in results[1] and '23503' in results[1]['error'],results
+    replay=json.loads(as_role(call,'service_role'))
+    assert replay.get('created') is False and replay.get('ticket_id')==results[0]['ticket_id'],replay
+    assert sql(f'SELECT count(*) FROM auth.sessions WHERE user_id={literal(uid)}::uuid;') == '1'
+    sql(f'DELETE FROM public.cs_ticket_reservations WHERE user_id={literal(uid)}::uuid;')
+    auth_delete(uid);assert_auth_removed(uid,cid)
+    print('PASS actual ticket payment RPC/raw auth deletion: blocked deletion, fulfillment and duplicate receipt unchanged')
+
+
+def lounge_auth_race():
+    uid,cid=seed_auth_conversation()
+    call=f"SET LOCAL request.jwt.claim.sub={literal(uid)}; SELECT public.soft_delete_lounge_message({literal(uid)}::uuid);"
+    results=race([lambda: captured(lambda: as_role(call,'authenticated')),lambda: auth_delete(uid)])
+    if 'error' in results[0]:
+        assert '42501' in results[0]['error'] and 'Message unavailable or not owned' in results[0]['error'],results
+    assert_auth_removed(uid,cid)
+    print('PASS actual authenticated Lounge author soft-delete RPC/raw auth deletion')
+
+    uid,cid=seed_auth_conversation()
+    other,other_cid=seed_auth_conversation()
+    call=f"SET LOCAL request.jwt.claim.sub={literal(uid)}; SELECT public.soft_delete_lounge_message({literal(other)}::uuid);"
+    denied=captured(lambda: as_role(call,'authenticated'))
+    assert 'error' in denied and '42501' in denied['error'] and 'Message unavailable or not owned' in denied['error'],denied
+    assert sql(f'SELECT deleted_at IS NULL AND deleted_by IS NULL FROM public.lounge_messages WHERE id={literal(other)}::uuid;')=='t'
+    sql(f'UPDATE public.profiles SET is_staff=true WHERE id={literal(uid)}::uuid;')
+    results=race([lambda: captured(lambda: as_role(call,'authenticated')),lambda: captured(lambda: auth_delete(uid))])
+    if 'ok' in results[0]:
+        assert 'error' in results[1] and '23503' in results[1]['error'] and 'lounge_messages_deleted_by_fkey' in results[1]['error'],results
+        assert sql(f'SELECT deleted_at IS NOT NULL AND deleted_by={literal(uid)}::uuid FROM public.lounge_messages WHERE id={literal(other)}::uuid;')=='t'
+        assert sql(f'SELECT count(*) FROM auth.sessions WHERE user_id={literal(uid)}::uuid;')=='1'
+        sql(f'DELETE FROM public.lounge_messages WHERE id={literal(other)}::uuid;')
+        auth_delete(uid)
+    else:
+        assert '42501' in results[0]['error'] and 'Message unavailable or not owned' in results[0]['error'],results
+        assert 'ok' in results[1],results
+        assert sql(f'SELECT deleted_at IS NULL AND deleted_by IS NULL FROM public.lounge_messages WHERE id={literal(other)}::uuid;')=='t'
+    assert_auth_removed(uid,cid)
+    auth_delete(other);assert_auth_removed(other,other_cid)
+    print('PASS actual Lounge moderator/NO ACTION race and denied nonowner; no authorization bypass')
+
 
 def lifecycle_races():
     # First mint a historical synthetic key under an explicitly wider test policy,
@@ -353,8 +518,11 @@ def main():
         if sql("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp%';") != '0':
             raise SystemExit('Bootstrap requires an empty disposable database.')
         file(HERE/'bootstrap.sql')
+        file(HERE/'commerce_bootstrap.sql')
+        file(HERE/'commerce_functions.sql')
+        migration_drift_checks()
         file(ROOT/'supabase/migrations/20261108090000_durable_concierge_admission.sql')
-    for fixture in ('durable_concierge.sql','roles.sql','full_auth_deletion.sql','durable_lifecycle.sql'):
+    for fixture in ('auth_integration.sql','durable_concierge.sql','roles.sql','full_auth_deletion.sql','durable_lifecycle.sql'):
         file(HERE/fixture)
     configure()
     rid=request_id()
@@ -434,6 +602,8 @@ def main():
     assert sql(f"SELECT count(*) FROM public.host_conversations WHERE id={literal(cid)}::uuid;")=='0'
     print('PASS profile cascade/admission race')
     full_auth_races()
+    commerce_auth_races()
+    lounge_auth_race()
     lifecycle_races()
     # Completion collision and all sequential transitions already exercised by SQL.
     print('PASS all sequential/role/concurrent durable concierge checks')

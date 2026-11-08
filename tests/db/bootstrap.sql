@@ -25,7 +25,7 @@ CREATE TABLE auth.refresh_tokens (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 CREATE TABLE auth.scim_users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),sso_provider_id uuid,user_id uuid);
 CREATE TABLE auth.sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),oauth_client_id uuid,user_id uuid);
 CREATE TABLE auth.sso_providers (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-CREATE TABLE auth.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
+CREATE TABLE auth.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email text,raw_user_meta_data jsonb NOT NULL DEFAULT '{}',deleted_at timestamptz);
 CREATE TABLE auth.webauthn_challenges (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid);
 CREATE TABLE auth.webauthn_credentials (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid);
 CREATE TABLE public.content_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),source_job_id uuid,updated_at timestamptz);
@@ -44,7 +44,7 @@ CREATE TABLE public.memberships (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),u
 CREATE TABLE public.order_items (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),artist_id uuid,order_id uuid,product_id uuid);
 CREATE TABLE public.orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,updated_at timestamptz);
 CREATE TABLE public.products (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),artist_id uuid,updated_at timestamptz);
-CREATE TABLE public.profiles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),display_name text,avatar_url text,is_admin boolean NOT NULL DEFAULT false,is_staff boolean NOT NULL DEFAULT false,updated_at timestamptz);
+CREATE TABLE public.profiles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email text,display_name text,avatar_url text,is_admin boolean NOT NULL DEFAULT false,is_staff boolean NOT NULL DEFAULT false,updated_at timestamptz);
 CREATE TABLE public.publish_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),content_item_id uuid);
 CREATE TABLE public.room_state (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),active_event_id uuid,updated_by uuid,updated_at timestamptz);
 CREATE TABLE public.tickets (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),event_id uuid,user_id uuid);
@@ -143,8 +143,15 @@ ALTER TABLE public.content_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.publish_log ENABLE ROW LEVEL SECURITY;
 
 -- Relevant existing trigger behavior, not an export of every production column.
+-- handle_new_user body/security/ACL verified read-only on 2026-11-08 at 16:08:54Z.
 CREATE FUNCTION public.handle_new_user() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN INSERT INTO public.profiles(id) VALUES(NEW.id); RETURN NEW; END $$;
+begin
+  insert into public.profiles (id, email)
+  values (new.id, new.email)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
 REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

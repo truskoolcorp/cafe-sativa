@@ -16,7 +16,9 @@ const policy=load('lib/events/hit-em-premiere.ts')
 const config=policy.HIT_EM_PREMIERE
 const valid=()=>({id:config.eventId,slug:config.slug,title:config.title,description:'Approved public event description.',status:'scheduled',starts_at:config.startsAt,ticket_price_cents:0})
 const policyMock={'@/lib/events/hit-em-premiere':policy}
+const partyShare=load('components/events/PartyShare.tsx').default
 const component=load('components/events/HitEmPremiere.tsx',{
+  './PartyShare':{default:partyShare,__esModule:true},
   ...policyMock,'next/link':({children,...props})=>React.createElement('a',props,children),
 }).default
 const html=event=>renderToStaticMarkup(React.createElement(component,{event}))
@@ -275,4 +277,57 @@ test('event index keeps category filtering and empty-state privacy',async()=>{
   assert.match(output,/No confirmed upcoming events in this category/)
   assert.doesNotMatch(output,/Hit Em|hit-em-release-party/)
   await f.render('unknown');assert.equal(f.calls[1].category,undefined)
+})
+
+function shareHarness(clipboard) {
+  const state=[], refs=[]
+  let si=0,ri=0
+  const calls=[]
+  const input={focus(){calls.push('focus')},select(){calls.push('select')}}
+  const Share=load('components/events/PartyShare.tsx',{
+    react:{useState(initial){const i=si++;if(!(i in state))state[i]=initial;return [state[i],value=>{state[i]=value}]},useRef(initial){const i=ri++;return refs[i]??(refs[i]={current:initial})}},
+  },{navigator:{clipboard},location:{href:'https://private-preview.test/preview?token=do-not-share#secret'}}).default
+  function render(){si=ri=0;const tree=Share();refs[0].current=input;return tree}
+  function children(){return render().props.children}
+  return {copy(){return children().find(x=>x.type==='button').props.onClick()},status(){return children().find(x=>x.props.role==='status').props.children},button(){return children().find(x=>x.type==='button')},calls}
+}
+test('party share exposes an accessible selectable canonical link with no JavaScript required',()=>{
+  const output=renderToStaticMarkup(React.createElement(partyShare))
+  assert.match(output,/<button type="button"[^>]*>Copy party link<\/button>/)
+  assert.match(output,/<label for="party-share-link"/)
+  assert.match(output,/<input[^>]*id="party-share-link"[^>]*readonly=""[^>]*aria-describedby="party-share-help"/)
+  assert.match(output,/value="https:\/\/www.cafe-sativa.com\/events\/hit-em-release-party"/)
+  assert.match(output,/role="status" aria-live="polite" aria-atomic="true"/)
+  assert.doesNotMatch(output,/Party link copied/)
+})
+test('clipboard unavailable and rejection show manual fallback without false success',async()=>{
+  for(const clipboard of [undefined,{}, {writeText(){return Promise.reject(new Error('permission denied'))}}]) {
+    const h=shareHarness(clipboard)
+    await h.copy()
+    assert.match(h.status(),/Could not copy automatically/)
+    assert.doesNotMatch(h.status(),/Party link copied/)
+    assert.deepEqual(h.calls,['focus','select'])
+    assert.equal(h.button().props['aria-disabled'],false)
+  }
+})
+test('copy uses only canonical URL and waits for success; overlapping clicks are ignored and retry works',async()=>{
+  const urls=[];let resolve,reject
+  const h=shareHarness({writeText(url){urls.push(url);return new Promise((ok,no)=>{resolve=ok;reject=no})}})
+  const first=h.copy()
+  assert.equal(h.status(),'Copying party link…')
+  assert.equal(h.button().props['aria-disabled'],true)
+  await h.copy();assert.equal(urls.length,1)
+  resolve();await first
+  assert.equal(h.status(),'Party link copied.')
+  const second=h.copy()
+  assert.equal(h.status(),'Copying party link…')
+  reject(new Error('denied'));await second
+  assert.match(h.status(),/Could not copy automatically/)
+  const third=h.copy();resolve();await third
+  assert.equal(h.status(),'Party link copied.')
+  assert.deepEqual(urls,Array(3).fill('https://www.cafe-sativa.com/events/hit-em-release-party'))
+})
+test('canceled event has no party sharing; scheduled and ended render the same public sharing control',()=>{
+  assert.doesNotMatch(html({state:'canceled'}),/Copy party link|party-share-link/)
+  for(const status of ['scheduled','ended'])assert.match(html(policy.publicHitEmPremiere({...valid(),status})),/Copy party link/)
 })

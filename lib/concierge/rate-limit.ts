@@ -21,15 +21,15 @@ const RATE_LIMITS: Record<Tier, { max: number; windowSeconds: number }> = {
 
 export type RateCheckResult =
   | { allowed: true; remaining: number; resetsInSeconds: number }
-  | { allowed: false; message: string; resetsInSeconds: number }
+  | { allowed: false; message: string; resetsInSeconds: number; unavailable?: boolean }
 
 /**
  * Check whether this user (or session, for anon users) is under the
  * rate limit. Counts `host_messages` with role='user' in the window.
  *
- * This is a simple count-in-window limiter — not a true sliding window.
- * Good enough for a venue concierge where the goal is to stop abuse,
- * not to implement token-bucket semantics.
+ * This counts a rolling time window, but does NOT reserve capacity atomically.
+ * Concurrent workers can pass the same count before either persists a turn.
+ * A distributed reservation/usage ledger is required for a hard spending cap.
  */
 export async function checkRateLimit(params: {
   userId: string | null
@@ -65,7 +65,7 @@ export async function checkRateLimit(params: {
   if (userId) {
     query = query.eq('host_conversations.user_id', userId)
   } else if (sessionId) {
-    query = query.eq('host_conversations.session_id', sessionId)
+    query = query.eq('host_conversations.session_id', sessionId).is('host_conversations.user_id', null)
   } else {
     return {
       allowed: false,
@@ -76,15 +76,14 @@ export async function checkRateLimit(params: {
 
   const { count, error } = await query
 
-  if (error) {
-    // If the rate-limit query fails, fail open (allow the request).
-    // We'd rather serve the user than block them because of our own
-    // infrastructure problem. Log it so we can fix it.
+  if (error || !Number.isSafeInteger(count) || count === null || count < 0) {
+    // Never spend provider capacity when usage cannot be verified.
     console.error('[concierge-rate-limit] count query failed', error)
-    return { allowed: true, remaining: limit.max, resetsInSeconds: limit.windowSeconds }
+    return { allowed: false, unavailable: true,
+      message: 'Chat availability could not be checked. Please try again shortly.', resetsInSeconds: 30 }
   }
 
-  const used = count ?? 0
+  const used = count
 
   if (used >= limit.max) {
     return {
@@ -96,7 +95,7 @@ export async function checkRateLimit(params: {
 
   return {
     allowed: true,
-    remaining: limit.max - used,
+    remaining: Math.max(0, limit.max - used - 1),
     resetsInSeconds: limit.windowSeconds,
   }
 }

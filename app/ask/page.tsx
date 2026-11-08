@@ -23,6 +23,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { createChatStorage } from '@/lib/concierge/browser-session'
 import LiveVoiceConversation from '@/components/LiveVoiceConversation'
 
 /**
@@ -122,30 +123,8 @@ type Message = {
   timestamp: number
 }
 
-// localStorage keys — share the same prefix pattern the mall uses
-// so debugging across surfaces is easier.
-const SESSION_KEY = 'cafe-sativa:session-id'
-const CONV_KEY_PREFIX = 'cafe-sativa:conv-id:'
-
-function ensureSessionId(): string {
-  if (typeof window === 'undefined') return ''
-  let id = localStorage.getItem(SESSION_KEY)
-  if (!id) {
-    id = crypto.randomUUID()
-    localStorage.setItem(SESSION_KEY, id)
-  }
-  return id
-}
-
-function getStoredConversationId(hostId: HostId): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(CONV_KEY_PREFIX + hostId)
-}
-
-function setStoredConversationId(hostId: HostId, id: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(CONV_KEY_PREFIX + hostId, id)
-}
+// Lazy access keeps SSR safe; blocked storage falls back to page-local memory.
+const chatStorage = createChatStorage(() => window.localStorage, () => crypto.randomUUID())
 
 /**
  * Minimal typing for the Web Speech API (SpeechRecognition), which is
@@ -205,6 +184,10 @@ function AskInner() {
 
   const sessionIdRef = useRef<string>('')
   const conversationIdRef = useRef<string | null>(null)
+  const requesterRef = useRef('')
+  const activeHostRef = useRef(activeHost)
+  activeHostRef.current = activeHost
+  const requestAbortRef = useRef<AbortController | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -220,15 +203,38 @@ function AskInner() {
   // Initialize session id + auth state on mount
   useEffect(() => {
     mountedRef.current = true
-    sessionIdRef.current = ensureSessionId()
-    conversationIdRef.current = getStoredConversationId(activeHost)
+    sessionIdRef.current = chatStorage.sessionId()
     setSttSupported(getSpeechRecognition() !== null)
-
+    const applyIdentity = (user: { id: string; email?: string } | null) => {
+      if (!mountedRef.current) return
+      const requester = user ? `user:${user.id}` : `guest:${sessionIdRef.current}`
+      if (requesterRef.current !== requester) {
+        if (requesterRef.current) setInput('')
+        requesterRef.current = requester
+        conversationIdRef.current = chatStorage.conversationId(activeHostRef.current, requester)
+        voiceTurnRef.current++
+        setMessages([])
+        setError(null)
+        setRateLimited(null)
+        stopListening()
+        stopAudio()
+      }
+      setIsSignedIn(Boolean(user))
+      setUserEmail(user?.email ?? null)
+    }
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
-      setIsSignedIn(Boolean(data.user))
-      setUserEmail(data.user?.email ?? null)
+    let authRevision = 0
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      authRevision++
+      applyIdentity(session?.user ?? null)
     })
+    const revision = authRevision
+    supabase.auth.getUser().then(({ data }) => {
+      if (revision === authRevision) applyIdentity(data.user)
+    }).catch(() => {
+      if (revision === authRevision) applyIdentity(null)
+    })
+    return () => subscription.unsubscribe()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -236,6 +242,7 @@ function AskInner() {
   useEffect(() => {
     return () => {
       mountedRef.current = false
+      requestAbortRef.current?.abort()
       voiceModeRef.current = false
       voiceTurnRef.current++
       if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
@@ -249,7 +256,7 @@ function AskInner() {
     setMessages([])
     setError(null)
     setRateLimited(null)
-    conversationIdRef.current = getStoredConversationId(activeHost)
+    conversationIdRef.current = chatStorage.conversationId(activeHost, requesterRef.current)
     voiceTurnRef.current++
     stopListening()
     stopAudio()
@@ -263,9 +270,13 @@ function AskInner() {
 
   async function sendMessage(text?: string) {
     const trimmed = (text ?? input).trim()
-    if (!trimmed || sendingRef.current || liveActive) return
+    if (!trimmed || sendingRef.current || liveActive || isSignedIn === null) return
     sendingRef.current = true
     const turn = voiceTurnRef.current
+    const requester = requesterRef.current
+    const controller = new AbortController()
+    requestAbortRef.current = controller
+    const timeout = setTimeout(() => controller.abort(), 65000)
     let succeeded = false
     setError(null)
     setRateLimited(null)
@@ -283,6 +294,7 @@ function AskInner() {
 
     try {
       const res = await fetch('/api/concierge', {
+        signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -295,11 +307,12 @@ function AskInner() {
       })
 
       const data = await res.json().catch(() => ({}))
+      clearTimeout(timeout)
       if (!mountedRef.current || turn !== voiceTurnRef.current) return
 
-      if (res.status === 403) {
+      if (res.status === 403 && data?.code === 'conversation_unavailable') {
         conversationIdRef.current = null
-        localStorage.removeItem(CONV_KEY_PREFIX + activeHost)
+        chatStorage.clearConversation(activeHost, requester)
         setError('That conversation has ended or belongs to another session. Send your message again to start a new conversation.')
         return
       }
@@ -324,9 +337,10 @@ function AskInner() {
         return
       }
 
+      if (typeof data.message !== 'string' || !data.message.trim()) throw new Error('Invalid chat reply')
       if (data.conversation_id) {
         conversationIdRef.current = data.conversation_id
-        setStoredConversationId(activeHost, data.conversation_id)
+        chatStorage.saveConversation(activeHost, requester, data.conversation_id)
       }
 
       const replyMsg: Message = {
@@ -335,6 +349,7 @@ function AskInner() {
         timestamp: Date.now(),
       }
       setMessages((prev) => [...prev, replyMsg])
+      if (data.memory_saved === false && typeof data.warning === 'string') setError(data.warning)
 
       // If voice mode is on, speak the reply. The Send click / suggestion
       // tap is a recent user gesture, so browser autoplay is permitted.
@@ -347,9 +362,18 @@ function AskInner() {
       }
       succeeded = true
     } catch (err) {
+      if (!mountedRef.current || turn !== voiceTurnRef.current) return
       console.error('[ask] send failed', err)
-      setError('Could not send your message. Check your connection.')
+      setError(controller.signal.aborted
+        ? 'The reply took too long. It may still have been processed; check before sending again.'
+        : 'The reply could not be received. Check your connection before sending again.')
     } finally {
+      clearTimeout(timeout)
+      if (requestAbortRef.current === controller) requestAbortRef.current = null
+      if (!succeeded && mountedRef.current && turn === voiceTurnRef.current) {
+        setInput(current => current || trimmed)
+        setMessages(previous => previous.filter(message => message !== userMsg))
+      }
       sendingRef.current = false
       if (mountedRef.current) setSending(false)
       if ((turn === voiceTurnRef.current && succeeded) || (turn !== voiceTurnRef.current && voiceModeRef.current)) resumeListening()
@@ -650,7 +674,7 @@ function AskInner() {
                     <button
                       key={s}
                       onClick={() => sendMessage(s)}
-                      disabled={sending || liveActive}
+                      disabled={isSignedIn === null || sending || liveActive}
                       className="group w-full rounded-lg border border-border bg-background/50 px-4 py-2.5 text-left text-sm text-foreground font-body hover:border-primary/40 hover:bg-background transition-colors disabled:opacity-50"
                     >
                       <span className="text-muted-foreground mr-2">“</span>
@@ -805,7 +829,7 @@ function AskInner() {
                 onKeyDown={handleInputKeyDown}
                 placeholder={`Message ${activeHostMeta.displayName}…`}
                 rows={1}
-                disabled={sending || liveActive}
+                disabled={isSignedIn === null || sending || liveActive}
                 className="flex-1 resize-none rounded-lg border border-border bg-background px-4 py-3 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 disabled:opacity-60"
                 style={{ minHeight: '48px', maxHeight: '160px' }}
                 onInput={(e) => {
@@ -817,7 +841,7 @@ function AskInner() {
               />
               <Button
                 onClick={() => sendMessage()}
-                disabled={sending || liveActive || !input.trim()}
+                disabled={isSignedIn === null || sending || liveActive || !input.trim()}
                 size="lg"
                 className="shrink-0"
               >

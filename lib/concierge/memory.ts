@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Tier } from './rate-limit'
+import { chronologicalMessages } from './history'
 
 /**
  * Days of history we look back when building prompt context. Matches
@@ -44,18 +45,19 @@ export async function getMemoryContext(params: {
   userId: string | null
   hostAgent: string
   tier: Tier
+  excludeConversationId?: string
 }): Promise<ContextMessage[]> {
   const { userId, hostAgent, tier } = params
 
   if (!userId) return []
 
   const windowDays = MEMORY_WINDOW_DAYS[tier]
-  if (windowDays === 0) return []
+  if (!windowDays) return []
 
   const admin = createAdminClient()
   const since = new Date(Date.now() - windowDays * 86400 * 1000).toISOString()
 
-  const { data, error } = await admin
+  let query = admin
     .from('host_messages')
     .select('role, content, created_at, host_conversations!inner(user_id, host_agent)')
     .eq('host_conversations.user_id', userId)
@@ -65,16 +67,20 @@ export async function getMemoryContext(params: {
     .order('created_at', { ascending: false })
     .limit(MAX_CONTEXT_MESSAGES)
 
+  // The route appends current history separately. Never repeat those turns.
+  if (params.excludeConversationId) query = query.neq('conversation_id', params.excludeConversationId)
+  const { data, error } = await query
+
   if (error) {
     console.error('[concierge-memory] retrieval failed', error)
-    return []
+    throw new Error('Conversation memory is temporarily unavailable.')
   }
 
   if (!data) return []
 
-  // Reverse to chronological (we queried desc to apply LIMIT on the
-  // NEWEST N rows, not the oldest).
-  return data.reverse().map((row: any) => ({
+  // We queried descending to limit the newest rows, then sort equal-time
+  // pairs explicitly without assuming how PostgreSQL orders the role type.
+  return chronologicalMessages(data).map((row: any) => ({
     role: row.role,
     content: row.content,
     created_at: row.created_at,

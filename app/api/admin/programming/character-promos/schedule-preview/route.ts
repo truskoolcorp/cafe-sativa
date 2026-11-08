@@ -1,3 +1,4 @@
+import {characterPromoAudioStatus} from '@/lib/content/character-promo-audio'
 import {NextResponse} from 'next/server'
 import {isContentAdmin} from '@/lib/content/auth'
 import {createAdminClient} from '@/lib/supabase/admin'
@@ -15,11 +16,12 @@ function captionFor(title:string,script:string,network:string){
 export async function GET(){
  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401,headers:HEADERS})
  const db=createAdminClient()
- const [promos,plans]=await Promise.all([
+ const [promos,plans,qa]=await Promise.all([
   db.from('cs_character_promo_drafts').select('id,character_id,title,spoken_script,status,audio_asset_path,video_asset_path,voice_approved_at,video_qa_approved_at,publication_approved_at').order('created_at',{ascending:false}).limit(MAX),
-  db.from('cs_character_promo_delivery_plans').select('id,promo_id,network,account_id,status,scheduled_at').order('scheduled_at',{ascending:true}).limit(MAX)
+  db.from('cs_character_promo_delivery_plans').select('id,promo_id,network,account_id,status,scheduled_at').order('scheduled_at',{ascending:true}).limit(MAX),
+  db.from('cs_character_promo_qa_checks').select('promo_id,video_sha256,check_name,result').eq('check_name','canonical_speech').limit(1000)
  ])
- if(promos.error||plans.error)return NextResponse.json({error:'Scheduling evidence unavailable'},{status:503,headers:HEADERS})
+ if(promos.error||plans.error||qa.error)return NextResponse.json({error:'Scheduling evidence unavailable'},{status:503,headers:HEADERS})
  const byId=new Map((promos.data||[]).map(p=>[p.id,p]))
  const suggestions=(plans.data||[]).map(plan=>{
   const draft=byId.get(plan.promo_id)
@@ -27,7 +29,7 @@ export async function GET(){
   if(!draft)issues.push('Missing associated promo draft')
   if(draft?.status!=='script_approved')issues.push('Unapproved spoken script')
   if(!draft?.video_asset_path||!draft?.video_qa_approved_at)issues.push('Approved finished video missing')
-  if(!draft?.audio_asset_path||!draft?.voice_approved_at)issues.push('Approved voice audio missing')
+  if(!characterPromoAudioStatus(draft,qa.data||[]).ready)issues.push('Approved voice audio missing')
   if(!draft?.publication_approved_at)issues.push('Publication gate not satisfied')
   if(!plan.account_id)issues.push('Verified destination account missing')
   if(plan.status!=='ready_for_delivery')issues.push('Delivery plan not cleared')

@@ -1,3 +1,4 @@
+import {characterPromoAudioStatus} from '@/lib/content/character-promo-audio'
 import {NextResponse} from 'next/server'
 import {isContentAdmin} from '@/lib/content/auth'
 import {createAdminClient} from '@/lib/supabase/admin'
@@ -8,8 +9,11 @@ export async function GET(){
  const headers={'Cache-Control':'private, no-store'}
  if(!await isContentAdmin())return NextResponse.json({error:'Unauthorized'},{status:401,headers})
  const db=createAdminClient()
- const r=await db.from('cs_character_promo_drafts').select('id,character_id,title,spoken_script,visual_brief,duration_seconds,status,intended_channel,actual_social_account,audio_asset_path,video_asset_path,voice_approved_at,video_qa_approved_at,publication_approved_at').order('created_at',{ascending:false}).limit(100)
- if(r.error)return NextResponse.json({error:'Draft inventory unavailable'},{status:503,headers})
+ const [r,qa]=await Promise.all([
+  db.from('cs_character_promo_drafts').select('id,character_id,title,spoken_script,visual_brief,duration_seconds,status,intended_channel,actual_social_account,audio_asset_path,video_asset_path,voice_approved_at,video_qa_approved_at,publication_approved_at').order('created_at',{ascending:false}).limit(100),
+  db.from('cs_character_promo_qa_checks').select('promo_id,video_sha256,check_name,result').eq('check_name','canonical_speech').limit(1000)
+ ])
+ if(r.error||qa.error)return NextResponse.json({error:'Draft inventory unavailable'},{status:503,headers})
  let registry:{live:boolean;characters:{id:string;voice_status?:string;rights_status?:string;primary_asset_id?:string|null;production_ready?:boolean}[]}|null=null
  try{registry=await liveGlyphCharacters()}catch{}
  const packets=(r.data||[]).map(d=>{
@@ -24,7 +28,7 @@ export async function GET(){
   const words=d.spoken_script.trim().split(/\s+/).filter(Boolean).length
   const estimatedSpeechSeconds=Math.ceil(words/2.4)
   if(estimatedSpeechSeconds>d.duration_seconds-2)blockers.push('Spoken script may exceed available clip duration; shorten or extend storyboard')
-  if(!d.audio_asset_path||!d.voice_approved_at)blockers.push('Spoken audio not produced and verified')
+  if(!characterPromoAudioStatus(d,qa.data||[]).ready)blockers.push('Spoken audio not produced and verified')
   if(!d.video_asset_path||!d.video_qa_approved_at)blockers.push('Finished video and QA missing')
   if(!d.actual_social_account)blockers.push('Exact social account mapping missing')
   if(!d.publication_approved_at)blockers.push('Publication readiness missing')

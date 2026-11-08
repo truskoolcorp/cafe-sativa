@@ -70,11 +70,11 @@ export function corsHeaders(requestOrigin: string | null): Record<string, string
  * headers when the Origin is allowed; returns 204 either way (a
  * browser sees the missing allow-origin and blocks the real request).
  */
-export function preflight(req: Request): NextResponse {
+export function preflight(req: Request, options: { noStore?: boolean } = {}): NextResponse {
   const origin = req.headers.get('origin')
   return new NextResponse(null, {
     status: 204,
-    headers: corsHeaders(origin),
+    headers: { ...corsHeaders(origin), ...(options.noStore ? { 'Cache-Control': 'no-store' } : {}) },
   })
 }
 
@@ -84,11 +84,11 @@ export function preflight(req: Request): NextResponse {
  */
 export function jsonWithCors(
   data: unknown,
-  init: { status?: number; request: Request }
+  init: { status?: number; request: Request; noStore?: boolean }
 ): NextResponse {
   const origin = init.request.headers.get('origin')
   return NextResponse.json(data, {
     status: init.status ?? 200,
-    headers: corsHeaders(origin),
+    headers: { ...corsHeaders(origin), ...(init.noStore ? { 'Cache-Control': 'no-store' } : {}) },
   })
 }

@@ -1,0 +1,121 @@
+{
+  "retrieved_at": "2026-11-08",
+  "source_css": [
+    {
+      "family": "Inter",
+      "url": "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap",
+      "sha256": "9b6ad588c451f646d506bc6badb76ecc384691fba35615f0f7d2e175150d6580"
+    },
+    {
+      "family": "Playfair Display",
+      "url": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap",
+      "sha256": "798418f1cb883798dac1e7b4cb738b833300bffaf40e76e9648dbf908b88bccb"
+    }
+  ],
+  "css_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36",
+  "binary_modifications": "None; each WOFF2 is byte-for-byte the upstream response.",
+  "files": [
+    {
+      "family": "inter",
+      "subset": "cyrillic-ext",
+      "path": "public/fonts/inter-cyrillic-ext.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7W0Q5n-wU.woff2",
+      "bytes": 25844,
+      "sha256": "fccca918fea40089dacadc7045861314d1a6bc91f1f323cc1eeb22ebcdb321b5"
+    },
+    {
+      "family": "inter",
+      "subset": "cyrillic",
+      "path": "public/fonts/inter-cyrillic.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7W0Q5n-wU.woff2",
+      "bytes": 18744,
+      "sha256": "aebf2ab4a4ce6810d73c1ac7be7cafb4e5ec4cee2d6db5fb3e09691747ec4bd6"
+    },
+    {
+      "family": "inter",
+      "subset": "greek-ext",
+      "path": "public/fonts/inter-greek-ext.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7W0Q5n-wU.woff2",
+      "bytes": 11272,
+      "sha256": "a2e2c783ca6f9c20486e81e72a279203e86730bbf8f01ff6a5ee9dbd09e1c271"
+    },
+    {
+      "family": "inter",
+      "subset": "greek",
+      "path": "public/fonts/inter-greek.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7W0Q5n-wU.woff2",
+      "bytes": 19044,
+      "sha256": "46dd4cdca58c26ae87cc6927657bf83b2e8abfc39ffd0ab176e301a8d28d22bf"
+    },
+    {
+      "family": "inter",
+      "subset": "vietnamese",
+      "path": "public/fonts/inter-vietnamese.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7W0Q5n-wU.woff2",
+      "bytes": 10280,
+      "sha256": "8db00ff46c67b22cda8bed865acf7077651cac8d2841d5b40980556b48961931"
+    },
+    {
+      "family": "inter",
+      "subset": "latin-ext",
+      "path": "public/fonts/inter-latin-ext.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7W0Q5n-wU.woff2",
+      "bytes": 85272,
+      "sha256": "a28eb6d3ccb534ae0c94ca999371df024aab60b08c3c8a5720ee9e32fa0faaa2"
+    },
+    {
+      "family": "inter",
+      "subset": "latin",
+      "path": "public/fonts/inter-latin.woff2",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw.woff2",
+      "bytes": 48432,
+      "sha256": "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4"
+    },
+    {
+      "family": "playfair",
+      "subset": "cyrillic",
+      "path": "public/fonts/playfair-cyrillic.woff2",
+      "source": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgEM86xRbPQ.woff2",
+      "bytes": 21144,
+      "sha256": "d7f9db9b1034978ebebdf7312aa4aee55dff3ef6039e7ff71413780bd4a05558"
+    },
+    {
+      "family": "playfair",
+      "subset": "vietnamese",
+      "path": "public/fonts/playfair-vietnamese.woff2",
+      "source": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgEM86xRbPQ.woff2",
+      "bytes": 9056,
+      "sha256": "8fa67d5f0ab2a1d0b924729a0411a069b384d7a236edd96a6767ef342a6d048f"
+    },
+    {
+      "family": "playfair",
+      "subset": "latin-ext",
+      "path": "public/fonts/playfair-latin-ext.woff2",
+      "source": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgEM86xRbPQ.woff2",
+      "bytes": 20980,
+      "sha256": "5628567856d60d714e7a35bcac9e3de08b336d63b12138f61b970990a1ee9547"
+    },
+    {
+      "family": "playfair",
+      "subset": "latin",
+      "path": "public/fonts/playfair-latin.woff2",
+      "source": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgEM86xQ.woff2",
+      "bytes": 38460,
+      "sha256": "5d91eb5d522a03081946c44c8ca17c902230dfed5f0f9b5014262135d47b15b2"
+    },
+    {
+      "family": "inter",
+      "path": "public/fonts/inter-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/OFL.txt",
+      "bytes": 4377,
+      "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"
+    },
+    {
+      "family": "playfair",
+      "path": "public/fonts/playfair-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/OFL.txt",
+      "bytes": 4449,
+      "sha256": "566be814f8e96e93dfa16101331557eb6b5467e9e03f627c0910fe93ca12300e"
+    }
+  ]
+}

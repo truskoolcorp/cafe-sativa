@@ -565,7 +565,8 @@ def bootstrap():
                "OR has_function_privilege('supabase_auth_admin','concierge_private.lock_v1()','EXECUTE') "
                "OR has_function_privilege('supabase_auth_admin','public.concierge_auth_statement_v1()','EXECUTE');") == 'f'
     assert sql("SELECT has_table_privilege('service_role','auth.users','DELETE');") == 'f'
-    db.configure()
+    # Explicit synthetic ceiling, never a production/default capacity decision.
+    db.configure(max_retained_requests=10000)
 
 
 def main():

@@ -324,9 +324,9 @@ test('delayed original after missing status competes by the same key and only fr
  assert.equal(original.calls.provider+retry.calls.provider,1);assert.deepEqual(result.map(r=>r.status).sort(),[200,202])
 })
 
-test('legacy capability mode change never creates an unretained durable admission',async()=>{
+test('legacy capability mode change prevents admission without claiming an earlier request was never admitted',async()=>{
  const h=harness({durable:'on',legacyMode:true,rpc:ledger()});const r=await h.post({message:'Hello'})
- assert.equal(r.status,503);assert.equal(r.body.code,'mode_changed');assert.equal(r.body.admitted,false)
+ assert.equal(r.status,503);assert.equal(r.body.code,'mode_changed');assert.equal(r.body.admitted,undefined)
  assert.equal(h.calls.rpc.length,0);assert.equal(h.calls.provider,0)
 })
 

@@ -63,9 +63,20 @@ export function validateConciergeRequest(value: unknown):
   } }
 }
 
+/** Modern mode headers require a well-formed expectation before auth or I/O. */
+export function conciergeRequesterValid(req: Request): boolean {
+  const expected = req.headers.get('x-concierge-requester')
+  if (expected === null) return req.headers.get('x-concierge-durable') === null
+  if (/^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expected)) return true
+  if (!expected.startsWith('guest:')) return false
+  const session = expected.slice(6)
+  return session.length > 0 && session.length <= 256 && session === session.trim()
+    && !/[\u0000-\u001f\u007f]/.test(session)
+}
+
 /** A browser expectation is only a fence; verified auth still selects identity. */
 export function conciergeRequesterMatches(req: Request, userId: string | null, sessionId: string | null): boolean {
   const expected = req.headers.get('x-concierge-requester')
-  if (expected === null && req.headers.get('x-concierge-durable') !== '1') return true
+  if (expected === null) return req.headers.get('x-concierge-durable') === null
   return expected === (userId ? `user:${userId}` : `guest:${sessionId}`)
 }

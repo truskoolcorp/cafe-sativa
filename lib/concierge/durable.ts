@@ -12,15 +12,8 @@ import { jsonWithCors } from '@/lib/cors'
 
 // Technical envelope, not a dollar budget. SQL policy can only narrow these.
 export const DURABLE_LIMITS = { max_prompt_bytes: 48000, max_input_messages: 61, max_output_tokens: 512, max_reply_chars: 16384 }
-export function durableMode(): 'off' | 'on' | 'invalid' {
-  const value = process.env.CONCIERGE_DURABLE_MODE
-  return !value || value === 'off' ? 'off' : value === 'on' ? 'on' : 'invalid'
-}
-/** Deployment-local admission gate only. Old workers need a coordinated drain. */
-export function textMaintenance(): 'off' | 'on' | 'invalid' {
-  const value = process.env.CONCIERGE_TEXT_MAINTENANCE
-  return !value || value === 'off' ? 'off' : value === 'on' ? 'on' : 'invalid'
-}
+export { durableMode, textMaintenance } from './capability'
+import { durableMode, textMaintenance } from './capability'
 export function durablePayload(body: ConciergeRequest) {
   // Omit issued_at entirely for retained v1 bodies to preserve their hashes.
   return { ...(body.issued_at == null ? { version: 1 } : { version: 2, issued_at: body.issued_at }), host: body.host, message: body.message, conversation_id: body.conversation_id,
@@ -72,14 +65,18 @@ export async function durableStatus({ req, body, admin, userId }: Omit<Context, 
     const data = await rpc(admin, 'status', { p_user_id: userId, p_session_id: body.session_id,
       p_request_id: body.request_id, p_payload: durablePayload(body) })
     const canReplay = durableMode() === 'on' && textMaintenance() === 'off'
-    if (canReplay && data.error === 'request_missing' && data.recovery_required === true && body.issued_at != null) {
+    if (canReplay && data.error === 'request_missing' && data.state === undefined && data.terminal !== true
+      && data.recovery_required === true && body.issued_at != null) {
       // Only the database can authorize this: it owns the clock, policy and
       // monotonic purge watermark. Old SQL/old clients fail closed on MISSING.
       // A delayed original still competes for exactly the same immutable key.
       return jsonWithCors({ durable: true, request_id: body.request_id, state: 'MISSING',
         code: 'request_missing', recovery_required: true }, { request: req, status: 202 })
     }
-    if (!canReplay) data.recovery_required = false
+    // Dispatching/uncertain work may already have spent at the provider. A
+    // contradictory flag must never turn its status into replay authority.
+    data.recovery_required = canReplay && data.state === 'RESERVED'
+      && data.terminal !== true && data.recovery_required === true
     return reply(req, data, body.request_id)
   } catch {
     return jsonWithCors({ error: 'Request status is unavailable. Keep this request ID and check again.',

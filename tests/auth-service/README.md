@@ -185,3 +185,15 @@ for each scenario. Full acceptance still requires a successful new CI run.
 
 Sources establish the intended configuration and transaction path. Image pull,
 startup and actual runtime evidence are deliberately left to the isolated CI job.
+
+## Combined local candidate
+
+The ordinary Auth-service bootstrap explicitly configures a synthetic retained
+ledger cap of 10000 through the shared DB helper. This is fixture-only, not an
+application capacity decision; the migration retains its NULL fail-closed default.
+All existing Auth HTTP, commerce, writer-order and denial checks remain in place.
+The additional combined cap/cursor races run in the separate disposable direct-SQL
+job, not by changing Auth's API or granting Auth access to private helpers.
+Preparing these fixtures and running their offline tests does not establish actual
+service or concurrent acceptance for this combined candidate; the pinned disposable
+CI services must still run successfully before that claim can be made.

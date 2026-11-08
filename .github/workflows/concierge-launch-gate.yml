@@ -4,6 +4,9 @@ on:
     paths:
       - 'app/api/concierge/**'
       - 'app/ask/**'
+      - 'app/layout.tsx'
+      - 'app/fonts.css'
+      - 'public/fonts/**'
       - 'lib/concierge/**'
       - 'lib/lounge-membership.ts'
       - 'lib/cors.ts'
@@ -12,6 +15,9 @@ on:
       - 'tests/conversation*.cjs'
       - 'tests/hit-em-premiere.test.cjs'
       - 'tests/lounge-membership.test.cjs'
+      - 'tests/site-fonts.test.cjs'
+      - 'tests/fixtures/mall-concierge-transport.mjs'
+      - 'tests/helpers/concierge-harness.cjs'
       - 'tests/db/**'
       - 'tests/auth-service/**'
       - 'supabase/migrations/20261108090000_durable_concierge_admission.sql'
@@ -29,7 +35,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/concierge*.cjs tests/conversation*.cjs tests/hit-em-premiere.test.cjs tests/lounge-membership.test.cjs
+      - run: node --test tests/concierge*.cjs tests/conversation*.cjs tests/hit-em-premiere.test.cjs tests/lounge-membership.test.cjs tests/site-fonts.test.cjs
       - run: npx tsc --noEmit --incremental false
   isolated-database:
     strategy:

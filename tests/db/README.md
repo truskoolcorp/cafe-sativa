@@ -42,3 +42,55 @@ This replaces the prior negative raw-deletion inversion test with a positive reg
 This is **not an exact production-schema export**. It reproduces the discovered FK graph, relevant ownership/RLS posture and trigger effects with abbreviated synthetic row shapes. Several real key types are represented as UUIDs. Unrelated columns, checks, indexes, auth internals, extension behavior and most RLS policies are omitted. Commerce columns reproduce only the tested RPC paths, and the fixture has the installed pgcrypto extension for ticket redemption code generation. The lounge function comes from the repository, not a newly verified production body export; no claim is made about external clients, scheduled jobs or actual GoTrue deletion behavior. The synthetic postgres bootstrap owner can be a local superuser, whereas the cataloged production postgres role is not; tested auth deletion itself runs as the restricted auth-admin role and uses RI owner switching for public cascades.
 
 A PostgreSQL **single-user** execution validates parser/runtime/sequential assertions and `SET ROLE` behavior only. It does **not** prove real concurrent locks, service authentication, PostgREST routing, the hosted Auth API or deployment readiness. The full runner requires sockets or CI. A mocked JS RPC pass does not substitute for these database tests. Verification must name the exact candidate digest/head and distinguish sequential checks from a successful hosted race run.
+
+## Local combined-candidate additions (not yet concurrent acceptance evidence)
+
+The combined candidate starts with `max_retained_requests=NULL` and therefore
+fails closed for new ledger inserts. The harness supplies **10000 only as an
+explicit synthetic test setting**, after first-install/fail-closed tests, without
+choosing an application capacity or changing the migration default. The five
+original transactional fixtures remain unchanged. Standalone executions must
+supply the synthetic cap before their ordinary policy configuration; invoking
+`run.py` does this automatically. The Auth HTTP harness supplies the same explicit
+synthetic ceiling through `db.configure`.
+
+Before pristine installation, `combined_install_checks.verify` exercises modeled
+metadata faults in whole migration transactions and checks rollback fingerprints.
+These are defensive installation checks, separate from ordinary role/race/Auth
+acceptance. They do not grant the modeled permissions or create exploit roles.
+After pristine installation, `combined_install.sql`, `retained_backlog.sql`,
+`retained_backlog_extra.sql`, `cleanup_privacy.sql`, `cleanup_sweep.sql` and
+`isolation_contract.sql` run
+before the original transactional suite.
+
+After the original concurrent suite, `combined_races.py` adds:
+
+- Four service RPC contenders for one retained-row slot, and service RPC versus
+  ordinary old-column service INSERT for one slot.
+- Two competing two-row service INSERT statements with only three slots,
+  requiring one complete winner and zero rows from the losing statement.
+- Saturation with existing status, same-ID replay, local completion and expired
+  reservation recovery still usable; finishing a row alone does not free storage.
+- A real service INSERT transaction holding the last slot, observed contenders,
+  holder rollback, and an actual lock-timeout failure followed by successful retry.
+- Maintenance held after its first one-row batch versus new service INSERT and
+  same-ID replay, then bounded cursor batches racing the same replay through
+  pruning. The fixed numeric boundary excludes the appended row, the cursor must
+  advance and wrap, the pruned key stays expired, and the freed slot admits a new
+  request without increasing the cap. Reverse ordering holds a real INSERT while
+  maintenance waits.
+
+The new holder uses no extra advisory lock. Every contender must be observed in
+`pg_locks` waiting for the actual holder's advisory lock tag in this database.
+Missing waits fail. Startup reads, idle transactions, SQL statements and process
+waits have outer bounds. SQLSTATE assertions reject contextual matches and
+unrelated failures. Test INSERTs omit the generated identity column, use existing
+service permissions, and never directly delete ledger rows or grant access.
+
+The existing workflow already discovers offline harness tests and invokes the
+full runner, so no workflow or schedule changes are necessary. Offline tests
+exercise SQL construction, explicit fixture configuration, strict error matching
+and mocked holder/wait cleanup; they do **not** prove PostgreSQL race outcomes.
+No listeners, database connections, Auth calls, CI dispatch or deployment were
+run while preparing these additions. A future authorized disposable CI run is
+required to accept the new concurrent cases against the exact candidate digest.

@@ -92,7 +92,7 @@ def race(calls):
         return [future.result() for future in futures]
 
 def configure(**overrides):
-    settings=dict(enabled='true', version="'synthetic-races'",global_inflight=100,global_admissions=10000,
+    settings=dict(max_retained_requests=10000,enabled='true', version="'synthetic-races'",global_inflight=100,global_admissions=10000,
                   global_window_seconds=86400,global_budget_microusd=1000000,max_request_cost_microusd=10,
                   max_prompt_bytes=48000,max_input_messages=61,max_output_tokens=512,max_reply_chars=16384,
                   lease_seconds=60,legacy_cutoff="clock_timestamp()-interval '1 second'",legacy_drained='true',
@@ -516,7 +516,7 @@ def main():
     port=os.environ.get('PGPORT','5432')
     if not port.isdecimal() or not 1<=int(port)<=65535:
         raise SystemExit('PGPORT must be one numeric local test port.')
-    os.environ['PGOPTIONS']='-c statement_timeout=10000 -c lock_timeout=3000'
+    os.environ['PGOPTIONS']='-c statement_timeout=10000 -c lock_timeout=3000 -c idle_in_transaction_session_timeout=10000'
     os.environ['PGCONNECT_TIMEOUT']='5'
     if not os.environ.get('PGDATABASE') or not os.environ.get('PGUSER'):
         raise SystemExit('Explicit PGDATABASE and PGUSER required.')
@@ -531,7 +531,13 @@ def main():
         file(HERE/'commerce_bootstrap.sql')
         file(HERE/'commerce_functions.sql')
         migration_drift_checks()
+        import combined_install_checks
+        combined_install_checks.verify(sql, (ROOT/'supabase/migrations/20261108090000_durable_concierge_admission.sql').read_text())
         file(ROOT/'supabase/migrations/20261108090000_durable_concierge_admission.sql')
+    for fixture in ('combined_install.sql','retained_backlog.sql','retained_backlog_extra.sql','cleanup_privacy.sql','cleanup_sweep.sql','isolation_contract.sql'):
+        file(HERE/fixture)
+    # Explicit disposable-fixture ceiling; never alter the migration default.
+    sql('UPDATE concierge_private.policy SET max_retained_requests=10000;')
     for fixture in ('auth_integration.sql','durable_concierge.sql','roles.sql','full_auth_deletion.sql','durable_lifecycle.sql'):
         file(HERE/fixture)
     configure()
@@ -615,6 +621,8 @@ def main():
     commerce_auth_races()
     lounge_auth_race()
     lifecycle_races()
+    import combined_races
+    combined_races.run(__import__(__name__))
     # Completion collision and all sequential transitions already exercised by SQL.
     print('PASS all sequential/role/concurrent durable concierge checks')
 

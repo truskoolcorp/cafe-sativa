@@ -14,75 +14,7 @@ const SESSION = 'mall-1794147756000-abc12345'
 const legacy = { host: 'laviche', message: 'Hello', session_id: SESSION, surface: 'mall-3d' }
 const fenced = { 'X-Concierge-Durable': '0', 'X-Concierge-Requester': `guest:${SESSION}` }
 
-function harness({ env = {}, userId = null, authError = null } = {}) {
-  const calls = { authFactory: 0, auth: 0, admin: 0, database: 0, rate: 0, memory: 0, canonical: 0, content: 0, events: 0, provider: 0, writes: 0, body: 0 }
-  const cache = new Map()
-  const admin = { from(table) {
-    calls.database++
-    let inserting = false
-    const query = {
-      select() { return this }, eq() { return this }, gte() { return this }, is() { return this },
-      order() { return this }, limit() { return this }, in() { return this },
-      insert() { inserting = true; calls.writes++; return this },
-      single() { return this }, maybeSingle() { return this },
-      then(resolve) {
-        const data = table === 'memberships' ? null : table === 'host_conversations'
-          ? { id: ID, user_id: userId, session_id: SESSION, host_agent: 'laviche', ended_at: null }
-          : inserting ? null : []
-        return Promise.resolve(resolve({ data, error: null }))
-      },
-    }
-    return query
-  } }
-  // Only external I/O boundaries are mocked. Policy, validation, CORS, origin,
-  // persona, history and ownership code run from the actual production files.
-  const mocks = {
-    'next/server': { NextResponse },
-    '@anthropic-ai/sdk': { default: class {
-      messages = { create: async () => { calls.provider++; return { content: [{ type: 'text', text: 'Synthetic general reply' }] } } }
-    } },
-    '@/lib/content/concierge-canon': { canonicalConciergeHost: async () => { calls.canonical++; return { context: 'Approved synthetic context' } } },
-    '@/lib/content/site': { getSiteContent: async () => { calls.content++; return [] } },
-    '@/lib/events': { getUpcomingEvents: async () => { calls.events++; return [] } },
-    '@/lib/supabase/server': { createClient: () => { calls.authFactory++; return { auth: { getUser: async () => {
-      calls.auth++; return { data: { user: userId ? { id: userId } : null }, error: authError }
-    } } } } },
-    '@/lib/supabase/admin': { createAdminClient: () => { calls.admin++; return admin } },
-    '@/lib/concierge/rate-limit': { checkRateLimit: async () => { calls.rate++; return { allowed: true, remaining: 10 } } },
-    '@/lib/concierge/memory': { getMemoryContext: async () => { calls.memory++; return [] } },
-  }
-  function load(file) {
-    file = path.normalize(file)
-    if (cache.has(file)) return cache.get(file)
-    const exports = {}
-    cache.set(file, exports)
-    const context = { exports, Date, Intl, URL, Set, Request, Response, Headers,
-      process: { env: { ANTHROPIC_API_KEY: 'synthetic-test-only', ...env } },
-      console: { error() {} }, fetch() { throw Error('Real network is forbidden in this test') },
-      require(name) {
-        if (Object.hasOwn(mocks, name)) return mocks[name]
-        if (name.startsWith('@/')) return load(name.slice(2) + '.ts')
-        if (name.startsWith('.')) return load(path.join(path.dirname(file), name) + '.ts')
-        throw Error(`Unexpected dependency: ${name}`)
-      },
-    }
-    vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-    }).outputText, context, { filename: file })
-    return exports
-  }
-  const main = load('app/api/concierge/route.ts'), status = load('app/api/concierge/status/route.ts')
-  async function request({ method = 'GET', endpoint = 'status', body = legacy, headers = {}, origin = ORIGIN, url } = {}) {
-    const request = new Request(url ?? `${URL_BASE}${endpoint === 'status' ? '/status' : ''}`, {
-      method, headers: { ...(origin !== null ? { Origin: origin } : {}), ...headers },
-      ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
-    })
-    const parse = request.json.bind(request)
-    request.json = async () => { calls.body++; return parse() }
-    return (endpoint === 'status' ? status : main)[method](request)
-  }
-  return { calls, request, status }
-}
+const { harness } = require('./helpers/concierge-harness.cjs')
 function noIO(calls, body = 0) {
   assert.deepEqual(calls, { authFactory: 0, auth: 0, admin: 0, database: 0, rate: 0, memory: 0, canonical: 0, content: 0, events: 0, provider: 0, writes: 0, body })
 }
@@ -105,8 +37,8 @@ test('capability is explicit, dynamic, no-store and hard-disabled in every suppo
     noIO(h.calls)
   }
 })
-test('no environment value including on can advertise durable support or run legacy I/O', async () => {
-  for (const value of ['on', 'ON', 'false', 'true', ' off', 'off ', '0', 'invalid']) {
+test('invalid environment values close capability and admission before I/O', async () => {
+  for (const value of ['ON', 'false', 'true', ' off', 'off ', '0', 'invalid']) {
     const h = harness({ env: { CONCIERGE_DURABLE_MODE: value } })
     for (const args of [{}, { endpoint: 'main', method: 'POST' }]) {
       const res = await h.request(args), data = await res.json()
@@ -138,19 +70,19 @@ test('capability reevaluates config instead of retaining a module-time answer', 
   env.CONCIERGE_TEXT_MAINTENANCE = 'on'
   assert.equal(exports.conciergeCapability().text_admissions_enabled, false)
   env.CONCIERGE_DURABLE_MODE = 'on'
-  assert.equal(exports.conciergeCapability().invalid, true)
-  assert.equal(exports.conciergeCapability().durable_enabled, false)
+  assert.equal(exports.conciergeCapability().invalid, false)
+  assert.equal(exports.conciergeCapability().durable_enabled, true)
 })
 test('durable and malformed mode headers reject before parsing/auth/database/provider', async () => {
   for (const header of ['1', '', 'true', '01', '0, 1', '0, 0', '2']) {
     const h = harness(), res = await h.request({ method: 'POST', endpoint: 'main', headers: { 'X-Concierge-Durable': header }, body: null })
-    assert.equal(res.status, header === '1' ? 409 : 400)
-    assert.equal((await res.json()).code, header === '1' ? 'mode_changed' : 'invalid_durable_mode')
+    assert.equal(res.status, header === '1' ? 503 : 400)
+    assert.equal((await res.json()).code, header === '1' ? 'durable_disabled' : 'invalid_durable_mode')
     noIO(h.calls)
   }
 })
 test('durable body identities never silently downgrade with missing or legacy headers', async () => {
-  for (const headers of [{}, fenced]) for (const identity of [{ request_id: ID }, { issued_at: 1 }, { request_id: null }]) {
+  for (const headers of [{}, fenced]) for (const identity of [{ request_id: ID }, { issued_at: 1 }, { request_id: null }, { issued_at: null }]) {
     const h = harness(), res = await h.request({ method: 'POST', endpoint: 'main', headers, body: { ...legacy, ...identity } })
     assert.equal(res.status, 409)
     const data = await res.json()
@@ -209,17 +141,6 @@ test('unfenced legacy auth outages and invalid tokens do not silently select gue
     }
   }
 })
-test('status never reads body or accesses any ledger/auth/provider, echoes nothing and grants no replay', async () => {
-  for (const env of [{}, { CONCIERGE_DURABLE_MODE: 'on' }, { CONCIERGE_TEXT_MAINTENANCE: 'on' }, { CONCIERGE_DURABLE_MODE: 'bad' }]) {
-    for (const headers of [{}, fenced, { 'X-Concierge-Durable': '1', 'X-Concierge-Requester': `guest:${SESSION}` }, { 'X-Concierge-Durable': 'garbage' }]) {
-      const h = harness({ env }), res = await h.request({ method: 'POST', headers, body: { ...legacy, request_id: ID, message: 'secret message' } })
-      assert.equal(res.status, 503); assert.equal(res.headers.get('cache-control'), 'no-store')
-      assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN)
-      const data = await res.json(); assert.equal(data.code, 'status_unavailable'); noReplay(data)
-      assert.equal(JSON.stringify(data).includes('secret message'), false); noIO(h.calls)
-    }
-  }
-})
 test('status uses existing origin restrictions including exact same-origin aliases', async () => {
   for (const origin of [ORIGIN, 'https://cafe-sativa.com', 'https://www.cafe-sativa.com', 'https://tru-skool-mall-test.vercel.app', 'https://virtual-cafe-sativa-test.vercel.app', 'http://localhost:3000', null]) {
     const h = harness(), res = await h.request({ origin })
@@ -248,5 +169,37 @@ test('real preflight permits only existing origins and required GET/POST headers
     if (endpoint === 'status') assert.equal(res.headers.get('cache-control'), 'no-store')
     const rejected = await h.request({ endpoint, method: 'OPTIONS', origin: 'https://evil.example' })
     assert.equal(rejected.headers.get('access-control-allow-origin'), null); noIO(h.calls)
+  }
+})
+
+test('explicit durable ON advertises v2 and legacy mode flips never claim non-admission', async () => {
+  const h = harness({ env: { CONCIERGE_DURABLE_MODE: 'on' } })
+  assert.deepEqual(await (await h.request()).json(), { durable_enabled: true, durable_payload_version: 2, text_admissions_enabled: true })
+  const res = await h.request({ endpoint: 'main', method: 'POST', headers: fenced })
+  assert.equal(res.status, 503)
+  const data = await res.json(); assert.equal(data.code, 'mode_changed'); noReplay(data); noIO(h.calls)
+})
+test('explicit durable ON requires a requester fence before parsing or I/O', async () => {
+  const h = harness({ env: { CONCIERGE_DURABLE_MODE: 'on' } })
+  const res = await h.request({ endpoint: 'main', method: 'POST', headers: { 'X-Concierge-Durable': '1' } })
+  assert.equal(res.status, 409); assert.equal((await res.json()).code, 'requester_changed'); noIO(h.calls)
+})
+
+test('signed-out retained user identity is a requester mismatch before missing guest-session validation', async () => {
+  for (const endpoint of ['main', 'status']) for (const mode of ['off', 'on']) {
+    const h = harness({ env: { CONCIERGE_DURABLE_MODE: mode }, authError: { name: 'AuthSessionMissingError' } })
+    const body = { ...legacy, session_id: null, ...(endpoint === 'status' || mode === 'on' ? { request_id: ID } : {}) }
+    const res = await h.request({ method: 'POST', endpoint, body,
+      headers: { 'X-Concierge-Durable': endpoint === 'status' || mode === 'on' ? '1' : '0', 'X-Concierge-Requester': `user:${ID}` } })
+    assert.equal(res.status, 409); assert.equal((await res.json()).code, 'requester_changed')
+    assert.equal(h.calls.auth, 1); assert.equal(h.calls.admin, 0); assert.equal(h.calls.provider, 0)
+  }
+})
+
+test('status requires requester fences for both explicit mode headers before parsing or I/O', async () => {
+  for (const mode of ['off', 'on']) for (const header of ['0', '1']) {
+    const h = harness({ env: { CONCIERGE_DURABLE_MODE: mode } })
+    const res = await h.request({ method: 'POST', headers: { 'X-Concierge-Durable': header }, body: null })
+    assert.equal(res.status, 409); assert.equal((await res.json()).code, 'requester_changed'); noIO(h.calls)
   }
 })

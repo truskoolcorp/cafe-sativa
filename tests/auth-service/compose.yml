@@ -1,0 +1,61 @@
+# Isolated CI only. Fixed synthetic credentials have no meaning outside this job.
+# No application .env, Supabase project, SMTP credentials or provider is mounted.
+services:
+  db:
+    image: postgres:17.6
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: synthetic-postgres-ci-only
+      POSTGRES_DB: cafe_auth_service_test
+    volumes:
+      - ./init-roles.sql:/docker-entrypoint-initdb.d/01-cafe-roles.sql:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d cafe_auth_service_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [isolated]
+  auth:
+    image: supabase/gotrue:v2.197.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: '0.0.0.0'
+      GOTRUE_API_PORT: '9999'
+      API_EXTERNAL_URL: 'http://127.0.0.1:59999'
+      GOTRUE_SITE_URL: 'http://127.0.0.1:59999'
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: 'postgres://supabase_auth_admin:synthetic-auth-ci-only@db:5432/cafe_auth_service_test?sslmode=disable'
+      GOTRUE_DB_NAMESPACE: auth
+      GOTRUE_DB_MAX_POOL_SIZE: '10'
+      GOTRUE_DB_MAX_IDLE_POOL_SIZE: '10'
+      GOTRUE_DB_CLEANUP_ENABLED: 'false'
+      GOTRUE_AUDIT_LOG_DISABLE_POSTGRES: 'false'
+      GOTRUE_JWT_SECRET: 'synthetic-auth-ci-only-not-a-real-project-secret-2026'
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: '3600'
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_EXTERNAL_PHONE_ENABLED: 'false'
+      GOTRUE_DISABLE_SIGNUP: 'false'
+      GOTRUE_MAILER_AUTOCONFIRM: 'true'
+      GOTRUE_SMTP_HOST: '127.0.0.1'
+      GOTRUE_SMTP_PORT: '1'
+      GOTRUE_SMTP_ADMIN_EMAIL: 'noreply@example.invalid'
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: '10000'
+      GOTRUE_RATE_LIMIT_OTP: '10000'
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: '10000'
+      GOTRUE_RATE_LIMIT_VERIFY: '10000'
+      GOTRUE_SECURITY_CAPTCHA_ENABLED: 'false'
+      GOTRUE_PASSWORD_HIBP_ENABLED: 'false'
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: 'true'
+      GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: '0'
+      GOTRUE_LOG_LEVEL: info
+    networks: [isolated]
+networks:
+  isolated:
+    internal: true

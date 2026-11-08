@@ -23,41 +23,15 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { createDurableRequestIdentity } from '@/lib/concierge/request'
 import { createChatStorage } from '@/lib/concierge/browser-session'
+import { createPendingChatStorage, sameChatIdentity, chatRequestResolved, recoverChatRequest, type PendingChatRequest } from '@/lib/concierge/browser-requests'
 import LiveVoiceConversation from '@/components/LiveVoiceConversation'
 
 /**
- * /ask — visitor-facing chat with the Café Sativa AI hosts.
- *
- * This is the most-touched logic surface on the whole site so the
- * restyle is visual-only. Everything behavioral is copied verbatim
- * from the pre-restyle version:
- *
- *   - Three hosts (Laviche maître d', Ginger travel, Ahnika style)
- *     selectable via tab bar or ?host=<id> URL param
- *   - Anonymous session id lives in localStorage (matches the mall
- *     key pattern) so rate-limit buckets and conversation memory
- *     work across reloads even without auth
- *   - Per-host conversation id also in localStorage (separate key
- *     per host) so switching hosts doesn't mash memory together
- *   - POST to /api/concierge with surface='web-chat'; handles 429
- *     (rate_limited), 503 (not_configured), 200 (normal reply)
- *   - Enter to send, Shift+Enter for newline, auto-grow textarea
- *     capped at 160px height
- *   - Scroll pin to bottom on new message or sending spinner
- *
- * Visual changes:
- *
- *   - Host tab bar redesigned as three cards with distinct icons
- *     (Rose/Compass/Sparkles) so visitors can tell them apart at
- *     a glance. Icon choice matches each host's domain.
- *   - Messages use semantic primary/card colors instead of amber
- *     hex, and the assistant bubble now shows a subtle host icon
- *     next to the name so message ownership is clearer
- *   - Composer uses the shared Button primitive; send button has
- *     a paper-plane icon
- *   - Sign-up prompt on rate-limit banner uses the primary-tinted
- *     style consistent with the rest of the site
+ * When the server enables durable chat, keep one unresolved request per
+ * account/guest and host. Persist before sending; uncertain outcomes require explicit
+ * status recovery, never a fresh request ID or a silently edited payload.
  */
 
 type HostId = 'laviche' | 'ginger' | 'ahnika'
@@ -124,6 +98,7 @@ type Message = {
 }
 
 // Lazy access keeps SSR safe; blocked storage falls back to page-local memory.
+const pendingStorage = createPendingChatStorage(() => window.localStorage)
 const chatStorage = createChatStorage(() => window.localStorage, () => crypto.randomUUID())
 
 /**
@@ -168,6 +143,14 @@ function AskInner() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [pending, setPending] = useState<PendingChatRequest | null>(null)
+  const [storageBlocked, setStorageBlocked] = useState(false)
+  const [storageUnavailable, setStorageUnavailable] = useState(false)
+  const [durableEnabled, setDurableEnabled] = useState<boolean | null>(null)
+  const [textPaused, setTextPaused] = useState(false)
+  const recoveryBlocked = durableEnabled === null || storageBlocked || (durableEnabled && storageUnavailable)
+  const chatBlocked = recoveryBlocked || textPaused
+  const pendingRef = useRef<PendingChatRequest | null>(null)
   const [liveActive, setLiveActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [rateLimited, setRateLimited] = useState<string | null>(null)
@@ -216,6 +199,7 @@ function AskInner() {
         setMessages([])
         setError(null)
         setRateLimited(null)
+        loadPending(activeHostRef.current, requester)
         stopListening()
         stopAudio()
       }
@@ -229,13 +213,47 @@ function AskInner() {
       applyIdentity(session?.user ?? null)
     })
     const revision = authRevision
-    supabase.auth.getUser().then(({ data }) => {
-      if (revision === authRevision) applyIdentity(data.user)
-    }).catch(() => {
-      if (revision === authRevision) applyIdentity(null)
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (revision !== authRevision || !mountedRef.current) return
+      // Auth/network failures are not proof of an anonymous session.
+      if (error && error.name !== 'AuthSessionMissingError') {
+        setError('Your sign-in status could not be checked. Reload to try again before opening chat.')
+        return
+      }
+      applyIdentity(data.user)
+    }).catch((error: unknown) => {
+      if (revision === authRevision && mountedRef.current) {
+        if ((error as { name?: string })?.name === 'AuthSessionMissingError') {
+          applyIdentity(null)
+          return
+        }
+        setError('Your sign-in status could not be checked. Reload to try again before opening chat.')
+      }
     })
     return () => subscription.unsubscribe()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Authoritative capability, never a public build-time flag. Failure stays closed.
+  useEffect(() => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
+    let active = true
+    void (async () => {
+      try {
+        const response = await fetch('/api/concierge/status', { method: 'GET', cache: 'no-store', signal: controller.signal })
+        const data = await response.json()
+        if (!response.ok || typeof data.durable_enabled !== 'boolean' || typeof data.text_admissions_enabled !== 'boolean'
+          || (data.durable_enabled && data.durable_payload_version !== 2)) throw new Error('Capability unavailable')
+        if (active) {
+          setDurableEnabled(data.durable_enabled)
+          setTextPaused(!data.text_admissions_enabled)
+        }
+      } catch {
+        if (active) setError('Chat availability could not be checked. Reload to try again; no message has been sent.')
+      } finally { clearTimeout(timeout) }
+    })()
+    return () => { active = false; clearTimeout(timeout); controller.abort() }
   }, [])
 
   // Stop any audio / mic capture when the component unmounts
@@ -257,6 +275,7 @@ function AskInner() {
     setError(null)
     setRateLimited(null)
     conversationIdRef.current = chatStorage.conversationId(activeHost, requesterRef.current)
+    if (requesterRef.current) loadPending(activeHost, requesterRef.current)
     voiceTurnRef.current++
     stopListening()
     stopAudio()
@@ -268,12 +287,58 @@ function AskInner() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
 
+  function loadPending(host: HostId, requester: string) {
+    try {
+      const saved = pendingStorage.load(host, requester)
+      pendingRef.current = saved
+      setPending(saved)
+      setStorageBlocked(false)
+      setStorageUnavailable(false)
+    } catch (error) {
+      pendingRef.current = null
+      setPending(null)
+      const unavailable = (error as { code?: string }).code === 'storage_unavailable'
+      setStorageUnavailable(unavailable)
+      setStorageBlocked(!unavailable)
+      if (!unavailable) setError('Retained chat data could not be read safely. Resolve it before sending another message.')
+    }
+  }
+
   async function sendMessage(text?: string) {
     const trimmed = (text ?? input).trim()
-    if (!trimmed || sendingRef.current || liveActive || isSignedIn === null) return
+    if (!trimmed || sendingRef.current || liveActive || isSignedIn === null || pendingRef.current || chatBlocked) return
+    const request: PendingChatRequest = {
+      requester: requesterRef.current, host: activeHost,
+      body: JSON.stringify({ ...(durableEnabled ? createDurableRequestIdentity() : {}), host: activeHost, message: trimmed,
+        session_id: sessionIdRef.current, conversation_id: conversationIdRef.current, surface: 'web-chat' }),
+    }
+    if (durableEnabled) try {
+      pendingStorage.save(request)
+      pendingRef.current = request
+      setPending(request)
+    } catch {
+      loadPending(activeHost, requesterRef.current)
+      setError('Could not retain this message safely. Check browser storage before sending.')
+      return
+    }
+    setInput('')
+    const bubble: Message = { role: 'user', content: trimmed, timestamp: Date.now() }
+    setMessages(previous => [...previous, bubble])
+    await runRequest(request, false, durableEnabled === true, bubble)
+  }
+
+  async function recoverPending() {
+    const request = pendingRef.current
+    if (!request || sendingRef.current || liveActive || !sameChatIdentity(request.requester, requesterRef.current) || request.host !== activeHostRef.current) return
+    await runRequest(request, true)
+  }
+
+  async function runRequest(request: PendingChatRequest, recovery: boolean, retained = true, bubble?: Message) {
     sendingRef.current = true
+    setSending(true)
     const turn = voiceTurnRef.current
-    const requester = requesterRef.current
+    const current = () => mountedRef.current && turn === voiceTurnRef.current
+      && sameChatIdentity(request.requester, requesterRef.current) && activeHostRef.current === request.host
     const controller = new AbortController()
     requestAbortRef.current = controller
     const timeout = setTimeout(() => controller.abort(), 65000)
@@ -282,102 +347,75 @@ function AskInner() {
     setRateLimited(null)
     stopListening()
     stopAudio()
-
-    const userMsg: Message = {
-      role: 'user',
-      content: trimmed,
-      timestamp: Date.now(),
-    }
-    setMessages((prev) => [...prev, userMsg])
-    setInput('')
-    setSending(true)
-
     try {
-      const res = await fetch('/api/concierge', {
-        signal: controller.signal,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: activeHost,
-          message: trimmed,
-          session_id: sessionIdRef.current,
-          conversation_id: conversationIdRef.current,
-          surface: 'web-chat',
-        }),
-      })
-
-      const data = await res.json().catch(() => ({}))
-      clearTimeout(timeout)
-      if (!mountedRef.current || turn !== voiceTurnRef.current) return
-
-      if (res.status === 403 && data?.code === 'conversation_unavailable') {
-        conversationIdRef.current = null
-        chatStorage.clearConversation(activeHost, requester)
-        setError('That conversation has ended or belongs to another session. Send your message again to start a new conversation.')
-        return
+      let res: Response, data: Record<string, any>
+      if (recovery) {
+        const result = await recoverChatRequest(request, fetch, controller.signal, current)
+        res = result.response; data = result.data
+      } else {
+        res = await fetch('/api/concierge', { signal: controller.signal, method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Concierge-Durable': retained ? '1' : '0', 'X-Concierge-Requester': request.requester }, body: request.body })
+        data = await res.json().catch(() => ({}))
       }
-
-      if (res.status === 429 && data?.rate_limited) {
-        setRateLimited(data.error || 'You have hit the message limit.')
-        setSending(false)
-        return
+      if (!current()) return
+      const resolved = !retained || chatRequestResolved(res.status, data, recovery)
+      if (resolved && retained) {
+        pendingStorage.clear(request)
+        loadPending(request.host, requesterRef.current)
       }
-
-      if (res.status === 503 && data?.code === 'not_configured') {
-        setError(
-          'The concierge is offline right now. Try again in a bit — we\u2019re sorting it out.'
-        )
-        setSending(false)
-        return
+      if (res.status === 200 && typeof data.message === 'string' && data.message.trim()) {
+        if (data.conversation_id) {
+          if (request.requester === requesterRef.current) conversationIdRef.current = data.conversation_id
+          chatStorage.saveConversation(request.host, request.requester, data.conversation_id)
+        }
+        const reply = { role: 'assistant' as const, content: data.message, timestamp: Date.now() }
+        setMessages(previous => [...previous, reply])
+        if (data.memory_saved === false && typeof data.warning === 'string') setError(data.warning)
+        succeeded = true
+        if (voiceModeRef.current) await speak(data.message, request.host, reply.timestamp)
+      } else if (data.code === 'text_maintenance') {
+        setTextPaused(true)
+        setError(retained
+          ? 'Text chat is paused. Your original message is retained; check it for an existing reply or return after maintenance.'
+          : 'Text chat is paused. Your draft is kept here; reload after maintenance.')
+      } else if (data.code === 'request_expired' && !resolved) {
+        setError('This message is too old to replay safely. It is retained and will not be resent. Contact support to resolve its outcome.')
+      } else if (data.code === 'durable_disabled') {
+        setError('Recovery is unavailable while durable chat is disabled. The original message may have completed. It is retained and will not be resent; enable recovery or contact support to resolve it.')
+      } else if (!resolved) {
+        setError(data.code === 'save_pending'
+          ? 'The reply is awaiting safe storage. Check the original message again shortly.'
+          : 'This message is unresolved and may still be processing. Check the original message before starting another.')
+      } else {
+        if (res.status === 403 && data.code === 'conversation_unavailable') {
+          conversationIdRef.current = null
+          chatStorage.clearConversation(request.host, request.requester)
+          setError('That conversation has ended or belongs to another session. Send your message again to start a new conversation.')
+        } else if (res.status === 429 && data.rate_limited) setRateLimited(data.error || 'You have hit the message limit.')
+        else if (data.terminal === true && ['gone', 'expired', 'request_expired'].includes(data.code)) setError('This message has ended and its saved reply is no longer available. You can start a new message.')
+        else if (data.code === 'mode_changed') setError('Chat mode changed. Reload this page before sending again; this message was not admitted.')
+        else setError(data.error || 'This request ended without a reply.')
+        setInput(JSON.parse(request.body).message)
       }
-
-      if (!res.ok) {
-        setError(data?.error || 'Could not send your message.')
-        setSending(false)
-        return
-      }
-
-      if (typeof data.message !== 'string' || !data.message.trim()) throw new Error('Invalid chat reply')
-      if (data.conversation_id) {
-        conversationIdRef.current = data.conversation_id
-        chatStorage.saveConversation(activeHost, requester, data.conversation_id)
-      }
-
-      const replyMsg: Message = {
-        role: 'assistant',
-        content: data.message,
-        timestamp: Date.now(),
-      }
-      setMessages((prev) => [...prev, replyMsg])
-      if (data.memory_saved === false && typeof data.warning === 'string') setError(data.warning)
-
-      // If voice mode is on, speak the reply. The Send click / suggestion
-      // tap is a recent user gesture, so browser autoplay is permitted.
-      if (
-        voiceModeRef.current &&
-        typeof data.message === 'string' &&
-        data.message.trim()
-      ) {
-        await speak(data.message, activeHost, replyMsg.timestamp)
-      }
-      succeeded = true
     } catch (err) {
-      if (!mountedRef.current || turn !== voiceTurnRef.current) return
+      if (!current()) return
       console.error('[ask] send failed', err)
-      setError(controller.signal.aborted
-        ? 'The reply took too long. It may still have been processed; check before sending again.'
-        : 'The reply could not be received. Check your connection before sending again.')
+      setError(!retained
+        ? (controller.signal.aborted ? 'The reply took too long. It may still have been processed; check before sending again.' : 'The reply could not be received. Check your connection before sending again.')
+        : controller.signal.aborted
+        ? 'The reply took too long. It may still have been processed. Check the original message to recover it safely.'
+        : 'The reply could not be confirmed. Your original message is retained; check it before sending another.')
     } finally {
       clearTimeout(timeout)
       if (requestAbortRef.current === controller) requestAbortRef.current = null
-      if (!succeeded && mountedRef.current && turn === voiceTurnRef.current) {
-        setInput(current => current || trimmed)
-        setMessages(previous => previous.filter(message => message !== userMsg))
+      if (!retained && !succeeded && current()) {
+        setInput(value => value || JSON.parse(request.body).message)
+        setMessages(previous => previous.filter(message => message !== bubble))
       }
       sendingRef.current = false
       if (mountedRef.current) setSending(false)
-      if ((turn === voiceTurnRef.current && succeeded) || (turn !== voiceTurnRef.current && voiceModeRef.current)) resumeListening()
-      else if (voiceModeRef.current && !succeeded && turn === voiceTurnRef.current) {
+      if (current() && succeeded) resumeListening()
+      else if (current() && voiceModeRef.current) {
         voiceModeRef.current = false
         setVoiceMode(false)
       }
@@ -462,7 +500,7 @@ function AskInner() {
 
   function startListening() {
     const Ctor = getSpeechRecognition()
-    if (!Ctor || recognitionRef.current || sendingRef.current || audioRef.current) return
+    if (!Ctor || pendingRef.current || chatBlocked || recognitionRef.current || sendingRef.current || audioRef.current) return
     const rec = new Ctor()
     rec.lang = 'en-US'
     rec.continuous = false
@@ -674,7 +712,7 @@ function AskInner() {
                     <button
                       key={s}
                       onClick={() => sendMessage(s)}
-                      disabled={isSignedIn === null || sending || liveActive}
+                      disabled={isSignedIn === null || sending || !!pending || chatBlocked || liveActive}
                       className="group w-full rounded-lg border border-border bg-background/50 px-4 py-2.5 text-left text-sm text-foreground font-body hover:border-primary/40 hover:bg-background transition-colors disabled:opacity-50"
                     >
                       <span className="text-muted-foreground mr-2">“</span>
@@ -710,7 +748,7 @@ function AskInner() {
                         {voiceSupported && (
                           <button
                             type="button"
-                            disabled={liveActive}
+                            disabled={liveActive || !!pending || chatBlocked}
                             onClick={() => speak(m.content, activeHost, m.timestamp)}
                             aria-label={`Play ${activeHostMeta.displayName}'s reply`}
                             className="ml-0.5 text-muted-foreground hover:text-primary transition-colors"
@@ -784,6 +822,22 @@ function AskInner() {
             </div>
           )}
 
+          {pending && (
+            <div className="mx-6 mb-4 rounded-lg border border-primary/40 p-4" role="status">
+              <p className="text-sm">An original message is retained for {activeHostMeta.displayName}:</p>
+              <p className="text-sm whitespace-pre-wrap my-2">{JSON.parse(pending.body).message}</p>
+              <p className="text-xs mb-3">New messages are paused until retained messages are resolved, one at a time. Recovery always uses the original text, session, and request ID.</p>
+              <Button onClick={recoverPending} disabled={sending || liveActive}>Check original message</Button>
+            </div>
+          )}
+
+          {textPaused && (
+            <p className="mx-6 mb-4 text-sm" role="status">Text chat is paused for maintenance. You can still check an existing message. Event pages and shared YouTube chat remain available.</p>
+          )}
+          {durableEnabled === true && storageUnavailable && (
+            <p className="mx-6 mb-4 text-sm" role="alert">Chat recovery storage is unavailable. Enable browser storage before sending.</p>
+          )}
+
           {/* Error banner */}
           {error && (
             <div className="mx-6 mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
@@ -795,9 +849,9 @@ function AskInner() {
           )}
 
           <div className="px-4 lg:px-6">
-            <LiveVoiceConversation key={activeHost} host={activeHost} conversationId={conversationIdRef.current}
+            {!pending && !recoveryBlocked && <LiveVoiceConversation key={activeHost} host={activeHost} conversationId={conversationIdRef.current}
               signedIn={Boolean(isSignedIn)} onActive={setLiveActive}
-              onStart={() => { voiceModeRef.current = false; setVoiceMode(false); stopListening(); stopAudio() }} />
+              onStart={() => { voiceModeRef.current = false; setVoiceMode(false); stopListening(); stopAudio() }} />}
           </div>
 
           {/* Composer */}
@@ -807,7 +861,7 @@ function AskInner() {
                 <button
                   type="button"
                   onClick={toggleMic}
-                  disabled={liveActive}
+                  disabled={liveActive || !!pending || chatBlocked}
                   aria-label={listening ? 'Stop voice input' : 'Speak your message'}
                   className={cn(
                     'shrink-0 h-12 w-12 rounded-lg border flex items-center justify-center transition-colors',
@@ -829,7 +883,7 @@ function AskInner() {
                 onKeyDown={handleInputKeyDown}
                 placeholder={`Message ${activeHostMeta.displayName}…`}
                 rows={1}
-                disabled={isSignedIn === null || sending || liveActive}
+                disabled={isSignedIn === null || sending || !!pending || chatBlocked || liveActive}
                 className="flex-1 resize-none rounded-lg border border-border bg-background px-4 py-3 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 disabled:opacity-60"
                 style={{ minHeight: '48px', maxHeight: '160px' }}
                 onInput={(e) => {
@@ -841,7 +895,7 @@ function AskInner() {
               />
               <Button
                 onClick={() => sendMessage()}
-                disabled={isSignedIn === null || sending || liveActive || !input.trim()}
+                disabled={isSignedIn === null || sending || !!pending || chatBlocked || liveActive || !input.trim()}
                 size="lg"
                 className="shrink-0"
               >
@@ -866,7 +920,7 @@ function AskInner() {
                 <button
                   type="button"
                   onClick={toggleVoiceMode}
-                  disabled={liveActive}
+                  disabled={liveActive || !!pending || chatBlocked}
                   aria-pressed={voiceMode}
                   className={cn(
                     'shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-body transition-colors',

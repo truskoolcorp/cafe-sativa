@@ -6,10 +6,10 @@ const ts=require('typescript')
 const React=require('react')
 const {renderToStaticMarkup}=require('react-dom/server')
 
-function load(file,mocks={}) {
+function load(file,mocks={},globals={}) {
   const exports={}
   const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText
-  vm.runInNewContext(code,{exports,URL,Date,Object,Response,require(name){if(name in mocks)return mocks[name];return require(name)}} ,{filename:file})
+  vm.runInNewContext(code,{exports,URL,Date,Object,Response,...globals,require(name){if(name in mocks)return mocks[name];return require(name)}} ,{filename:file})
   return exports
 }
 const policy=load('lib/events/hit-em-premiere.ts')
@@ -203,4 +203,68 @@ test('featured selection remains database-filtered beyond a 1000-row inventory c
 test('invalid featured premiere does not hide a later valid featured event',async()=>{
   const f=listingFixture([{...listedPremiere(),is_featured:true,ticket_price_cents:5},{...laterEvent(),is_featured:true}],{now:'2026-11-11T05:59:00Z'})
   assert.equal((await f.getFeaturedEvent()).slug,'another-event')
+})
+
+const previewPolicy=load('lib/events/hit-em-preview.ts',policyMock)
+const previewEnv={VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'feat/hit-em-public-premiere-20261108'}
+const previewMocks={'@/lib/events/hit-em-preview':previewPolicy,'@/components/events/HitEmPremiere':component,'next/navigation':{notFound(){throw Error('NOT_FOUND')}},...policyMock}
+function previewPage(env){return load('app/preview/hit-em-release-party/page.tsx',previewMocks,{process:{env}})}
+function previewCalendar(env){return load('app/preview/hit-em-release-party/calendar/route.ts',previewMocks,{process:{env}})}
+test('private visual fixture is restricted to exact PR preview environment',()=>{
+  assert.equal(previewPolicy.canPreviewHitEm(previewEnv),true)
+  for(const env of [{},{VERCEL_ENV:'preview'},{...previewEnv,VERCEL_ENV:'production'},{...previewEnv,VERCEL_ENV:'development'},{...previewEnv,VERCEL_GIT_COMMIT_REF:'main'},{...previewEnv,VERCEL_GIT_COMMIT_REF:'other-branch'}])assert.equal(previewPolicy.canPreviewHitEm(env),false)
+})
+test('production and unrelated previews cannot render fixture or download its calendar',async()=>{
+  for(const env of [{},{...previewEnv,VERCEL_ENV:'production'},{...previewEnv,VERCEL_GIT_COMMIT_REF:'other-branch'}]){
+    assert.throws(()=>previewPage(env).default(),/NOT_FOUND/)
+    assert.doesNotMatch(JSON.stringify(previewPage(env).generateMetadata()),/Hit Em|youtube|November/)
+    const response=previewCalendar(env).GET();assert.equal(response.status,404);assert.doesNotMatch(await response.text(),/Hit Em|VCALENDAR|ZYA0r9JM6eA/)
+  }
+})
+test('authorized private fixture renders same component with explicit nonpublication notice',()=>{
+  const page=previewPage(previewEnv),output=renderToStaticMarkup(page.default())
+  assert.match(output,/Private preview. This page does not publish the event/)
+  assert.match(output,/not the live listing/)
+  assert.match(output,/youtube-nocookie\.com\/embed\/ZYA0r9JM6eA/)
+  assert.match(output,/href="\/preview\/hit-em-release-party\/calendar"/)
+  assert.equal(page.generateMetadata().robots.index,false);assert.equal(page.generateMetadata().robots.follow,false)
+  assert.equal(page.dynamic,'force-dynamic');assert.equal(page.revalidate,0)
+})
+test('preview calendar matches real calendar exactly and is private and uncached',async()=>{
+  const response=previewCalendar(previewEnv).GET()
+  assert.equal(response.status,200);assert.equal(await response.text(),policy.hitEmCalendarEvent())
+  assert.equal(response.headers.get('cache-control'),'private, no-store')
+  assert.equal(response.headers.get('x-robots-tag'),'noindex, nofollow')
+  assert.equal(response.headers.get('x-content-type-options'),'nosniff')
+})
+test('private fixture reads no database or identity and does not weaken public loader',async()=>{
+  for(const file of ['lib/events/hit-em-preview.ts','app/preview/hit-em-release-party/page.tsx','app/preview/hit-em-release-party/calendar/route.ts'])assert.doesNotMatch(fs.readFileSync(file,'utf8'),/createAdminClient|supabase|\.from\(|\.update\(|\.insert\(|cookies\(|headers\(/)
+  assert.equal(await loaderFixture({...valid(),status:'draft'}).run(),null)
+  assert.equal(previewPolicy.hitEmPreviewFixture().startsAt,config.startsAt)
+})
+
+function eventIndexFixture(events){
+  const calls=[]
+  const page=load('app/events/page.tsx',{
+    'next/link':({children,...props})=>React.createElement('a',props,children),
+    'lucide-react':{Calendar:()=>React.createElement('span',null,'Calendar')},
+    '@/components/events/EventCard':{EventCard:({event})=>React.createElement('a',{href:'/events/'+event.slug},event.title)},
+    '@/components/events/SiteFeatures':{SiteFeatures:({category})=>React.createElement('div',{'data-category':category},'CONCEPT_PREVIEWS')},
+    '@/components/ui/button':{Button:({children})=>React.createElement('span',null,children)},
+    '@/lib/events':{getUpcomingEvents:async options=>{calls.push(options);return events}},
+    '@/lib/utils':{cn:(...classes)=>classes.filter(Boolean).join(' ')},
+  })
+  return {calls,render:async category=>renderToStaticMarkup(await page.default({searchParams:{category}}))}
+}
+test('confirmed event results are discoverable before concept previews',async()=>{
+  const f=eventIndexFixture([{id:config.eventId,slug:config.slug,title:config.title}]),output=await f.render()
+  assert.ok(output.indexOf('href="/events/hit-em-release-party"')<output.indexOf('CONCEPT_PREVIEWS'))
+  assert.match(output,/Showing 1 event/)
+})
+test('event index keeps category filtering and empty-state privacy',async()=>{
+  const f=eventIndexFixture([]),output=await f.render('stage')
+  assert.equal(f.calls[0].category,'stage');assert.match(output,/data-category="stage"/)
+  assert.match(output,/No confirmed upcoming events in this category/)
+  assert.doesNotMatch(output,/Hit Em|hit-em-release-party/)
+  await f.render('unknown');assert.equal(f.calls[1].category,undefined)
 })

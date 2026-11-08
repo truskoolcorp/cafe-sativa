@@ -3,8 +3,11 @@ on:
   pull_request:
     paths:
       - 'app/events/hit-em-release-party/**'
+      - 'app/events/page.tsx'
+      - 'app/preview/hit-em-release-party/**'
       - 'components/events/HitEmPremiere.tsx'
       - 'lib/events/hit-em-premiere.ts'
+      - 'lib/events/hit-em-preview.ts'
       - 'lib/events/load-hit-em-premiere.ts'
       - 'lib/events.ts'
       - 'tests/hit-em-premiere.test.cjs'

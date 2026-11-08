@@ -11,3 +11,10 @@ The existing future-only event query would remove this gathering at midnight. Th
 The calendar download is user-initiated and creates no website subscription, external calendar event, email, or SMS. Its UID is stable. It has the approved UTC start and deliberately no invented end time, host, or alarm.
 
 Before release: run the focused regression and application checks; review actual page rendering; verify published event state and exact source on the intended deployment; test signed-out and ordinary-user access, watch redirect, waiting room, mobile fallback and calendar import. Test the production link after deploying and scheduling only with authorization. Keep listing approval and announcement/send approval distinct. Do not bypass preview access protection.
+
+
+## Protected visual acceptance fixture
+
+`/preview/hit-em-release-party` renders the same party component with only the owner-approved static event facts. It requires both `VERCEL_ENV=preview` and the exact PR branch `feat/hit-em-public-premiere-20261108`; production, development and other branches return not found. It reads or writes no database/account data and does not change the actual draft gate. Its calendar endpoint emits the same calendar bytes with a preview filename and private/no-store headers. A visible notice distinguishes this test fixture from a live listing; both routes are noindex. Deployment authentication remains enabled. Use only the explicitly approved temporary private access link, and revoke it after QA. This tests the design, player and calendar; it does not substitute for signed-out production acceptance after an authorized release.
+
+Confirmed event results now appear above concept features on `/events`, without changing filters, admission, or publication status.

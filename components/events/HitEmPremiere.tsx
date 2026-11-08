@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { HIT_EM_PREMIERE, type PublicPremiere } from '@/lib/events/hit-em-premiere'
 
-export default function HitEmPremiere({ event }: { event: PublicPremiere }) {
+export default function HitEmPremiere({ event, calendarHref = `${HIT_EM_PREMIERE.path}/calendar` }: { event: PublicPremiere; calendarHref?: string }) {
   if (event.state === 'canceled') return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-28 text-foreground">
       <section className="mx-auto max-w-3xl rounded-xl border border-border bg-card p-8">
@@ -48,7 +48,7 @@ export default function HitEmPremiere({ event }: { event: PublicPremiere }) {
           <h2 id="join-in-heading" className="font-heading text-2xl font-bold">Join the conversation</h2>
           <p className="mt-3">Say hello in the YouTube chat, share where you’re watching from, and tell us which moment stands out.</p>
           <p className="mt-3 text-sm text-muted-foreground">Please keep it welcoming. This is a shared video premiere, with no separate Zoom room or promised live-host session.</p>
-          <a href={`${HIT_EM_PREMIERE.path}/calendar`} className="mt-5 inline-flex rounded-lg border border-border px-4 py-2 font-semibold">Add to my calendar (.ics)</a>
+          <a href={calendarHref} className="mt-5 inline-flex rounded-lg border border-border px-4 py-2 font-semibold">Add to my calendar (.ics)</a>
           <p className="mt-2 text-xs text-muted-foreground">Downloads a calendar file. Your calendar app controls any reminder; Café Sativa does not subscribe or message you.</p>
         </section>}
 

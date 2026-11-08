@@ -1,0 +1,25 @@
+name: Hit Em public premiere gate
+on:
+  pull_request:
+    paths:
+      - 'app/events/hit-em-release-party/**'
+      - 'components/events/HitEmPremiere.tsx'
+      - 'lib/events/hit-em-premiere.ts'
+      - 'lib/events/load-hit-em-premiere.ts'
+      - 'lib/events.ts'
+      - 'tests/hit-em-premiere.test.cjs'
+      - '.github/workflows/hit-em-premiere-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/hit-em-premiere.test.cjs

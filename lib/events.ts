@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { HIT_EM_PREMIERE, publicHitEmPremiere } from '@/lib/events/hit-em-premiere'
 
 /**
  * Shape of a row coming out of `my_events_v`.
@@ -54,20 +55,38 @@ export async function getUpcomingEvents(options?: {
     .select('*')
     .gte('starts_at', new Date().toISOString())
     .order('starts_at', { ascending: true })
+  // Keep this approved public premiere discoverable after its start, until it
+  // is explicitly ended/canceled. Do not infer a live status or an end time.
+  let premiereQuery = supabase.from('my_events_v').select('*')
+    .eq('id', HIT_EM_PREMIERE.eventId).eq('slug', HIT_EM_PREMIERE.slug)
+    .in('status', ['scheduled', 'live'])
 
   if (options?.category) {
     q = q.eq('category', options.category)
+    premiereQuery = premiereQuery.eq('category', options.category)
   }
   if (options?.limit) {
-    q = q.limit(options.limit)
+    // At most one unique premiere slug can be removed by the safety filter.
+    q = q.limit(options.limit + 1)
   }
 
-  const { data, error } = await q
-  if (error) {
-    console.error('getUpcomingEvents failed:', error.message)
-    return []
+  const [upcoming, premiere] = await Promise.all([q, premiereQuery])
+  if (upcoming.error) console.error('Upcoming event inventory is unavailable')
+  if (premiere.error) console.error('Public premiere discovery is unavailable')
+  const rows = [
+    ...(upcoming.error ? [] : upcoming.data ?? []),
+    ...(premiere.error ? [] : premiere.data ?? []),
+  ] as EventRow[]
+  const unique = new Map<string, EventRow>()
+  for (const row of rows) {
+    if (row.slug === HIT_EM_PREMIERE.slug) {
+      const verified = publicHitEmPremiere(row)
+      if (!verified || verified.state !== 'ready' || verified.status === 'ended') continue
+    }
+    unique.set(row.id, row)
   }
-  return (data ?? []) as EventRow[]
+  const visible = Array.from(unique.values()).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+  return options?.limit ? visible.slice(0, options.limit) : visible
 }
 
 /**
@@ -77,27 +96,25 @@ export async function getUpcomingEvents(options?: {
  */
 export async function getFeaturedEvent(): Promise<EventRow | null> {
   const supabase = createClient()
-
-  // Prefer an explicitly featured future event.
-  const { data: featured } = await supabase
-    .from('my_events_v')
-    .select('*')
-    .eq('is_featured', true)
-    .gte('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
-    .limit(1)
-
-  if (featured && featured.length > 0) return featured[0] as EventRow
-
-  // Otherwise just the next upcoming event of any kind.
-  const { data: next } = await supabase
-    .from('my_events_v')
-    .select('*')
-    .gte('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
-    .limit(1)
-
-  return (next && next.length > 0 ? next[0] : null) as EventRow | null
+  const [featured, premiere] = await Promise.all([
+    supabase.from('my_events_v').select('*').eq('is_featured', true)
+      .gte('starts_at', new Date().toISOString()).order('starts_at', { ascending: true }).limit(2),
+    supabase.from('my_events_v').select('*').eq('id', HIT_EM_PREMIERE.eventId)
+      .eq('slug', HIT_EM_PREMIERE.slug).eq('is_featured', true).in('status', ['scheduled', 'live']).limit(1),
+  ])
+  // Keep filtering inside the bounded database query so a later explicitly
+  // featured event is not hidden by the database's overall result cap.
+  const candidates = [
+    ...(featured.error ? [] : featured.data ?? []),
+    ...(premiere.error ? [] : premiere.data ?? []),
+  ] as EventRow[]
+  const eligible = candidates.filter(event => {
+    if (event.slug !== HIT_EM_PREMIERE.slug) return true
+    const verified = publicHitEmPremiere(event)
+    return verified?.state === 'ready' && verified.status !== 'ended'
+  }).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+  if (eligible[0]) return eligible[0]
+  return (await getUpcomingEvents({ limit: 1 }))[0] ?? null
 }
 
 /**

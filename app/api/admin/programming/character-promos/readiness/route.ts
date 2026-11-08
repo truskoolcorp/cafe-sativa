@@ -1,3 +1,4 @@
+import {characterPromoAudioStatus} from '@/lib/content/character-promo-audio'
 import {NextResponse} from 'next/server'
 import {isContentAdmin} from '@/lib/content/auth'
 import {createAdminClient} from '@/lib/supabase/admin'
@@ -16,7 +17,8 @@ export async function GET(){
   const targets=(plans.data||[]).filter(p=>p.promo_id===d.id)
   const blockers:string[]=[]
   const expectedChecks=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety']
-  const sha=d.video_asset_path?.match(/\/([a-f0-9]{64})\.mp4$/)?.[1]||null
+  const audio=characterPromoAudioStatus(d,qa.data||[])
+  const sha=audio.videoSha256
   const observations=(qa.data||[]).filter(q=>q.promo_id===d.id&&q.video_sha256===sha)
   const seen=observations.filter(q=>q.result==='pass')
   const pendingChecks=expectedChecks.filter(name=>!seen.some(q=>q.check_name===name))
@@ -25,8 +27,8 @@ export async function GET(){
   if(d.character_id!=='keith'&&d.intended_channel==='character_profile_unconfirmed')blockers.push('Dedicated character account is not connected')
   if(d.character_id==='keith'&&d.intended_channel!=='truskoolcorp_metricool_brand_5373515')blockers.push('Incorrect corporate brand routing')
   if(!d.actual_social_account)blockers.push('Exact authorized social account not mapped')
-  if(!d.voice_approved_at)blockers.push(d.video_asset_path?'Embedded speech owner-attested; canonical voice verification and final audio approval still pending':'Canonical audio not verified')
-  if(d.voice_approved_at&&!d.audio_asset_path)blockers.push('Embedded audio needs a recorded extraction or verification receipt; separate MP3 is not mandatory')
+  if(!audio.voiceApproved)blockers.push(audio.embeddedSpeechRecorded?'Embedded speech evidence recorded; final voice approval still pending':'Final voice approval pending')
+  if(!audio.hasAudioEvidence)blockers.push('Separate audio or a passing canonical_speech observation for this exact finalized video hash is missing')
   if(!d.video_asset_path||!d.video_qa_approved_at)blockers.push('Video asset and QA not verified')
   if(!d.publication_approved_at)blockers.push('Content publication authorization missing')
   if(!targets.length)blockers.push('No verified provider delivery plan')

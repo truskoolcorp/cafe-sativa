@@ -9,7 +9,7 @@ import {
 export const OPEN_PRIVACY_CHOICES = 'cafe:open-privacy-choices'
 
 export function PrivacyChoicesButton() {
-  return <button type="button" className="text-xs text-muted-foreground/70 hover:text-foreground underline underline-offset-2"
+  return <button id="cafe-privacy-choices-button" type="button" className="text-xs text-muted-foreground/70 hover:text-foreground underline underline-offset-2"
     onClick={() => window.dispatchEvent(new Event(OPEN_PRIVACY_CHOICES))}>
     Privacy choices
   </button>
@@ -42,7 +42,8 @@ export function PrivacyChoices() {
     if (open) dialog.current?.showModal()
     else {
       dialog.current?.close()
-      opener.current?.focus()
+      if (opener.current?.isConnected) opener.current.focus()
+      else if (opener.current) document.getElementById('cafe-privacy-choices-button')?.focus()
     }
   }, [open])
 
@@ -64,7 +65,7 @@ export function PrivacyChoices() {
   const button = 'rounded border border-primary px-4 py-2 text-sm font-semibold text-foreground hover:bg-primary/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary'
 
   return <>
-    {hydrated && !consent.decided && !open && <section aria-label="Optional cookies and privacy"
+    {hydrated && !consent.decided && <section hidden={open} aria-label="Optional cookies and privacy"
       className="fixed bottom-0 inset-x-0 z-[80] border-t border-primary/40 bg-background p-5 shadow-2xl">
       <div className="mx-auto max-w-5xl flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="max-w-xl text-sm">

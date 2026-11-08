@@ -11,6 +11,7 @@ on:
       - 'lib/lounge-membership.ts'
       - 'lib/cors.ts'
       - 'lib/events/hit-em-premiere.ts'
+      - 'tests/*.cjs'
       - 'tests/concierge*.cjs'
       - 'tests/conversation*.cjs'
       - 'tests/hit-em-premiere.test.cjs'
@@ -35,7 +36,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/concierge*.cjs tests/conversation*.cjs tests/hit-em-premiere.test.cjs tests/lounge-membership.test.cjs tests/site-fonts.test.cjs
+      - run: node --test tests/*.cjs
       - run: npx tsc --noEmit --incremental false
   isolated-database:
     strategy:

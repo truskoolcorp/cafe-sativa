@@ -4,9 +4,13 @@ import { getUpcomingEvents, type EventRow } from '@/lib/events'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getHost, type HostId } from '@/lib/concierge/personas'
+import { getHost } from '@/lib/concierge/personas'
 import { checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
 import { getMemoryContext } from '@/lib/concierge/memory'
+import { chronologicalMessages } from '@/lib/concierge/history'
+import { validateConciergeRequest } from '@/lib/concierge/request'
+import { conciergeOriginAllowed } from '@/lib/concierge/request-origin'
+import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { conversationMatchesRequester } from '@/lib/concierge/conversation-access'
 import { conciergeEventFacts, PROGRAMMING_FACT_RULES, verifiedPremiereAnswer } from '@/lib/concierge/programming'
 import { jsonWithCors, preflight } from '@/lib/cors'
@@ -17,7 +21,7 @@ import { jsonWithCors, preflight } from '@/lib/cors'
  * Body: {
  *   host: 'laviche' | 'ginger' | 'ahnika',
  *   message: string,
- *   session_id?: string,     // for anonymous users (client-generated uuid)
+ *   session_id?: string,     // opaque guest identifier; website generates UUIDs
  *   conversation_id?: string, // for multi-turn continuity
  *   surface: 'web-chat' | 'mall-3d' | 'email',
  *   room_id?: string          // which room they're in (mall-3d only)
@@ -54,43 +58,26 @@ import { jsonWithCors, preflight } from '@/lib/cors'
 export const runtime = 'nodejs'
 export const maxDuration = 60 // seconds
 
-type RequestBody = {
-  host?: string
-  message?: string
-  session_id?: string
-  conversation_id?: string
-  surface?: string
-  room_id?: string
+export async function POST(req: Request) {
+  try {
+    return await handlePost(req)
+  } catch {
+    console.error('[concierge] Request dependencies are temporarily unavailable')
+    return jsonWithCors({ error: 'Concierge is temporarily unavailable. Please try again shortly.' }, { status: 503, request: req })
+  }
 }
 
-export async function POST(req: Request) {
-  const body = (await req.json().catch(() => null)) as RequestBody | null
-
-  if (!body || typeof body.message !== 'string' || body.message.trim().length === 0) {
-    return jsonWithCors({ error: 'Message is required.' }, { status: 400, request: req })
+async function handlePost(req: Request) {
+  // CORS response headers alone do not stop a simple cross-site POST from
+  // running server work. Reject an unapproved browser origin before any I/O.
+  if (!conciergeOriginAllowed(req)) {
+    return jsonWithCors({ error: 'This chat origin is not allowed.', code: 'origin_not_allowed' }, { status: 403, request: req })
   }
-  if (body.message.length > 2000) {
-    return jsonWithCors(
-      { error: 'Message is too long. Keep it under 2000 characters.' },
-      { status: 400, request: req }
-    )
-  }
-
-  const host = getHost(body.host ?? '')
-  if (!host) {
-    return jsonWithCors(
-      { error: `Unknown host. Expected one of: laviche, ginger, ahnika.` },
-      { status: 400, request: req }
-    )
-  }
-
+  const parsed = validateConciergeRequest(await req.json().catch(() => null))
+  if (!parsed.valid) return jsonWithCors({ error: parsed.error }, { status: 400, request: req })
+  const body = parsed.body
+  const host = getHost(body.host)!
   const surface = body.surface
-  if (surface !== 'web-chat' && surface !== 'mall-3d' && surface !== 'email') {
-    return jsonWithCors(
-      { error: 'surface must be one of: web-chat, mall-3d, email.' },
-      { status: 400, request: req }
-    )
-  }
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
@@ -99,7 +86,7 @@ export async function POST(req: Request) {
   const { data: userData } = await supabase.auth.getUser()
   const userId = userData?.user?.id ?? null
 
-  const sessionId = body.session_id?.trim() || null
+  const sessionId = body.session_id
   if (!userId && !sessionId) {
     return jsonWithCors(
       { error: 'Send a session_id for anonymous chats.', code: 'missing_session' },
@@ -111,14 +98,13 @@ export async function POST(req: Request) {
   const admin = createAdminClient()
   let tier: Tier = userId ? 'explorer' : 'anonymous'
   if (userId) {
-    const { data: memRow } = await admin
+    const { data: memRow, error: membershipError } = await admin
       .from('memberships')
-      .select('tier, status')
+      .select('tier, status, current_period_end')
       .eq('user_id', userId)
       .maybeSingle()
-    if (memRow && memRow.status === 'active') {
-      tier = memRow.tier as Tier
-    }
+    if (membershipError) return jsonWithCors({ error: 'Membership access is temporarily unavailable.' }, { status: 503, request: req })
+    tier = loungeMembershipTier(memRow)
   }
 
   // Rate limit
@@ -127,10 +113,11 @@ export async function POST(req: Request) {
     return jsonWithCors(
       {
         error: rate.message,
-        rate_limited: true,
+        rate_limited: !rate.unavailable,
+        ...(rate.unavailable ? { code: 'usage_unavailable' } : {}),
         resets_in_seconds: rate.resetsInSeconds,
       },
-      { status: 429, request: req }
+      { status: rate.unavailable ? 503 : 429, request: req }
     )
   }
 
@@ -158,7 +145,7 @@ export async function POST(req: Request) {
       .select('user_id,session_id,host_agent,ended_at').eq('id',conversationId).maybeSingle()
     if (conversationError) return jsonWithCors({error:'Conversation is temporarily unavailable.'},{status:503,request:req})
     if (!conversationMatchesRequester(conversation,{userId,sessionId,host:host.id})) {
-      return jsonWithCors({error:'This conversation is unavailable for this host and session.'},{status:403,request:req})
+      return jsonWithCors({error:'This conversation is unavailable for this host and session.',code:'conversation_unavailable'},{status:403,request:req})
     }
   }
 
@@ -180,7 +167,8 @@ export async function POST(req: Request) {
       activeQuery = activeQuery.eq('session_id', sessionId!).is('user_id',null)
     }
 
-    const { data: existingConv } = await activeQuery.maybeSingle()
+    const { data: existingConv, error: activeError } = await activeQuery.maybeSingle()
+    if (activeError) return jsonWithCors({ error: 'Conversation is temporarily unavailable.' }, { status: 503, request: req })
     conversationId = existingConv?.id ?? null
   }
 
@@ -211,12 +199,13 @@ export async function POST(req: Request) {
     userId,
     hostAgent: host.id,
     tier,
+    excludeConversationId: conversationId!,
   })
 
   // Load the current conversation's message history. We want these
   // AFTER any prior-memory context so the model sees them as the most
   // recent exchange.
-  const { data: currentConvMessages } = await admin
+  const { data: currentConvMessages, error: historyError } = await admin
     .from('host_messages')
     .select('role, content, created_at')
     .eq('conversation_id', conversationId)
@@ -224,7 +213,8 @@ export async function POST(req: Request) {
     .order('created_at', { ascending: false })
     .limit(30)
 
-  const currentMessages = (currentConvMessages ?? []).reverse()
+  if (historyError) return jsonWithCors({ error: 'Conversation history is temporarily unavailable.' }, { status: 503, request: req })
+  const currentMessages = chronologicalMessages(currentConvMessages ?? [])
 
   // Build the Messages API request
   type MessageParam = { role: 'user' | 'assistant'; content: string }
@@ -360,7 +350,9 @@ export async function POST(req: Request) {
       message: replyText,
       conversation_id: conversationId,
       host: host.id,
-      remaining: rate.allowed ? rate.remaining : 0,
+      remaining: rate.remaining,
+      memory_saved: !persistError,
+      ...(persistError ? { warning: 'Your reply was delivered, but this turn could not be saved for future conversation memory.' } : {}),
     },
     { status: 200, request: req }
   )

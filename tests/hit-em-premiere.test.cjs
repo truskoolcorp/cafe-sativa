@@ -75,16 +75,24 @@ function loaderFixture(data,error=null) {
   const calls=[]
   const query={select(fields){calls.push(['select',fields]);return query},eq(k,v){calls.push(['eq',k,v]);return query},in(k,v){calls.push(['in',k,[...v]]);return query},maybeSingle(){return Promise.resolve({data,error})}}
   const loader=load('lib/events/load-hit-em-premiere.ts',{
-    ...policyMock,'server-only':{},'@/lib/supabase/admin':{createAdminClient:()=>({from(table){calls.push(['from',table]);return query}})},
+    ...policyMock,'server-only':{},'@/lib/supabase/server':{createClient:()=>({from(table){calls.push(['from',table]);return query}})},
   })
   return {calls,run:loader.loadHitEmPremiere}
 }
 test('loader only reads exact public event fields and published statuses',async()=>{
   const f=loaderFixture(valid());assert.equal((await f.run()).state,'ready')
-  assert.deepEqual(f.calls,[['from','events'],['select','id,slug,title,description,status,starts_at,ticket_price_cents'],['eq','id',config.eventId],['eq','slug',config.slug],['in','status',['scheduled','live','ended','canceled']]])
+  assert.deepEqual(f.calls,[['from','my_events_v'],['select','id,slug,title,description,status,starts_at,ticket_price_cents'],['eq','id',config.eventId],['eq','slug',config.slug],['in','status',['scheduled','live']]])
   assert.doesNotMatch(JSON.stringify(f.calls),/zoom|recording|tickets|memberships|user_id|storage|insert|update/)
 })
 test('loader independently rejects a draft even if an incorrect mock/query returns one',async()=>assert.equal(await loaderFixture({...valid(),status:'draft'}).run(),null))
+test('public loader rejects ended/canceled rows even if the public view unexpectedly returns them',async()=>{
+  for(const status of ['ended','canceled'])assert.equal(await loaderFixture({...valid(),status}).run(),null)
+})
+test('public loader uses the existing visitor client, not admin credentials or an auth gate',()=>{
+  const source=fs.readFileSync('lib/events/load-hit-em-premiere.ts','utf8')
+  assert.match(source,/from '@\/lib\/supabase\/server'/)
+  assert.doesNotMatch(source,/createAdminClient|SUPABASE_SERVICE_ROLE_KEY|\.auth\.|getUser\(|getSession\(/)
+})
 test('database error is sanitized and is not mistaken for event publication',async()=>{
   await assert.rejects(loaderFixture(null,{message:'private-database-detail'}).run(),e=>e.message==='The event listing is temporarily unavailable.')
 })

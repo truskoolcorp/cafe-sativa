@@ -113,10 +113,40 @@ class HarnessTests(unittest.TestCase):
             runner.ok((400, sensitive))
         self.assertNotIn('do-not-print', str(failure.exception))
         with self.assertRaises(AssertionError) as failure:
-            runner.api_failure((200, sensitive))
+            runner.api_failure((200, sensitive), expected_code='unexpected_failure')
         self.assertNotIn('do-not-print', str(failure.exception))
-        runner.api_failure((500, {'code': 'unexpected_failure'}))
-        runner.api_failure((500, {'code': 500, 'error_code': 'unexpected_failure'}))
+        for body in ({'code': 'do-not-print'}, {'error_code': 'do-not-print'}, sensitive, ['do-not-print']):
+            with self.subTest(body_type=type(body).__name__), self.assertRaises(AssertionError) as failure:
+                runner.api_failure((400, body), expected_code='23503')
+            self.assertNotIn('do-not-print', str(failure.exception))
+
+    def test_http_failure_requires_exact_scenario_code_and_status(self):
+        for code in ('23503', 'unexpected_failure'):
+            for body in ({'code': code}, {'code': 500, 'error_code': code}):
+                runner.api_failure((500, body), expected_code=code)
+                wrong = '23503' if code == 'unexpected_failure' else 'unexpected_failure'
+                with self.assertRaises(AssertionError):
+                    runner.api_failure((500, body), expected_code=wrong)
+                for status in (200, 400, 401, 403, 404, 429, 503):
+                    with self.assertRaises(AssertionError):
+                        runner.api_failure((status, body), expected_code=code)
+        for code in ('23505', '42501', '40P01', '55P03', None):
+            with self.assertRaises(AssertionError):
+                runner.api_failure((500, {'code': code}), expected_code='23503')
+        with self.assertRaises(ValueError):
+            runner.api_failure((500, {'code': '23505'}), expected_code='23505')
+
+    def test_failure_sites_separate_fk_and_lock_timeout(self):
+        tree = ast.parse((HERE / 'run.py').read_text())
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == 'api_failure']
+        codes = [next(keyword.value.value for keyword in call.keywords
+                      if keyword.arg == 'expected_code') for call in calls]
+        self.assertEqual(codes.count('23503'), 5)
+        self.assertEqual(codes.count('unexpected_failure'), 1)
+        timeout = next(call for call in calls if any(keyword.value.value == 'unexpected_failure'
+                                                   for keyword in call.keywords))
+        self.assertEqual(ast.unparse(timeout.args[0]), 'future.result(timeout=6)')
 
     def test_http_error_preserves_status_for_assertion_only(self):
         error = urllib.error.HTTPError(runner.AUTH_URL, 500, 'error', {}, io.BytesIO(b'{"error_code":"unexpected_failure"}'))

@@ -103,10 +103,19 @@ def ok(result):
     return data
 
 
-def api_failure(result):
+def api_failure(result, *, expected_code):
+    # The default API version exposes an FK violation as HTTP 500/code 23503.
+    # Lock timeout is not a public Postgres error and remains unexpected_failure.
+    # Require each scenario's exact code, not any error or either code everywhere.
+    allowed = ('23503', 'unexpected_failure')
+    if expected_code not in allowed:
+        raise ValueError('Unsupported expected Auth failure code.')
     status, data = result
-    code = data.get('error_code', data.get('code'))
-    assert status == 500 and code == 'unexpected_failure', 'Expected Auth HTTP 500 unexpected_failure.'
+    code = data.get('error_code', data.get('code')) if isinstance(data, dict) else None
+    safe_code = code if code in allowed else 'other_or_missing'
+    safe_status = status if type(status) is int and 100 <= status <= 599 else 'invalid'
+    assert status == 500 and code == expected_code, (
+        f'Expected Auth HTTP 500 {expected_code}; got HTTP {safe_status} {safe_code}.')
 
 
 def delete_user(uid, *, soft=False):
@@ -424,7 +433,7 @@ def rollback_and_timeout():
     blocker = str(uuid.uuid4())
     sql(f'INSERT INTO public.cs_episode_script_approvals(id,approved_by) VALUES({literal(blocker)}::uuid,{literal(uid)}::uuid);')
     before = snapshot(uid, cid)
-    api_failure(delete_user(uid))
+    api_failure(delete_user(uid), expected_code='23503')
     assert snapshot(uid, cid) == before, 'FK-blocked HTTP deletion did not roll back every observed row/audit'
     ok(http('GET', f'/admin/users/{uid}', admin=True))
     # Removing only the synthetic public blocker lets the same actual API finish.
@@ -441,7 +450,7 @@ def rollback_and_timeout():
         future = pool.submit(lambda: delete_user(uid))
         try:
             wait_for(1, auth=True)
-            api_failure(future.result(timeout=6))
+            api_failure(future.result(timeout=6), expected_code='unexpected_failure')
             assert snapshot(uid, cid) == before, 'Timed-out HTTP deletion changed durable state/audit'
         finally:
             holder.query('COMMIT;')
@@ -472,7 +481,7 @@ def commerce_and_lounge():
         assert replay == {'id': order['id'], 'created': False}, replay
         assert sql(f'SELECT stock_count FROM public.products WHERE id={literal(seller)}::uuid;') == '1'
         if self_artist:
-            api_failure(deletion)
+            api_failure(deletion, expected_code='23503')
             assert deletion_audits(uid) == '0'
             assert sql(f'SELECT count(*) FROM auth.sessions WHERE user_id={literal(uid)}::uuid;') == '1'
             sql(f"DELETE FROM public.order_items WHERE order_id={literal(order['id'])}::uuid;")
@@ -491,7 +500,7 @@ def commerce_and_lounge():
         hold = json.loads(lines[0])
         if paid:
             assert hold.get('reservation_id')
-            api_failure(deletion)
+            api_failure(deletion, expected_code='23503')
             assert deletion_audits(uid) == '0'
             receipt = json.dumps(dict(site='cafe-sativa', payment_status='paid', currency='usd', user_id=uid,
                                      event_id=uid, amount_cents=500, session_id='synthetic-ticket-' + uid,
@@ -500,7 +509,7 @@ def commerce_and_lounge():
             lines, deletion = writer_then_delete(uid, pay)
             ticket = json.loads(lines[0])
             assert ticket.get('created') is True and ticket.get('state') == 'fulfilled'
-            api_failure(deletion)
+            api_failure(deletion, expected_code='23503')
             assert deletion_audits(uid) == '0'
             replay = json.loads(as_role(pay, 'service_role'))
             assert replay.get('created') is False and replay.get('ticket_id') == ticket['ticket_id']
@@ -528,7 +537,7 @@ def commerce_and_lounge():
         lines, deletion = writer_then_delete(uid, statement, role='authenticated')
         assert lines[-1] == mid
         if moderator:
-            api_failure(deletion)
+            api_failure(deletion, expected_code='23503')
             assert deletion_audits(uid) == '0'
             assert sql(f'SELECT deleted_by={literal(uid)}::uuid FROM public.lounge_messages WHERE id={literal(mid)}::uuid;') == 't'
             sql(f'DELETE FROM public.lounge_messages WHERE id={literal(mid)}::uuid;')

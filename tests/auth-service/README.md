@@ -114,7 +114,10 @@ Official PostgreSQL 17.6 is not the hosted Supabase 17.6.1.104 build.
   refresh fail after deletion. The database deletion audit must be present.
 - A public NO ACTION blocker must make the actual API fail atomically: complete
   Auth/public/ledger snapshots and the **database** audit count remain unchanged.
-  A two-second lock-timeout failure gets the same checks. After removing only
+  The default Auth API error format must report HTTP 500 with PostgreSQL code
+  `23503` for FK/RESTRICT blockers. A two-second lock-timeout failure must instead
+  report HTTP 500 with `unexpected_failure` and gets the same snapshot checks.
+  After removing only
   the synthetic blocker/releasing the lock, retrying the actual API succeeds.
   This makes no claim that external Auth log messages are rolled back.
 - Actual gallery payment, free/paid ticket reservation, ticket payment and
@@ -153,8 +156,13 @@ fails the job. Do not replace it with a mocked success or another Auth version.
 The first service CI attempt on `dd866ddb` failed before any API lifecycle test:
 containers were running, but host loopback `/health` was refused. The original
 internal-only Compose topology relied on ineffective published ports. The
-current direct-private-address design fixes that configuration defect; it still
-requires a successful new CI run to establish startup and acceptance results.
+direct-private-address design was verified in CI on `5249b3a1`: GoTrue v2.197.0,
+PostgreSQL 17.6 and 75 official Auth migrations started successfully. The lifecycle
+bypass checks, both admission/completion race orders and FK inversion regression
+passed. That run then stopped on an incorrect harness expectation: a public FK
+error is returned as code `23503`, not the generic `unexpected_failure`, by this
+tagged service's default API version. The assertions now require the exact code
+for each scenario. Full acceptance still requires a successful new CI run.
 
 ## Official version-pinned sources
 
@@ -169,6 +177,7 @@ requires a successful new CI run to establish startup and acceptance results.
   and [database audit behavior](https://github.com/supabase/auth/blob/v2.197.0/internal/models/audit_log_entry.go).
 - [Configuration definitions](https://github.com/supabase/auth/blob/v2.197.0/internal/conf/configuration.go)
   and [HTTP error response versions](https://github.com/supabase/auth/blob/v2.197.0/internal/api/errors.go).
+- [Default API PostgreSQL error-code mapping](https://github.com/supabase/auth/blob/v2.197.0/internal/utilities/postgres.go).
 - [Exact signup/user/token rate-limit configuration mapping](https://github.com/supabase/auth/blob/v2.197.0/internal/api/apilimiter/apilimiter.go).
 
 - [Docker internal-network semantics and host-to-container access](https://docs.docker.com/reference/cli/docker/network/create/).

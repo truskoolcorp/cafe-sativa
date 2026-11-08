@@ -1,0 +1,28 @@
+name: Optional tracking consent gate
+on:
+  pull_request:
+    paths:
+      - 'app/layout.tsx'
+      - 'app/privacy/page.tsx'
+      - 'components/analytics/**'
+      - 'components/site/Footer.tsx'
+      - 'lib/analytics/**'
+      - 'tests/meta-pixel.test.cjs'
+      - 'tests/privacy-consent.test.cjs'
+      - 'tsconfig.pixel-check.json'
+      - '.github/workflows/privacy-consent-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  consent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/meta-pixel.test.cjs tests/privacy-consent.test.cjs
+      - run: npx tsc -p tsconfig.pixel-check.json

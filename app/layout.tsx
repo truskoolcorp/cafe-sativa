@@ -1,6 +1,9 @@
 import './globals.css'
 import type { Metadata } from 'next'
-import Script from 'next/script'
+import { Suspense } from 'react'
+import { MetaPixel } from '@/components/analytics/MetaPixel'
+import { Metricool } from '@/components/analytics/Metricool'
+import { PrivacyChoices } from '@/components/analytics/PrivacyChoices'
 import { Playfair_Display, Inter } from 'next/font/google'
 import { Navbar } from '@/components/site/Navbar'
 import { Footer } from '@/components/site/Footer'
@@ -51,13 +54,11 @@ export default function RootLayout({
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />
-        <Script
-          id="metricool-cafe-sativa"
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `(function(){var s=document.createElement('script');s.src='https://tracker.metricool.com/resources/be.js';s.onload=function(){if(window.beTracker)window.beTracker.t({hash:'a0d4d05a33de207c57b5029ffc12d1e0'});};document.head.appendChild(s);})();`,
-          }}
-        />
+        <PrivacyChoices />
+        <Suspense fallback={null}>
+          <MetaPixel />
+          <Metricool />
+        </Suspense>
       </body>
     </html>
   )

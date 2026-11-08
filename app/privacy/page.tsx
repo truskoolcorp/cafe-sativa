@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPage() {
-  const lastUpdated = 'June 15, 2026'
+  const lastUpdated = 'November 8, 2026'
   const contactEmail = 'hello@cafe-sativa.com'
 
   return (
@@ -97,11 +97,12 @@ export default function PrivacyPage() {
               Sharing your information
             </h2>
             <p className="text-muted-foreground">
-              We do not sell your personal information. We share data only with
-              trusted service providers necessary to operate the platform — including
+              We share data with trusted service providers necessary to operate the platform, including
               Stripe (payment processing), Supabase (database infrastructure), and
               Resend (transactional email). Each provider is bound by appropriate data
-              protection agreements.
+              protection agreements. With your optional consent, we also share website-use information
+              with Metricool for analytics and Meta for advertising measurement, as described below.
+              Meta may combine this information with information from your use of its services.
             </p>
           </section>
 
@@ -118,14 +119,43 @@ export default function PrivacyPage() {
             </p>
           </section>
 
-          <section>
+          <section id="cookies">
             <h2 className="font-heading text-xl font-bold text-foreground mb-3">
               Cookies and tracking
             </h2>
             <p className="text-muted-foreground">
               We use essential cookies to maintain your session and authentication
-              state. We do not use third-party advertising cookies or cross-site
-              tracking technologies.
+              state. Optional analytics and advertising tracking are off until you consent.
+              You can reject all optional tracking or choose each category separately.
+              Rejecting optional tracking does not prevent you from using the venue.
+            </p>
+            <ul className="list-disc pl-5 space-y-3 mt-3 text-muted-foreground">
+              <li><strong>Analytics (Metricool):</strong> when enabled and accepted, we measure visits
+                to selected public pages to understand use of our website. The service receives
+                information such as the page address, referrer and browser/device information.</li>
+              <li><strong>Marketing (Meta Pixel):</strong> when enabled and accepted, we send public-page
+                views to Meta to measure advertising. Meta receives page addresses and referrers,
+                browser/device details, your IP address and advertising-cookie identifiers.
+                Meta may set cookies including _fbp and _fbc and may connect these events to your
+                Meta account. We do not enable advanced matching or send names, email addresses,
+                payment details, private conversations or purchase events through this integration.</li>
+              <li><strong>Your stored choice:</strong> we keep a versioned choice and timestamp in
+                this browser’s first-party local storage for up to 180 days. We ask again after
+                expiry or a change to this notice. We honor Global Privacy Control by keeping
+                optional tracking off.</li>
+            </ul>
+            <p className="text-muted-foreground mt-3">
+              Use <strong>Privacy choices</strong> in the footer to change or withdraw consent.
+              Withdrawal stops future tracking and reloads the page to stop code already loaded.
+              It does not undo data already sent. If your browser cannot save a withdrawal, it
+              applies to the current tab; clear this site’s stored data in other tabs and browsers
+              to remove any earlier saved choice.
+            </p>
+            <p className="text-muted-foreground mt-3">
+              These services may process data outside your country. Learn more in the{' '}
+              <a href="https://www.facebook.com/privacy/policy/" rel="noreferrer" className="underline">Meta privacy policy</a>
+              {' '}and{' '}<a href="https://metricool.com/privacy-policy/" rel="noreferrer" className="underline">Metricool privacy policy</a>.
+              Contact us with questions about the processing described here.
             </p>
           </section>
 

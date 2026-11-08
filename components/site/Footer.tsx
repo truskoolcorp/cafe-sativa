@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { PrivacyChoicesButton } from '@/components/analytics/PrivacyChoices'
 
 /**
  * Site footer.
@@ -110,7 +111,8 @@ export function Footer() {
           <p className="text-xs text-muted-foreground/70 font-body">
             © {new Date().getFullYear()} Café Sativa LLC. Managed with Tru Skool Entertainment International Corp.
           </p>
-          <nav className="flex gap-6">
+          <nav className="flex flex-wrap gap-6">
+            <PrivacyChoicesButton />
             {LEGAL_LINKS.map((link) => (
               <Link
                 key={link.href}

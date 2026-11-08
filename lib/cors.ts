@@ -55,8 +55,8 @@ export function corsHeaders(requestOrigin: string | null): Record<string, string
 
   return {
     'Access-Control-Allow-Origin': allowed,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Concierge-Debug',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Concierge-Debug, X-Concierge-Durable, X-Concierge-Requester',
     'Access-Control-Max-Age': '86400',
     // We don't use cookies cross-origin (the concierge accepts an
     // anonymous session_id from the mall), so credentials stay off.
@@ -70,11 +70,11 @@ export function corsHeaders(requestOrigin: string | null): Record<string, string
  * headers when the Origin is allowed; returns 204 either way (a
  * browser sees the missing allow-origin and blocks the real request).
  */
-export function preflight(req: Request): NextResponse {
+export function preflight(req: Request, options: { noStore?: boolean } = {}): NextResponse {
   const origin = req.headers.get('origin')
   return new NextResponse(null, {
     status: 204,
-    headers: corsHeaders(origin),
+    headers: { ...corsHeaders(origin), ...(options.noStore ? { 'Cache-Control': 'no-store' } : {}) },
   })
 }
 
@@ -84,11 +84,11 @@ export function preflight(req: Request): NextResponse {
  */
 export function jsonWithCors(
   data: unknown,
-  init: { status?: number; request: Request }
+  init: { status?: number; request: Request; noStore?: boolean }
 ): NextResponse {
   const origin = init.request.headers.get('origin')
   return NextResponse.json(data, {
     status: init.status ?? 200,
-    headers: corsHeaders(origin),
+    headers: { ...corsHeaders(origin), ...(init.noStore ? { 'Cache-Control': 'no-store' } : {}) },
   })
 }

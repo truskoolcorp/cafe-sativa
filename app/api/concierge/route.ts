@@ -9,6 +9,7 @@ import { checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
 import { getMemoryContext } from '@/lib/concierge/memory'
 import { chronologicalMessages } from '@/lib/concierge/history'
 import { validateConciergeRequest } from '@/lib/concierge/request'
+import { conciergeAdmissionDenial, conciergeRequesterValid, conciergeRequesterMatches, hasDurableIdentity } from '@/lib/concierge/capability'
 import { conciergeOriginAllowed } from '@/lib/concierge/request-origin'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { conversationMatchesRequester } from '@/lib/concierge/conversation-access'
@@ -73,7 +74,16 @@ async function handlePost(req: Request) {
   if (!conciergeOriginAllowed(req)) {
     return jsonWithCors({ error: 'This chat origin is not allowed.', code: 'origin_not_allowed' }, { status: 403, request: req })
   }
-  const parsed = validateConciergeRequest(await req.json().catch(() => null))
+  const denial = conciergeAdmissionDenial(req)
+  if (denial) return jsonWithCors({ error: denial.error, code: denial.code }, { status: denial.status, request: req, noStore: true })
+  if (!conciergeRequesterValid(req)) {
+    return jsonWithCors({ error: 'The expected chat identity is missing or invalid.', code: 'requester_changed' }, { status: 409, request: req, noStore: true })
+  }
+  const value = await req.json().catch(() => null)
+  if (hasDurableIdentity(value)) {
+    return jsonWithCors({ error: 'Durable chat is not available on this deployment. Keep the original request.', code: 'mode_changed' }, { status: 409, request: req, noStore: true })
+  }
+  const parsed = validateConciergeRequest(value)
   if (!parsed.valid) return jsonWithCors({ error: parsed.error }, { status: 400, request: req })
   const body = parsed.body
   const host = getHost(body.host)!
@@ -83,10 +93,16 @@ async function handlePost(req: Request) {
 
   // Identify the requester
   const supabase = createServerSupabase()
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData, error: authError } = await supabase.auth.getUser()
+  if (authError && authError.name !== 'AuthSessionMissingError') {
+    return jsonWithCors({ error: 'Chat identity is temporarily unavailable.', code: 'auth_unavailable' }, { status: 503, request: req, noStore: true })
+  }
   const userId = userData?.user?.id ?? null
 
   const sessionId = body.session_id
+  if (!conciergeRequesterMatches(req, userId, sessionId)) {
+    return jsonWithCors({ error: 'The signed-in identity changed. Return to the original account or session.', code: 'requester_changed' }, { status: 409, request: req, noStore: true })
+  }
   if (!userId && !sessionId) {
     return jsonWithCors(
       { error: 'Send a session_id for anonymous chats.', code: 'missing_session' },

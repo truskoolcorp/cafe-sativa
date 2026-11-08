@@ -1,28 +1,12 @@
 import './globals.css'
+import './fonts.css'
 import type { Metadata } from 'next'
 import Script from 'next/script'
-import { Playfair_Display, Inter } from 'next/font/google'
 import { Navbar } from '@/components/site/Navbar'
 import { Footer } from '@/components/site/Footer'
 
-// Load fonts at build time, scoped to CSS variables that our Tailwind
-// config consumes via --font-playfair / --font-inter. `display: 'swap'`
-// means we show fallback fonts immediately and swap when the real ones
-// load, rather than blocking render. subsets:'latin' is all we need for
-// English copy; add 'latin-ext' later if we introduce Spanish characters
-// with accents that aren't in the base set (we mostly don't).
-const playfair = Playfair_Display({
-  subsets: ['latin'],
-  weight: ['400', '600', '700'],
-  variable: '--font-playfair',
-  display: 'swap',
-})
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-})
+// Pinned local WOFF2 files keep builds independent of Google CSS URL formats.
+// fonts.css preserves the existing families, weights, subsets and variables.
 
 export const metadata: Metadata = {
   title: {
@@ -46,7 +30,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
+    <html lang="en">
+      <head>
+        <link rel="preload" href="/fonts/playfair-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+      </head>
       <body className="min-h-screen flex flex-col">
         <Navbar />
         <main className="flex-1">{children}</main>

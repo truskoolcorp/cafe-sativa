@@ -6,6 +6,7 @@ on:
       - 'app/events/page.tsx'
       - 'app/preview/hit-em-release-party/**'
       - 'components/events/HitEmPremiere.tsx'
+      - 'components/events/PartyShare.tsx'
       - 'lib/events/hit-em-premiere.ts'
       - 'lib/events/hit-em-preview.ts'
       - 'lib/events/load-hit-em-premiere.ts'

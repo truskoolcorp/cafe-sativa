@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import PartyShare from './PartyShare'
 import { HIT_EM_PREMIERE, type PublicPremiere } from '@/lib/events/hit-em-premiere'
 
 export default function HitEmPremiere({ event, calendarHref = `${HIT_EM_PREMIERE.path}/calendar` }: { event: PublicPremiere; calendarHref?: string }) {
@@ -51,6 +52,8 @@ export default function HitEmPremiere({ event, calendarHref = `${HIT_EM_PREMIERE
           <a href={calendarHref} className="mt-5 inline-flex rounded-lg border border-border px-4 py-2 font-semibold">Add to my calendar (.ics)</a>
           <p className="mt-2 text-xs text-muted-foreground">Downloads a calendar file. Your calendar app controls any reminder; Café Sativa does not subscribe or message you.</p>
         </section>}
+
+        <PartyShare />
 
         <section aria-labelledby="about-gathering-heading" className="space-y-3">
           <h2 id="about-gathering-heading" className="font-heading text-2xl font-bold">About the gathering</h2>

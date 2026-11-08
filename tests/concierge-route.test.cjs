@@ -5,11 +5,11 @@ const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const ID = '12345678-1234-1234-1234-123456789abc'
 function harness(options = {}) {
-  const calls = { provider: 0, writes: [], rate: [], memory: [], auth: 0, database: 0 }
+  const calls = { rpc: [], provider: 0, writes: [], rate: [], memory: [], auth: 0, database: 0 }
   const event = { id: '00e7d9c6-61b9-4af9-827e-b6d13310b762', slug: 'hit-em-release-party',
     title: 'Hit Em Release Party', starts_at: '2026-11-11T06:00:00Z', ends_at: null,
     status: 'scheduled', ticket_price_cents: 0, access: 'free', description: '', free_for_tiers: [] }
-  const admin = { from(table) {
+  const admin = { async rpc(name, args) { calls.rpc.push({name,args}); return options.rpc ? options.rpc(name,args,calls) : {error:'unavailable'} }, from(table) {
     calls.database++
     let inserting = false
     const query = {
@@ -28,17 +28,18 @@ function harness(options = {}) {
     return query
   } }
   function load(file) {
-    const context = { exports: {}, Date, Intl, URL, Set, console: { error() {} },
-      process: { env: options.configured ? { ANTHROPIC_API_KEY: 'synthetic-only' } : {} },
+    const context = { exports: {}, Buffer, Date, Intl, URL, Set, console: { error() {} },
+      process: { env: { ...(options.configured ? { ANTHROPIC_API_KEY: 'synthetic-only' } : {}), ...(options.durable ? {CONCIERGE_DURABLE_MODE:options.durable} : {}) } },
       require(name) {
+        if (name === 'node:crypto') return {randomUUID:()=>ID}
         if (name === 'next/server') return { NextResponse: class {
-          static json(body, init = {}) { return { body, status: init.status ?? 200, headers: init.headers ?? {} } }
+          static json(body, init = {}) { return { body, status: init.status ?? 200, headers: {...(init.headers ?? {}),set(key,value){this[key]=value}} } }
         } }
         if (name === '@anthropic-ai/sdk') return { default: class {
-          constructor() { calls.provider++ }
-          messages = { create: async () => ({ content: [{ type: 'text', text: 'Synthetic general reply' }] }) }
+          constructor(options) { calls.provider++; calls.providerOptions=options }
+          messages = { create: async (params) => { calls.providerParams=params; if(options.providerError) throw new Error('private prompt'); return { content: [{ type: 'text', text: 'Synthetic general reply' }] } } }
         } }
-        if (name.endsWith('/concierge-canon')) return { canonicalConciergeHost: async () => ({ context: 'Approved identity' }) }
+        if (name.endsWith('/concierge-canon')) return { canonicalConciergeHost: async () => options.canonMissing ? null : ({ context: options.context ?? 'Approved identity' }) }
         if (name.endsWith('/content/site')) return { getSiteContent: async () => {
           if (options.featureError) throw new Error('Synthetic feature outage')
           return []
@@ -46,7 +47,7 @@ function harness(options = {}) {
         if (name === '@/lib/events') return { getUpcomingEvents: async () => options.events ?? [event] }
         if (name.endsWith('/supabase/server')) return { createClient: () => ({ auth: { getUser: async () => {
           calls.auth++
-          return { data: { user: options.userId ? { id: options.userId } : null } }
+          return { data: { user: options.userId ? { id: options.userId } : null }, error: options.authError }
         } } }) }
         if (name.endsWith('/supabase/admin')) return { createAdminClient: () => admin }
         if (name.endsWith('/personas')) return { getHost: host => host === 'laviche' ? { id: host, system_prompt: 'Approved host' } : null }
@@ -61,6 +62,7 @@ function harness(options = {}) {
           if (options.memoryError) throw new Error('Synthetic memory failure')
           return []
         } }
+        if (name.startsWith('./')) return load(require('node:path').join(require('node:path').dirname(file), name) + '.ts')
         if (name.startsWith('@/lib/')) return load(name.replace('@/', '') + '.ts')
         throw new Error(`Unexpected import: ${name}`)
       },
@@ -70,10 +72,10 @@ function harness(options = {}) {
     }).outputText, context)
     return context.exports
   }
-  const route = load('app/api/concierge/route.ts')
-  return { calls, post: (body = {}) => route.POST({ url: options.url ?? 'https://www.cafe-sativa.com/api/concierge', json: async () => ({ host: 'laviche',
+  const route = load(options.statusRoute ? 'app/api/concierge/status/route.ts' : 'app/api/concierge/route.ts')
+  return { calls, get: () => route.GET({ url: 'https://www.cafe-sativa.com/api/concierge/status', headers: { get: () => null } }), post: (body = {}) => route.POST({ url: options.url ?? 'https://www.cafe-sativa.com/api/concierge', json: async () => ({ host: 'laviche',
     message: 'Hi Laviche. For the Hit Em premiere, when does it start in Dallas, is it free, and where do I join the shared live chat?',
-    session_id: ID, surface: 'web-chat', ...body }), headers: { get: name => name === 'origin' ? options.origin ?? null : null } }) }
+    session_id: ID, surface: 'web-chat', ...body }), headers: { get: name => name === 'x-concierge-requester' ? options.expectedRequester ?? null : name === 'origin' ? options.origin ?? null : name === 'x-concierge-durable' ? (options.legacyMode ? '0' : options.requireDurable ? '1' : null) : null } }) }
 }
 test('verified launch FAQ returns and persists exact facts with no provider key or provider call', async () => {
   const h = harness({ featureError: true })
@@ -205,4 +207,147 @@ test('real origin resolver retains approved mall/preview callers and rejects unt
     assert.equal(denied.calls.database, 0)
     assert.equal(denied.calls.provider, 0)
   }
+})
+
+const POLICY = {version:1,max_prompt_bytes:48000,max_input_messages:61,max_output_tokens:512,max_reply_chars:16384}
+function ledger(overrides = {}) {
+ return async (name,args,calls) => {
+  if(overrides[name]) return overrides[name](args,calls)
+  if(name.includes('admit')) return {data:{admitted:true,state:'RESERVED',requester:`s:${ID}`,owner_token:ID,request_id:ID,conversation_id:ID,remaining:9,policy:POLICY}}
+  if(name.includes('dispatch')) return {data:{dispatch_granted:true,state:'DISPATCHING'}}
+  if(name.includes('complete')) return {data:{state:'COMPLETED',response:{message:args.p_reply,conversation_id:ID,host:'laviche',remaining:9,memory_saved:true}}}
+  if(name.includes('status')) return {data:{state:'UNCERTAIN'}}
+  return {data:{state:'UNCERTAIN'}}
+ }
+}
+test('durable FAQ completes atomically without provider, legacy counter or message inserts', async()=>{
+ const h=harness({durable:'on',rpc:ledger()}); const r=await h.post({request_id:ID})
+ assert.equal(r.status,200); assert.equal(r.body.memory_saved,true); assert.equal(h.calls.provider,0)
+ assert.equal(h.calls.rate.length,0); assert.equal(h.calls.writes.length,0)
+ assert.deepEqual(h.calls.rpc.map(x=>x.name),['concierge_admit_v1','concierge_complete_v1'])
+ assert.equal(h.calls.rpc[0].args.p_payload.conversation_id,null)
+})
+test('durable paid path is dispatched once with bounded envelope and zero SDK retries',async()=>{
+ const h=harness({durable:'on',configured:true,rpc:ledger()});const r=await h.post({request_id:ID,message:'Hello'})
+ assert.equal(r.status,200);assert.equal(h.calls.provider,1);assert.equal(h.calls.providerParams.max_tokens,512);assert.equal(h.calls.providerOptions.maxRetries,0);assert.equal(h.calls.providerOptions.timeout,25000)
+ assert.equal(h.calls.rpc.filter(x=>x.name.includes('dispatch')).length,1)
+})
+test('ambiguous dispatch never calls provider and remains uncertain',async()=>{
+ const h=harness({durable:'on',configured:true,rpc:ledger({concierge_dispatch_v1:()=>{throw Error('lost')}})})
+ const r=await h.post({request_id:ID,message:'Hello'});assert.equal(r.status,503);assert.equal(h.calls.provider,0)
+ assert.equal(h.calls.rpc.at(-1).args.p_outcome,'uncertain')
+})
+test('ambiguous admission does status only and never uses replay to dispatch',async()=>{
+ const h=harness({durable:'on',configured:true,rpc:ledger({concierge_admit_v1:()=>{throw Error('lost')}})})
+ const r=await h.post({request_id:ID});assert.equal(r.status,202);assert.equal(h.calls.provider,0)
+ assert.deepEqual(h.calls.rpc.map(x=>x.name),['concierge_admit_v1','concierge_status_v1'])
+})
+test('completion retries database only and never exposes uncommitted provider answer',async()=>{
+ const h=harness({durable:'on',configured:true,rpc:ledger({concierge_complete_v1:()=>({error:'offline'})})})
+ const r=await h.post({request_id:ID,message:'Hello'});assert.equal(r.status,503);assert.equal(r.body.code,'save_pending')
+ assert.equal(r.body.message,undefined);assert.equal(h.calls.provider,1)
+ assert.equal(h.calls.rpc.filter(x=>x.name.includes('complete')).length,2)
+})
+test('completion response loss retries same transaction then returns committed response',async()=>{
+ let attempts=0; const h=harness({durable:'on',configured:true,rpc:ledger({concierge_complete_v1:args=>{
+ if(!attempts++) throw Error('lost');return {data:{state:'COMPLETED',response:{message:args.p_reply,memory_saved:true}}}
+ }})});const r=await h.post({request_id:ID,message:'Hello'});assert.equal(r.status,200);assert.equal(h.calls.provider,1);assert.equal(attempts,2)
+})
+test('durable config, canonical and prompt limits fail closed before provider',async()=>{
+ for(const opts of [{durable:'invalid'}, {durable:'on'}, {durable:'on',rpc:ledger(),canonMissing:true}, {durable:'on',rpc:ledger(),context:'X'.repeat(50000)}]) {
+ const h=harness({...opts,configured:true});const r=await h.post({request_id:ID,message:'Hello'});assert.equal(r.status,503);assert.equal(h.calls.provider,0);assert.equal(h.calls.rate.length,0)
+ }
+})
+test('existing pending, cancelled, conflict and owner denial never dispatch or reveal reply',async()=>{
+ for(const data of [{admitted:false,state:'RESERVED'},{admitted:false,state:'CANCELLED'},{error:'conflict'},{error:'forbidden'}]) {
+ const h=harness({durable:'on',rpc:ledger({concierge_admit_v1:()=>({data})})});const r=await h.post({request_id:ID})
+ assert.notEqual(r.status,200);assert.equal(r.body.message,undefined);assert.equal(h.calls.provider,0);assert.equal(h.calls.rpc.length,1)
+ }
+})
+
+test('status derives auth, delegates owner check, exposes no token and never calls provider',async()=>{
+ const h=harness({durable:'on',statusRoute:true,userId:ID,rpc:ledger({concierge_status_v1:()=>({data:{error:'forbidden',owner_token:'secret'}})})})
+ const r=await h.post({request_id:ID});assert.equal(r.status,403);assert.equal(r.body.owner_token,undefined)
+ assert.equal(h.calls.provider,0);assert.equal(h.calls.rpc[0].args.p_user_id,ID);assert.equal(h.calls.rate.length,0)
+})
+test('status allows same-ID expired reservation recovery only when admissions enabled',async()=>{
+ for (const durable of ['on',undefined]) {
+ const h=harness({durable,statusRoute:true,rpc:ledger({concierge_status_v1:()=>({data:{state:'reserved',recovery_required:true}})})})
+ const r=await h.post({request_id:ID});assert.equal(r.status,202);assert.equal(r.body.recovery_required,durable==='on');assert.equal(h.calls.provider,0)
+ }
+})
+test('auth dependency failure cannot fall back into guest durable namespace',async()=>{
+ for(const statusRoute of [true,false]) {
+ const h=harness({durable:'on',statusRoute,authError:{name:'AuthRetryableFetchError'},rpc:ledger()})
+ assert.equal((await h.post({request_id:ID})).status,503);assert.equal(h.calls.rpc.length,0)
+ }
+})
+test('unknown provider outcome retains charge and never retries provider',async()=>{
+ const h=harness({durable:'on',configured:true,providerError:true,rpc:ledger()})
+ const r=await h.post({request_id:ID,message:'Hello'});assert.equal(r.status,503);assert.equal(h.calls.provider,1)
+ assert.equal(h.calls.rpc.at(-1).args.p_outcome,'uncertain');assert.equal(r.body.message,undefined)
+})
+
+test('missing request grants exact-ID readmission only with durable mode on',async()=>{
+ for(const durable of ['on',undefined]) {
+ const h=harness({durable,statusRoute:true,rpc:ledger({concierge_status_v1:()=>({data:{error:'request_missing'}})})})
+ const r=await h.post({request_id:ID});assert.equal(r.status,durable==='on'?202:404)
+ assert.equal(r.body.recovery_required,durable==='on'?true:undefined);assert.equal(h.calls.provider,0)
+ }
+})
+test('capability response is authoritative uncached and has no database work',async()=>{
+ for(const durable of ['on','off','invalid']) {
+ const h=harness({durable,statusRoute:true});const r=await h.get()
+ assert.equal(r.status,durable==='invalid'?503:200);assert.equal(r.headers['Cache-Control'],'no-store')
+ if(durable!=='invalid') assert.equal(r.body.durable_enabled,durable==='on')
+ assert.equal(h.calls.database,0);assert.equal(h.calls.auth,0)
+ }
+})
+test('durable mode change cannot fall through to legacy provider or persistence',async()=>{
+ const h=harness({configured:true,requireDurable:true});const r=await h.post({request_id:ID,message:'Hello'})
+ assert.equal(r.status,503);assert.equal(r.body.code,'durable_disabled');assert.equal(h.calls.provider,0);assert.equal(h.calls.database,0)
+})
+test('delayed original after missing status competes by the same key and only fresh admission dispatches',async()=>{
+ let admitted=false
+ const rpc=ledger({concierge_admit_v1:async(args)=>{
+  assert.equal(args.p_request_id,ID)
+  if(admitted) return {data:{admitted:false,state:'dispatching'}}
+  admitted=true
+  return {data:{admitted:true,state:'reserved',requester:`s:${ID}`,owner_token:ID,request_id:ID,conversation_id:ID,policy:POLICY}}
+ }})
+ const original=harness({durable:'on',configured:true,rpc}),retry=harness({durable:'on',configured:true,rpc})
+ const result=await Promise.all([original.post({request_id:ID,message:'Hello'}),retry.post({request_id:ID,message:'Hello'})])
+ assert.equal(original.calls.provider+retry.calls.provider,1);assert.deepEqual(result.map(r=>r.status).sort(),[200,202])
+})
+
+test('legacy capability mode change never creates an unretained durable admission',async()=>{
+ const h=harness({durable:'on',legacyMode:true,rpc:ledger()});const r=await h.post({message:'Hello'})
+ assert.equal(r.status,503);assert.equal(r.body.code,'mode_changed');assert.equal(r.body.admitted,false)
+ assert.equal(h.calls.rpc.length,0);assert.equal(h.calls.provider,0)
+})
+
+test('durable browser identity expectation is mandatory and cannot authorize another account',async()=>{
+ for(const statusRoute of [false,true]) for(const expectedRequester of [undefined,`user:${ID}`,`guest:${ID}`]) {
+ const h=harness({durable:'on',statusRoute,requireDurable:true,userId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',expectedRequester,rpc:ledger()})
+ const r=await h.post({request_id:ID,message:'Private account A text'})
+ assert.equal(r.status,409);assert.equal(r.body.code,'requester_changed');assert.equal(r.body.admitted,undefined)
+ assert.equal(h.calls.rpc.length,0);assert.equal(h.calls.database,0);assert.equal(h.calls.provider,0);assert.equal(h.calls.memory.length,0)
+ }
+})
+test('durable guest fence matches exact normalized session and rejects sign-in drift',async()=>{
+ const h=harness({durable:'on',requireDurable:true,expectedRequester:`guest:${ID}`,rpc:ledger()})
+ assert.equal((await h.post({request_id:ID})).status,200)
+ const signedIn=harness({durable:'on',requireDurable:true,expectedRequester:`guest:${ID}`,userId:ID,rpc:ledger()})
+ assert.equal((await signedIn.post({request_id:ID})).status,409);assert.equal(signedIn.calls.rpc.length,0)
+})
+test('legacy mall without browser fence remains compatible',async()=>{
+ const h=harness({durable:'on',rpc:ledger()});assert.equal((await h.post({request_id:ID,surface:'mall-3d'})).status,200)
+})
+test('only explicit fresh-key conversation rejection may release retained work',async()=>{
+ const fresh=harness({durable:'on',rpc:ledger({concierge_admit_v1:()=>({data:{error:'conversation_unavailable',admitted:false}})})})
+ const rejected=await fresh.post({request_id:ID,conversation_id:ID})
+ assert.equal(rejected.status,403);assert.equal(rejected.body.code,'conversation_unavailable');assert.equal(rejected.body.admitted,false)
+ const existing=harness({durable:'on',rpc:ledger({concierge_admit_v1:()=>({data:{error:'forbidden'}})})})
+ const denied=await existing.post({request_id:ID,conversation_id:ID});assert.equal(denied.status,403);assert.equal(denied.body.admitted,undefined)
+ assert.equal(fresh.calls.provider+existing.calls.provider,0)
 })

@@ -1,3 +1,4 @@
+import { durableMode, durablePost } from '@/lib/concierge/durable'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getSiteContent } from '@/lib/content/site'
 import { getUpcomingEvents, type EventRow } from '@/lib/events'
@@ -8,7 +9,7 @@ import { getHost } from '@/lib/concierge/personas'
 import { checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
 import { getMemoryContext } from '@/lib/concierge/memory'
 import { chronologicalMessages } from '@/lib/concierge/history'
-import { validateConciergeRequest } from '@/lib/concierge/request'
+import { validateConciergeRequest, conciergeRequesterMatches } from '@/lib/concierge/request'
 import { conciergeOriginAllowed } from '@/lib/concierge/request-origin'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { conversationMatchesRequester } from '@/lib/concierge/conversation-access'
@@ -73,6 +74,12 @@ async function handlePost(req: Request) {
   if (!conciergeOriginAllowed(req)) {
     return jsonWithCors({ error: 'This chat origin is not allowed.', code: 'origin_not_allowed' }, { status: 403, request: req })
   }
+  if (req.headers.get('x-concierge-durable') === '0' && durableMode() !== 'off') {
+    return jsonWithCors({ error: 'Chat mode changed. Please try again.', code: 'mode_changed', admitted: false }, { status: 503, request: req })
+  }
+  if (req.headers.get('x-concierge-durable') === '1' && durableMode() !== 'on') {
+    return jsonWithCors({ error: 'Durable admissions are paused. Keep this request and check its status.', code: 'durable_disabled' }, { status: 503, request: req })
+  }
   const parsed = validateConciergeRequest(await req.json().catch(() => null))
   if (!parsed.valid) return jsonWithCors({ error: parsed.error }, { status: 400, request: req })
   const body = parsed.body
@@ -83,7 +90,10 @@ async function handlePost(req: Request) {
 
   // Identify the requester
   const supabase = createServerSupabase()
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData, error: authError } = await supabase.auth.getUser()
+  if (durableMode() !== 'off' && authError && authError.name !== 'AuthSessionMissingError') {
+    return jsonWithCors({ error: 'Identity verification is unavailable.', code: 'auth_unavailable' }, { status: 503, request: req })
+  }
   const userId = userData?.user?.id ?? null
 
   const sessionId = body.session_id
@@ -92,6 +102,10 @@ async function handlePost(req: Request) {
       { error: 'Send a session_id for anonymous chats.', code: 'missing_session' },
       { status: 400, request: req }
     )
+  }
+
+  if (!conciergeRequesterMatches(req, userId, sessionId)) {
+    return jsonWithCors({ error: 'The signed-in identity changed. Return to the original account before recovering this message.', code: 'requester_changed' }, { status: 409, request: req })
   }
 
   // Resolve tier
@@ -106,6 +120,10 @@ async function handlePost(req: Request) {
     if (membershipError) return jsonWithCors({ error: 'Membership access is temporarily unavailable.' }, { status: 503, request: req })
     tier = loungeMembershipTier(memRow)
   }
+
+  const mode = durableMode()
+  if (mode === 'invalid') return jsonWithCors({ error: 'Durable chat configuration is unavailable.', code: 'policy_unavailable' }, { status: 503, request: req })
+  if (mode === 'on') return durablePost({ req, body, admin, userId, tier })
 
   // Rate limit
   const rate = await checkRateLimit({ userId, sessionId, tier })

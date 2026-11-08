@@ -55,8 +55,8 @@ export function corsHeaders(requestOrigin: string | null): Record<string, string
 
   return {
     'Access-Control-Allow-Origin': allowed,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Concierge-Debug',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Concierge-Debug, X-Concierge-Durable, X-Concierge-Requester',
     'Access-Control-Max-Age': '86400',
     // We don't use cookies cross-origin (the concierge accepts an
     // anonymous session_id from the mall), so credentials stay off.

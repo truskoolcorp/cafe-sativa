@@ -12,6 +12,8 @@ on:
       - 'tests/conversation*.cjs'
       - 'tests/hit-em-premiere.test.cjs'
       - 'tests/lounge-membership.test.cjs'
+      - 'tests/db/**'
+      - 'supabase/migrations/20261108090000_durable_concierge_admission.sql'
       - '.github/workflows/concierge-launch-gate.yml'
   workflow_dispatch:
 permissions:
@@ -28,3 +30,30 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node --test tests/concierge*.cjs tests/conversation*.cjs tests/hit-em-premiere.test.cjs tests/lounge-membership.test.cjs
       - run: npx tsc --noEmit --incremental false
+  isolated-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_PASSWORD: synthetic-local-ci-only
+          POSTGRES_DB: concierge_isolated_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d concierge_isolated_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: fixture_owner
+      PGPASSWORD: synthetic-local-ci-only
+      PGDATABASE: concierge_isolated_test
+      CAFE_DISPOSABLE_DB: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/db/run.py --bootstrap

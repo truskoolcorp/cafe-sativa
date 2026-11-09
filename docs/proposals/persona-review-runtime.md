@@ -1,5 +1,7 @@
 # Dormant persona review runtime
 
+Stage boundary: this document describes the review-only increment. The later [one-shot dispatcher proposal](persona-dispatch-runtime.md) adds a separately gated endpoint and explicit transmission UI; it does not activate this review stage or any provider action.
+
 Local proposal only. `CS_PERSONA_REVIEW_RUNTIME_ENABLED` is absent/false by default. No dispatcher, cron, provider upload, signed media URL or scheduling action is exposed. Merging this increment does not make persona scheduling runnable.
 
 ## Operator activation boundary

@@ -8,6 +8,7 @@ const obj=(v:unknown):v is Obj=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const keys=(v:unknown,names:string):v is Obj=>obj(v)&&Object.keys(v).sort().join(',')===names.split(',').sort().join(',')
 const text=(v:unknown):v is string=>typeof v==='string'
 const date=(v:unknown)=>text(v)&&Number.isFinite(Date.parse(v))
+const nullableDate=(v:unknown)=>v===null||date(v)
 const integer=(v:unknown)=>Number.isSafeInteger(v)&&(v as number)>=0
 const nullableText=(v:unknown)=>v===null||text(v)
 const state=(v:unknown)=>v===null||['submitting','submission_unknown','scheduled'].includes(v as string)
@@ -18,7 +19,7 @@ function action(v:unknown):v is PromoControlAction{return v==='withdraw'||v==='r
 function cohort(v:unknown):v is Obj[]{
  if(!Array.isArray(v)||!v.length)return false
  const ids=new Set<string>()
- return v.every(x=>keys(x,'planId,network,accountId,caption,scheduledAt,withdrawn,controlRevision,attemptState')&&uuid(x.planId)&&!ids.has(x.planId)&&!!ids.add(x.planId)&&text(x.network)&&nullableText(x.accountId)&&nullableText(x.caption)&&date(x.scheduledAt)&&typeof x.withdrawn==='boolean'&&integer(x.controlRevision)&&state(x.attemptState)&&!(x.withdrawn&&x.attemptState!==null))
+ return v.every(x=>keys(x,'planId,network,accountId,caption,scheduledAt,withdrawn,controlRevision,attemptState')&&uuid(x.planId)&&!ids.has(x.planId)&&!!ids.add(x.planId)&&text(x.network)&&nullableText(x.accountId)&&nullableText(x.caption)&&nullableDate(x.scheduledAt)&&(x.scheduledAt!==null||x.attemptState===null)&&typeof x.withdrawn==='boolean'&&integer(x.controlRevision)&&state(x.attemptState)&&!(x.withdrawn&&x.attemptState!==null))
 }
 function snapshot(v:unknown,actor:string):v is Obj{
  if(!keys(v,'version,reviewId,actor,actorEpoch,planId,action,expectedCohort,effect')||v.version!==1||!uuid(v.reviewId)||v.actor!==actor||!integer(v.actorEpoch)||!uuid(v.planId)||!action(v.action)||v.effect!==effects[v.action]||!Array.isArray(v.expectedCohort)||!v.expectedCohort.length)return false
@@ -26,7 +27,7 @@ function snapshot(v:unknown,actor:string):v is Obj{
  for(const row of v.expectedCohort){
   if(!keys(row,'plan,withdrawn,controlRevision')||typeof row.withdrawn!=='boolean'||!integer(row.controlRevision)||!keys(row.plan,'id,promo_id,character_id,network,account_id,caption,scheduled_at,status'))return false
   const p=row.plan
-  if(!uuid(p.id)||!uuid(p.promo_id)||ids.has(p.id)||!text(p.character_id)||!text(p.network)||!nullableText(p.account_id)||!nullableText(p.caption)||!date(p.scheduled_at)||!text(p.status))return false
+  if(!uuid(p.id)||!uuid(p.promo_id)||ids.has(p.id)||!text(p.character_id)||!text(p.network)||!nullableText(p.account_id)||!nullableText(p.caption)||!nullableDate(p.scheduled_at)||(p.scheduled_at===null&&p.status!=='blocked_assets')||!text(p.status))return false
   ids.add(p.id);promos.add(p.promo_id)
  }
  const target=v.expectedCohort.find((r:Obj)=>r.plan.id===v.planId)

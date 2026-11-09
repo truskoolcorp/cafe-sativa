@@ -47,7 +47,7 @@ export function personaReviewHandlers() {
     const sources=await readSources(planId)
     if(!promoVisibleMaterialMatches(candidate,sources))throw Error('Candidate changed; reload exact material')
     const state=await readCharacterPromoGates(database(),planId),review=buildCharacterPromoReview(sources,state)
-    const snapshot=review.readyForSeparateDeliveryApproval?prepareCharacterPromo(sources):null
+    const snapshot=(review.readyForSeparateDeliveryApproval||(review.dispatchPrerequisitesMet&&!controls.targetAttemptState))?prepareCharacterPromo(sources):null
     return {candidate,controls,canonicalMaterial:sources.canon,canonicalBlocker:null,review,executionReview:snapshot?{snapshot,digest:promoSnapshotDigest(snapshot)}:null,reviewBlocker:null}
    }catch(e){return {candidate,controls,canonicalMaterial:null,canonicalBlocker:null,review:null,executionReview:null,reviewBlocker:e instanceof PromoConnectionReadError||e instanceof PromoSourceError?{code:e.code,message:e.message}:{code:'review_evidence_unavailable',message:'Current review evidence is unavailable; no approval was inferred.'}}}
   },

@@ -1,3 +1,4 @@
+import { promoDispatchTimeIssue } from './character-promo-dispatch-time'
 import { createHash } from 'node:crypto'
 import { promoSnapshotDigest, PromoSnapshot, PromoReceipt } from './character-promo-delivery'
 import { providerLocalDate } from './social-contract'
@@ -8,6 +9,7 @@ export type PromoMediaBucket = {
   download(path: string): Promise<{data: {arrayBuffer(): Promise<ArrayBuffer>} | null; error: unknown}>
   createSignedUrl(path: string, seconds: number): Promise<{data: {signedUrl: string} | null; error: unknown}>
 }
+const exactIdentity=(value:unknown):string|null=>typeof value==='string'&&value.trim()&&value.length<=256?value:typeof value==='number'&&Number.isSafeInteger(value)?String(value):null
 const hash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex')
 export function verifyPromoMetricoolBrand(data: any, s: PromoSnapshot) {
   const rows=Array.isArray(data)?data:data?.data
@@ -29,8 +31,11 @@ export function characterPromoMetricoolSubmit(deps: {
   storageOrigin: string
   readProviderMedia(url: string): Promise<Uint8Array>
   now(): number
+  /** Lightweight caller/epoch/connection check. No media download or new session. */
+  preflightExternalWrite?(): Promise<void>
 }) {
   return async (s: PromoSnapshot, bytes: Uint8Array, revalidate: () => Promise<void>): Promise<PromoReceipt> => {
+    if(promoDispatchTimeIssue(s.scheduledAt,s.timezone))throw new Error('Exact provider schedule requires unambiguous whole seconds; explicitly reauthor without rounding')
     if(hash(bytes)!==s.videoSha256)throw new Error('Approved input bytes changed')
     if(s.brandId!=='5373515'||s.userId!=='4174093'||s.characterId!=='keith'|| !['facebook','threads'].includes(s.network) || s.accountId!==(s.network==='facebook'?'146219355471397':'truskoolcorp'))throw new Error('Unsupported approved destination')
     // The existing MCP session has a 25-second absolute deadline. Read media first.
@@ -43,6 +48,7 @@ export function characterPromoMetricoolSubmit(deps: {
     const before=await session.call('getScheduledPosts',window)
     const prior=Array.isArray(before)?before:before?.data
     if(!Array.isArray(prior)||prior.some(p=>matches(p,s)))throw new Error('Duplicate or ambiguous provider schedule')
+    await deps.preflightExternalWrite?.()
     const signed=await deps.bucket.createSignedUrl(s.videoPath,3600)
     if(signed.error||!signed.data)throw new Error('Exact media URL unavailable')
     const url=new URL(signed.data.signedUrl),origin=new URL(deps.storageOrigin)
@@ -50,13 +56,15 @@ export function characterPromoMetricoolSubmit(deps: {
     if(Date.parse(s.scheduledAt)<=deps.now()+60_000)throw new Error('Schedule expired before provider submission')
     const date=providerLocalDate(s.scheduledAt,s.timezone)
     // No automatic retries, including authentication retries, around this call.
+    await deps.preflightExternalWrite?.()
     const created=await session.call('createScheduledPost',{blogId:s.brandId,date,mediaFiles:[url.toString()],info:JSON.stringify({text:s.caption,providers:[{network:s.network}],publicationDate:{dateTime:date,timezone:s.timezone},autoPublish:true,draft:false,...(s.network==='facebook'?{facebookData:{type:'POST'}}:{threadsData:{type:'POST',replyControl:'EVERYONE',shareAsInstagramStory:false}})})})
     const identity=created?.data && !Array.isArray(created.data)?created.data:created
-    if(!identity?.id||!identity?.uuid)throw new Error('Create response lacks scheduling identity')
+    const createdId=exactIdentity(identity?.id),createdUuid=exactIdentity(identity?.uuid)
+    if(!createdId||!createdUuid)throw new Error('Create response lacks exact lossless scheduling identity')
     const after=await session.call('getScheduledPosts',window)
     const rows=Array.isArray(after)?after:after?.data
     if(!Array.isArray(rows))throw new Error('Scheduling readback unavailable')
-    const found=rows.filter(p=>matches(p,s) && String(p.id)===String(identity.id) && String(p.uuid)===String(identity.uuid))
+    const found=rows.filter(p=>matches(p,s) && exactIdentity(p.id)===createdId && exactIdentity(p.uuid)===createdUuid)
     const post=found[0]
     if(found.length!==1||!post.id||!post.uuid||post.autoPublish!==true||post.draft!==false||!Array.isArray(post.media)||post.media.length!==1)throw new Error('Ambiguous scheduling readback')
     const media=new URL(post.media[0])
@@ -64,7 +72,7 @@ export function characterPromoMetricoolSubmit(deps: {
     // Re-hosting must preserve bytes. Transcoding requires separately approved export/lineage.
     if(hash(await deps.readProviderMedia(media.toString()))!==s.videoSha256)throw new Error('Provider media bytes unverified')
     await verifyPromoMetricoolBrand(await session.call('getBrandSettings',{}),s)
-    return {providerId:String(post.id),providerUuid:String(post.uuid),snapshotDigest:promoSnapshotDigest(s),videoSha256:s.videoSha256,network:s.network,accountId:s.accountId,brandId:s.brandId,userId:s.userId,caption:s.caption,scheduledAt:s.scheduledAt,timezone:s.timezone,state:'scheduled'}
+    return {providerId:createdId,providerUuid:createdUuid,snapshotDigest:promoSnapshotDigest(s),videoSha256:s.videoSha256,network:s.network,accountId:s.accountId,brandId:s.brandId,userId:s.userId,caption:s.caption,scheduledAt:s.scheduledAt,timezone:s.timezone,state:'scheduled'}
   }
 }
 

@@ -10,10 +10,8 @@ import Link from 'next/link'
  * anchors the Tenerife story and differentiates from pure-virtual
  * venues.
  *
- * Social URLs are pulled from the profile preferences context —
- * these are the real handles, not placeholders. If any brand-level
- * social presence splits from Keith's personal handles later, these
- * become the ones to update; the personal ones stay in his profile.
+ * Social destinations follow docs/SOCIAL_DESTINATIONS.md. The public
+ * links do not imply connected accounts or permission to publish.
  */
 
 const EXPLORE_LINKS = [
@@ -27,7 +25,11 @@ const EXPLORE_LINKS = [
 
 const CONNECT_LINKS = [
   { href: 'https://www.instagram.com/cafesativainc/', label: 'Instagram', external: true },
+  { href: 'https://www.threads.com/@cafesativainc', label: 'Threads', external: true },
+  { href: 'https://www.facebook.com/profile.php?id=61556233581393', label: 'Facebook', external: true },
   { href: 'https://www.tiktok.com/@cafesativa', label: 'TikTok', external: true },
+  { href: 'https://www.snapchat.com/add/cafesativainc', label: 'Snapchat', external: true },
+  { href: 'https://www.linkedin.com/company/cafesativa', label: 'LinkedIn', external: true },
   { href: 'https://x.com/skool_tru', label: 'X (Twitter)', external: true },
   { href: '/contact', label: 'Contact Us', external: false },
 ]

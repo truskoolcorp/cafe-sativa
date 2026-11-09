@@ -3,7 +3,7 @@ import { METRICOOL_MCP } from '@/lib/content/metricool-oauth'
 export class MetricoolHttpError extends Error {
   constructor(readonly status:number) { super('Metricool MCP HTTP request failed'); this.name='MetricoolHttpError' }
 }
-// This connection proof performs reads only. Dispatch remains disabled.
+// Shared narrow MCP transport. Callers control read-only proof versus separately gated dispatch; no automatic refresh or retry.
 export async function metricoolSession(token:string) {
   let session:string|null=null
   const deadline=Date.now()+25000

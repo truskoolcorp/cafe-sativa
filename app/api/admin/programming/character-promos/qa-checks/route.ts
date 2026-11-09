@@ -1,6 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server'
 import {isContentAdmin} from '@/lib/content/auth'
 import {createAdminClient} from '@/lib/supabase/admin'
+import {personaReviewRuntimeEnabled,personaReviewHandlers} from '@/lib/content/character-promo-runtime'
 export const dynamic='force-dynamic'
 const TYPES=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety'] as const
 const respond=(v:unknown,status=200)=>NextResponse.json(v,{status,headers:{'Cache-Control':'private, no-store'}})
@@ -17,6 +18,8 @@ export async function GET(req:NextRequest){
  return respond({promoId:id,sha256:sha,checks:TYPES.map(name=>({name,observation:result?.data?.find(v=>v.check_name===name)||null})),approvalRecorded:Boolean(draft.data.video_qa_approved_at),automaticallyApproved:false})
 }
 export async function POST(req:NextRequest){
+ // Enabled runtime uses the same explicit exact-media CAS contract, never legacy inference.
+ if(personaReviewRuntimeEnabled())return personaReviewHandlers().POST(req)
  if(!await isContentAdmin())return respond({error:'Unauthorized'},401)
  if(req.headers.get('origin')!==req.nextUrl.origin)return respond({error:'Invalid origin'},403)
  if(Number(req.headers.get('content-length'))>4000)return respond({error:'Request too large'},413)

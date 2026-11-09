@@ -18,5 +18,37 @@ await page.getByLabel('I explicitly authorize transmission of this exact private
 // The mock keeps the scheduled-attempt state across evidence reloads.
 await page.getByRole('button',{name:'Reload current evidence',exact:true}).click();await page.getByRole('heading',{name:'Explicit review decisions',exact:true}).waitFor();ok('mocked existing attempt suppresses dispatch after evidence reload',await dispatchButton().count()===0);
 
-await page.setViewportSize({width:375,height:812});const layouts=[];for(const mode of ['panel','dispatch','workspace']){await scenario(mode);await page.waitForTimeout(100);const metrics=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth}));layouts.push({mode,...metrics});await page.screenshot({path:`.persona-browser-evidence/mobile-${mode}.png`,fullPage:true});}fs.writeFileSync('.persona-browser-evidence/mobile-layouts.json',JSON.stringify(layouts,null,2));ok('375px all three modes have no horizontal overflow',layouts.every(metrics=>metrics.scroll<=metrics.width));
-ok('no browser runtime exceptions',errors.length===0);ok('no unexpected mocked fetch requests',(await page.getByTestId('unexpected-requests').innerText())==='');ok('no external or unexpected browser requests',requests.every(url=>url==='/api/admin/programming/character-promos/review-media?promoId=FAKE-PROMO&sha256='+'a'.repeat(64)));fs.writeFileSync('.persona-browser-evidence/browser-results.json',JSON.stringify({sourceHead:process.env.GITHUB_SHA||'local-unpublished',results,errors,requests},null,2));console.log(JSON.stringify({passed:results.length,results,errors,requests},null,2));await browser.close()})().catch(async e=>{errors.push(String(e.stack||e));saveResults();fs.writeFileSync('.persona-browser-evidence/failure.txt',String(e.stack||e));if(page)await page.content().then(html=>fs.writeFileSync('.persona-browser-evidence/failure-dom.html',html)).catch(()=>{});console.error(e);if(page)await page.screenshot({path:'.persona-browser-evidence/failure.png',fullPage:true}).catch(()=>{});if(browser)await browser.close();process.exitCode=1});
+
+// Unplanned assets use the same actual workspace; every fetch remains synthetic.
+const assetId='33333333-3333-4333-8333-333333333333';
+for(const mode of ['workspace-asset','workspace-asset-stale','workspace-asset-unknown']){
+ await scenario(mode);
+ await page.getByRole('combobox',{name:/^Existing promotion asset/}).selectOption(assetId);
+ await page.getByText('No destination plan selected.',{exact:false}).waitFor();
+ ok(mode+' has no plan editor or final approvals',await page.getByRole('button',{name:'Review proposed caption/time changes',exact:true}).count()===0&&await page.getByRole('heading',{name:'Explicit review decisions',exact:true}).count()===0&&await dispatchButton().count()===0);
+ const record=page.getByRole('button',{name:'Record this exact observation, not final approval',exact:true});
+ ok(mode+' requires explicit observation',!await record.isEnabled());
+ await page.getByRole('combobox',{name:/^Check(?:\s|$)/}).selectOption('brand_safety');
+ await page.getByRole('combobox',{name:/^Your observed result(?:\s|$)/}).selectOption('needs_review');
+ await page.getByLabel('Evidence',{exact:true}).fill('FAKE TEST ONLY: explicit observation');
+ const before=(await page.getByTestId('mock-actions').innerText()).split(',').filter(x=>x==='record_qa').length;
+ await record.click();
+ if(mode==='workspace-asset'){
+  await page.getByText('FAKE TEST ONLY: explicit observation',{exact:false}).waitFor();
+  ok('asset success reload clears explicit QA form',!await record.isEnabled());
+ }else{
+  await page.getByText(mode.endsWith('stale')?'SYNTHETIC stale hash/revision.':'SYNTHETIC unknown save outcome.',{exact:false}).waitFor();
+  ok(mode+' locks uncertain or stale save',!await record.isEnabled());
+  await record.evaluate(e=>{e.click();e.click()});
+  await page.waitForTimeout(100);
+  ok(mode+' does not retry',(await page.getByTestId('mock-actions').innerText()).split(',').filter(x=>x==='record_qa').length===before+1);
+  await page.getByRole('button',{name:'Reload current evidence',exact:true}).click();
+  await page.getByText('No destination plan selected.',{exact:false}).waitFor();
+  ok(mode+' reload does not reuse prior observation form',!await record.isEnabled());
+  if(mode.endsWith('stale'))ok('stale reload shows replacement hash',await page.getByText('Verified video SHA-256: '+'c'.repeat(64),{exact:false}).count()===1);
+ }
+ await page.screenshot({path:'.persona-browser-evidence/'+mode+'.png',fullPage:true});
+}
+
+await page.setViewportSize({width:375,height:812});const layouts=[];for(const mode of ['panel','dispatch','workspace','workspace-asset']){await scenario(mode);if(mode==='workspace-asset'){await page.getByRole('combobox',{name:/^Existing promotion asset/}).selectOption(assetId);await page.getByText('No destination plan selected.',{exact:false}).waitFor()}await page.waitForTimeout(100);const metrics=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth}));layouts.push({mode,...metrics});await page.screenshot({path:`.persona-browser-evidence/mobile-${mode}.png`,fullPage:true});}fs.writeFileSync('.persona-browser-evidence/mobile-layouts.json',JSON.stringify(layouts,null,2));ok('375px all four modes have no horizontal overflow',layouts.every(metrics=>metrics.scroll<=metrics.width));
+ok('no browser runtime exceptions',errors.length===0);ok('no unexpected mocked fetch requests',(await page.getByTestId('unexpected-requests').innerText())==='');ok('no external or unexpected browser requests',requests.every(url=>/^\/api\/admin\/programming\/character-promos\/review-media\?promoId=33333333-3333-4333-8333-333333333333&sha256=(?:a{64}|c{64})$/.test(url)||url==='/api/admin/programming/character-promos/review-media?promoId=FAKE-PROMO&sha256='+'a'.repeat(64)));fs.writeFileSync('.persona-browser-evidence/browser-results.json',JSON.stringify({sourceHead:process.env.GITHUB_SHA||'local-unpublished',results,errors,requests},null,2));console.log(JSON.stringify({passed:results.length,results,errors,requests},null,2));await browser.close()})().catch(async e=>{errors.push(String(e.stack||e));saveResults();fs.writeFileSync('.persona-browser-evidence/failure.txt',String(e.stack||e));if(page)await page.content().then(html=>fs.writeFileSync('.persona-browser-evidence/failure-dom.html',html)).catch(()=>{});console.error(e);if(page)await page.screenshot({path:'.persona-browser-evidence/failure.png',fullPage:true}).catch(()=>{});if(browser)await browser.close();process.exitCode=1});

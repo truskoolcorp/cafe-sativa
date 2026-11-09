@@ -2,6 +2,7 @@ export type PromoHttpDependencies={
  enabled():boolean
  authorize():Promise<boolean>
  view(planId:string):Promise<unknown>
+ assetView?(promoId:string):Promise<unknown>
  preview(promoId:string,sha256:string):Promise<{bytes:Uint8Array}>
  action(body:Record<string,unknown>):Promise<unknown>
 }
@@ -46,7 +47,14 @@ export function createPromoHttpHandlers(deps:PromoHttpDependencies) {
  return {
   async GET(req:Request) {
    const blocked=await gate();if(blocked)return blocked
-   try {const id=new URL(req.url).searchParams.get('planId')||'';if(!UUID.test(id))throw new HttpFault(400,'plan_id_invalid','Valid plan UUID required');return reply(await deps.view(id))}catch(e){return failure(e)}
+   try {const params=new URL(req.url).searchParams
+    if(params.has('promoId')) {
+     const id=params.get('promoId')||''
+     if(params.has('planId')||params.getAll('promoId').length!==1||!UUID.test(id))throw new HttpFault(400,'promo_id_invalid','One exact promotion UUID required without a plan')
+     if(!deps.assetView)throw new HttpFault(503,'asset_review_unavailable','Asset review unavailable')
+     return reply(await deps.assetView(id))
+    }
+    const id=params.get('planId')||'';if(!UUID.test(id))throw new HttpFault(400,'plan_id_invalid','Valid plan UUID required');return reply(await deps.view(id))}catch(e){return failure(e)}
   },
   async MEDIA(req:Request) {
    const blocked=await gate();if(blocked)return blocked

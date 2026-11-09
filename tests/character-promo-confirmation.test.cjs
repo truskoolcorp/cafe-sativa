@@ -106,3 +106,9 @@ test('generation drift never bypasses shared-attempt freeze or infers any confir
  assert.deepEqual(Object.values(f.model().confirmed),[false,false,false])
  await assert.rejects(()=>f.begin(),e=>e.code==='review_generation_not_eligible');assert.equal(f.writes,1)
 })
+
+test('version-bound panel script is stored draft text and does not claim a verified transcript',()=>{
+ const f=fixture(),Panel=loadPanel(),m=f.model(),html=ReactDOMServer.renderToStaticMarkup(React.createElement(Panel,{model:m}))
+ for(const text of ['Exact stored draft script','not a verified transcript','Compare the full rendered speech','before recording a canonical speech PASS','Machine integrity checks and historical QA do not prove a script match.','Join Keith.'])assert.ok(html.includes(text),text)
+ assert.equal(html.includes('Exact spoken script'),false)
+})

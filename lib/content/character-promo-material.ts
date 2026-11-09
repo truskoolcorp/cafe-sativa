@@ -15,9 +15,19 @@ export async function readCharacterPromoMaterial(planId:string,db:PromoSourceCli
  const planResult=await read(()=>db.from('cs_character_promo_delivery_plans').select('id,promo_id,character_id,network,account_id,caption,scheduled_at,status').eq('id',planId).maybeSingle(),'plan_read_failed')
  const p=planResult.data
  if(planResult.error||!p||p.id!==planId||!UUID.test(p.promo_id))throw new PromoMaterialError('plan_unavailable','Candidate plan unavailable; reviewed caption schema is required')
- const draftResult=await read(()=>db.from('cs_character_promo_drafts').select('id,character_id,title,spoken_script,visual_brief,duration_seconds,status,video_asset_path,updated_at').eq('id',p.promo_id).maybeSingle(),'draft_read_failed')
+ const material=await readPromoAssetMaterial(p.promo_id,db,now,p)
+ if(!material.plan)throw new PromoMaterialError('plan_unavailable','Candidate plan unavailable')
+ return {...material,plan:material.plan}
+}
+/** Asset-only review never chooses or creates a delivery plan, even if one exists. */
+export async function readCharacterPromoAssetMaterial(promoId:string,db:PromoSourceClient,now=Date.now()) {
+ if(!UUID.test(promoId))throw new PromoMaterialError('promo_id_invalid','Valid promotion UUID required')
+ return readPromoAssetMaterial(promoId,db,now,null)
+}
+async function readPromoAssetMaterial(promoId:string,db:PromoSourceClient,now:number,p:any|null) {
+ const draftResult=await read(()=>db.from('cs_character_promo_drafts').select('id,character_id,title,spoken_script,visual_brief,duration_seconds,status,video_asset_path,updated_at').eq('id',promoId).maybeSingle(),'draft_read_failed')
  const d=draftResult.data
- if(draftResult.error||!d||d.id!==p.promo_id||p.character_id!==d.character_id||typeof d.character_id!=='string'||!/^[-a-z0-9]+$/.test(d.character_id)||typeof d.spoken_script!=='string')throw new PromoMaterialError('draft_unavailable','Candidate script and identity unavailable')
+ if(draftResult.error||!d||d.id!==promoId||(p&&p.character_id!==d.character_id)||typeof d.character_id!=='string'||!/^[-a-z0-9]+$/.test(d.character_id)||typeof d.spoken_script!=='string')throw new PromoMaterialError('draft_unavailable','Candidate script and identity unavailable')
  const sha=typeof d.video_asset_path==='string'?d.video_asset_path.match(/\/([a-f0-9]{64})\.mp4$/)?.[1]:null
  if(!sha||d.video_asset_path!==`character-promos/${d.character_id}/${d.id}/${sha}.mp4`)throw new PromoMaterialError('media_unfinalized','Candidate does not have a finalized exact-hash private MP4')
  const video=await readVerifiedPromoBytes(db,d.id,sha)
@@ -28,16 +38,21 @@ export async function readCharacterPromoMaterial(planId:string,db:PromoSourceCli
  const checks=PROMO_QA.map(name=>({name,observations:qa.filter(q=>q.check_name===name),passed:qa.filter(q=>q.check_name===name).length===1&&qa.find(q=>q.check_name===name)?.result==='pass'}))
  const blockers:string[]=[]
  if(d.status!=='script_approved')blockers.push('script_approval_pending')
+ if(!p)blockers.push('delivery_plan_not_selected','destination_not_verified_for_delivery','future_schedule_not_authored')
+ if(p) {
  if(typeof p.caption!=='string'||!p.caption.trim())blockers.push('caption_not_authored')
  if(!normalizePromoDatabaseTime(p.scheduled_at,true))blockers.push('schedule_precision_requires_explicit_reauthor')
  if(!Number.isFinite(Date.parse(p.scheduled_at))||Date.parse(p.scheduled_at)<=now+60000)blockers.push('future_schedule_not_authored')
  if(d.character_id!=='keith'||!((p.network==='facebook'&&p.account_id==='146219355471397')||(p.network==='threads'&&p.account_id==='truskoolcorp')))blockers.push('destination_not_verified_for_delivery')
+ }
  for(const check of checks)if(!check.passed)blockers.push(`qa_${check.name}_pending`)
  const current=await read(()=>db.from('cs_character_promo_drafts').select('id,character_id,title,spoken_script,visual_brief,duration_seconds,status,video_asset_path,updated_at').eq('id',d.id).maybeSingle(),'draft_read_failed')
  if(current.error||JSON.stringify(current.data)!==JSON.stringify(d))throw new PromoMaterialError('candidate_changed','Candidate material changed during review; reload')
- const currentPlan=await read(()=>db.from('cs_character_promo_delivery_plans').select('id,promo_id,character_id,network,account_id,caption,scheduled_at,status').eq('id',planId).maybeSingle(),'plan_read_failed')
+ if(p) {
+ const currentPlan=await read(()=>db.from('cs_character_promo_delivery_plans').select('id,promo_id,character_id,network,account_id,caption,scheduled_at,status').eq('id',p.id).maybeSingle(),'plan_read_failed')
  if(currentPlan.error||JSON.stringify(currentPlan.data)!==JSON.stringify(p))throw new PromoMaterialError('candidate_changed','Candidate plan changed during review; reload')
- return {kind:'candidate_material' as const,approvalGranted:false as const,plan:{id:p.id,network:p.network,accountId:p.account_id,caption:typeof p.caption==='string'?p.caption:null,scheduledAt:canonicalDate(p.scheduled_at),status:p.status},draft:{id:d.id,characterId:d.character_id,title:d.title,script:d.spoken_script,visualBrief:d.visual_brief,targetDurationSeconds:d.duration_seconds,status:d.status,revision:canonicalDate(d.updated_at)},video:{sha256:sha,bytes:video.bytes.length,previewPath:`/api/admin/programming/character-promos/review-media?promoId=${d.id}&sha256=${sha}`},checks,blockers,canonicalVerification:'not_asserted_by_candidate_material' as const}
+ }
+ return {kind:'candidate_material' as const,approvalGranted:false as const,plan:p?{id:p.id,network:p.network,accountId:p.account_id,caption:typeof p.caption==='string'?p.caption:null,scheduledAt:canonicalDate(p.scheduled_at),status:p.status}:null,draft:{id:d.id,characterId:d.character_id,title:d.title,script:d.spoken_script,visualBrief:d.visual_brief,targetDurationSeconds:d.duration_seconds,status:d.status,revision:canonicalDate(d.updated_at)},video:{sha256:sha,bytes:video.bytes.length,previewPath:`/api/admin/programming/character-promos/review-media?promoId=${d.id}&sha256=${sha}`},checks,blockers,canonicalVerification:'not_asserted_by_candidate_material' as const}
 }
 /** Authenticated caller required. No signed URL, upload, provider call or historical fallback. */
 export async function readVerifiedPromoBytes(db:PromoSourceClient,promoId:string,sha:string) {

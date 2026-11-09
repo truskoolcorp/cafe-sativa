@@ -1,5 +1,5 @@
 import 'server-only'
-import { liveGlyphCharacters } from './glyph-live'
+import { liveLavicheCanonicalObservation } from './glyph-laviche-observation'
 import { HIT_EM_PREMIERE, publicHitEmPremiere } from '../events/hit-em-premiere'
 import { createTrustedPublicChatProviders } from './public-chat-attestation-adapter'
 import { createBoundedPublicChatReadiness, readBoundedPublicChatJson } from './public-chat-readiness-resources'
@@ -19,7 +19,7 @@ export function createFixedServerReadiness(approval: unknown) {
   const now = () => { preflight(); return Date.now() }
   const providers = (signal: AbortSignal) => createTrustedPublicChatProviders({
     now,
-    liveGlyphCharacters: () => liveGlyphCharacters(signal),
+    liveGlyphCharacters: () => liveLavicheCanonicalObservation(signal),
     async loadHitEmPremiere() {
       const base = process.env.NEXT_PUBLIC_SUPABASE_URL
       const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

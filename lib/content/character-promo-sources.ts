@@ -1,3 +1,4 @@
+import { normalizePromoDatabaseTime } from './character-promo-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createHash } from 'node:crypto'
 import { PromoCanon, PromoConnection, PromoDraft, PromoPlan, PromoQA, PromoSources, PROMO_QA, prepareCharacterPromo, promoSnapshotDigest } from './character-promo-delivery'
@@ -71,7 +72,7 @@ export function normalizePromoConnection(value:unknown,checkedAt:string):PromoCo
 export type PromoSourceClient=Pick<SupabaseClient,'from'|'rpc'|'storage'>
 export type PromoSourceDependencies={db:PromoSourceClient;readGlyph():Promise<unknown>;readMetricoolBrands():Promise<unknown>;now():number}
 function date(value:unknown) {return typeof value==='string' && Number.isFinite(Date.parse(value))}
-function normalizedDate(value:unknown,code:string):string {need(date(value),code,'Source timestamp is invalid');return new Date(value as string).toISOString()}
+function normalizedDate(value:unknown,code:string,millisecondOnly=false):string {const normalized=normalizePromoDatabaseTime(value,millisecondOnly);need(normalized,code,millisecondOnly?'Schedule precision is unsupported; explicitly reauthor an exact millisecond UTC time':'Source timestamp is invalid');return normalized}
 async function records(db:PromoSourceClient,planId:string) {
   const p=await readStep(()=>db.from('cs_character_promo_delivery_plans').select(PLAN).eq('id',planId).maybeSingle(),'plan_read_failed','Delivery plan read failed')
   need(!p.error && p.data,'plan_unavailable','Delivery plan unavailable; caption column requires the reviewed ledger proposal')
@@ -121,7 +122,7 @@ export async function readCharacterPromoSources(planId:string,deps:PromoSourceDe
   for(const field of ['audio_asset_path','actual_social_account','voice_approved_at','video_qa_approved_at','publication_approved_at'])need(d[field]===null || typeof d[field]==='string','draft_field_missing',`Required draft field missing: ${field}`)
   const draft={...d,updated_at:normalizedDate(d.updated_at,'draft_revision_invalid')} as PromoDraft
   for(const field of ['voice_approved_at','video_qa_approved_at','publication_approved_at'] as const)if(draft[field]!==null)draft[field]=normalizedDate(draft[field],'approval_timestamp_invalid')
-  const plan={...p,scheduled_at:normalizedDate(p.scheduled_at,'schedule_invalid')} as PromoPlan
+  const plan={...p,scheduled_at:normalizedDate(p.scheduled_at,'schedule_invalid',true)} as PromoPlan
   return {draft,plan,qa:last.raw.qa as PromoQA[],canon,connection,videoBytes:bytes}
 }
 export async function readApprovedCharacterPromo(planId:string,deps:PromoSourceDependencies) {

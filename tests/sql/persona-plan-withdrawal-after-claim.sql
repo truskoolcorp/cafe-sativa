@@ -1,0 +1,16 @@
+begin;
+create table public.stop_tickets(label text primary key,ticket jsonb);
+insert into stop_tickets values('own',public.cs_review_character_promo_plan_control('00000000-0000-0000-0000-000000000020','withdraw','00000000-0000-0000-0000-000000000001'));
+insert into stop_tickets values('sibling',public.cs_review_character_promo_plan_control('00000000-0000-0000-0000-000000000021','withdraw','00000000-0000-0000-0000-000000000001'));
+create table public.frozen_source as select cs_promo_private.source_state('00000000-0000-0000-0000-000000000020') s;
+select public.assert_ok(public.cs_claim_character_promo('00000000-0000-0000-0000-000000000020',repeat('d',64),public.execution_for('00000000-0000-0000-0000-000000000020')) is not null,'first plan legitimately claims');
+select public.assert_ok(public.cs_finish_character_promo(plan_id,token,'submission_unknown',null),'first attempt unknown retained') from cs_promo_private.attempts;
+select public.assert_ok(public.cs_save_character_promo_plan_control(ticket->'snapshot',ticket->>'digest','00000000-0000-0000-0000-000000000001')->>'status'='reconciliation_required','own attempted target cannot pretend cancellation') from stop_tickets where label='own';
+select public.assert_ok((public.cs_save_character_promo_plan_control(ticket->'snapshot',ticket->>'digest','00000000-0000-0000-0000-000000000001')->>'withdrawn')::boolean,'unattempted sibling can stop after shared dispatch') from stop_tickets where label='sibling';
+select public.assert_ok((select s=cs_promo_private.source_state('00000000-0000-0000-0000-000000000020') from frozen_source),'frozen source unchanged by private stop');
+select public.assert_ok((select count(*)=1 and min(state)='submission_unknown' from cs_promo_private.attempts),'unknown attempt neither deleted nor reset');
+select public.assert_ok(public.cs_claim_character_promo('00000000-0000-0000-0000-000000000021',repeat('d',64),public.execution_for('00000000-0000-0000-0000-000000000021')) is null,'stopped sibling cannot claim');
+select public.assert_ok(public.cs_review_character_promo_plan_control('00000000-0000-0000-0000-000000000021','restore','00000000-0000-0000-0000-000000000001')->>'status'='shared_dispatch_started','restore cannot expand frozen cohort');
+select public.assert_ok((select not invalidated from cs_promo_private.approvals where plan_id='00000000-0000-0000-0000-000000000020'),'sibling approval not invalidated by target stop');
+select public.assert_ok((select invalidated from cs_promo_private.approvals where plan_id='00000000-0000-0000-0000-000000000021'),'target prior consent invalidated');
+commit;

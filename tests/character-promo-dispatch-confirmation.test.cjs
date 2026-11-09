@@ -186,3 +186,15 @@ test('unmount does not retry or allow a retained click handler to submit', async
 test('fractional-second approved time remains displayed unchanged and cannot grant dispatch consent',()=>{const props=fixture();props.snapshot.scheduledAt='2026-12-01T12:00:00.123Z';const h=harness(props);assert.equal(h.checkbox().props.disabled,true);assert.equal(h.button().props.disabled,true);assert.match(h.text(),/Explicitly reauthor/);assert.ok(h.text().includes('2026-12-01T12:00:00.123Z'));h.consent();h.button().props.onClick();assert.equal(h.calls.length,0)})
 
 test('both Chicago fall-back instants are blocked with explicit different-time instruction',()=>{for(const scheduledAt of ['2027-11-07T06:30:00.000Z','2027-11-07T07:30:00.000Z']){const props=fixture();props.snapshot.scheduledAt=scheduledAt;props.snapshot.timezone='America/Chicago';const h=harness(props);assert.equal(h.button().props.disabled,true);assert.match(h.text(),/local time repeats/);assert.ok(h.text().includes(scheduledAt));h.consent();h.button().props.onClick();assert.equal(h.calls.length,0)}})
+
+ test('consent can shrink and wrap the full exact hash without shrinking its checkbox or hiding text', () => {
+  const props = fixture(), h = harness(props), span = h.nodes('span')[0]
+  assert.equal(h.checkbox().props.className, 'shrink-0')
+  assert.equal(span.props.className, 'min-w-0 [overflow-wrap:anywhere]')
+  assert.ok(span.props.children.includes(props.snapshot.videoSha256))
+  assert.ok(h.text().includes('I explicitly authorize transmission of this exact private MP4'))
+  assert.equal(h.nodes('label').length, 1)
+  assert.equal(h.checkbox().props.type, 'checkbox')
+  assert.equal(h.checkbox().props.checked, false)
+  assert.equal(h.button().props.disabled, true)
+})

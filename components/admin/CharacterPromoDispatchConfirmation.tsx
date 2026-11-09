@@ -87,11 +87,11 @@ export default function CharacterPromoDispatchConfirmation({ snapshot, reviewedD
       <div><dt className="font-semibold">Reviewed delivery digest</dt><dd className="break-all font-mono text-xs">{review.reviewedDigest}</dd></div>
     </dl>
     <p>Metricool receives this private video for scheduling. A scheduled receipt is not proof of publication. No other account or destination is authorized.</p>
-    <label className="flex items-start gap-2"><input type="checkbox" checked={checked && !attempted.current} disabled={locked} onChange={event => {
+    <label className="flex items-start gap-2"><input type="checkbox" className="shrink-0" checked={checked && !attempted.current} disabled={locked} onChange={event => {
       if (locked || !alive.current || attempted.current || latest.current.key !== key || latest.current.enabled !== true) return
       consent.current = event.target.checked ? key : null
       setConsentKey(consent.current)
-    }}/><span>I explicitly authorize transmission of this exact private MP4 (SHA-256 {s.videoSha256}, {s.videoBytes} bytes) to Metricool and scheduling it on {s.network === 'facebook' ? 'Facebook' : 'Threads'} account {s.accountId}, with exactly the caption and time displayed above. This does not confirm publication.</span></label>
+    }}/><span className="min-w-0 [overflow-wrap:anywhere]">I explicitly authorize transmission of this exact private MP4 (SHA-256 {s.videoSha256}, {s.videoBytes} bytes) to Metricool and scheduling it on {s.network === 'facebook' ? 'Facebook' : 'Threads'} account {s.accountId}, with exactly the caption and time displayed above. This does not confirm publication.</span></label>
     <button type="button" disabled={locked || !checked} onClick={() => void submit()} className="rounded border border-amber-400 px-4 py-2 disabled:opacity-50">Transmit this exact MP4 and schedule once</button>
     {outcome === 'idle' && enabled !== true && <p role="status">Scheduling is disabled pending approved rollout. Nothing will be transmitted.</p>}
     {outcome === 'idle' && timeIssue==='ambiguous' && <p role="status">This local time repeats during the daylight-saving change. Explicitly choose and approve a different unambiguous time; no UTC offset or fold will be silently selected.</p>}

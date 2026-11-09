@@ -51,7 +51,9 @@ test('descriptions are bounded; paid events retain actual price/access without f
 test('route supplies verified facts and explicit timestamp/admission precedence to the model', () => {
   const route = fs.readFileSync('app/api/concierge/route.ts', 'utf8')
   assert.match(route, /events:events\.map\(conciergeEventFacts\)/)
-  assert.ok(route.includes('${PROGRAMMING_FACT_RULES}'))
+  assert.match(route, /generateConciergeResponse/ )
+  const engine = fs.readFileSync('lib/concierge/response-engine.ts', 'utf8')
+  assert.ok(engine.includes('${PROGRAMMING_FACT_RULES}'))
   assert.match(PROGRAMMING_FACT_RULES, /Do not reinterpret or convert/)
   assert.match(PROGRAMMING_FACT_RULES, /override conflicting legacy tier benefits/)
 })

@@ -1,0 +1,107 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const vm = require('node:vm')
+const ts = require('typescript')
+const token = 'synthetic_route_token_abcdefghijklmnopqrstuvwxyz'
+const now = Date.parse('2026-11-11T06:02:00.000Z')
+function harness(options = {}) {
+  const cache = {}, fetches = [], modelCalls = [], clients = []
+  const env = { LAVICHE_DYNAMIC_BRIDGE_TOKEN: token, ANTHROPIC_API_KEY: 'synthetic-provider',
+    SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'synthetic-anon',
+    NEXT_PUBLIC_SUPABASE_URL: 'https://nwfxvhqbjtfvoopcadff.supabase.co', ...options.env }
+  class Clock extends Date { static now() { return options.now ?? now } }
+  class Anthropic {
+    constructor(config) { clients.push(config) }
+    messages = { create: async (request, opts) => {
+      modelCalls.push({ request, opts })
+      if (options.providerFails) throw Error('DO_NOT_REFLECT_PROVIDER_OR_KEY')
+      if (request.max_tokens === 512) return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Welcome in. What has been on your playlist lately?' }] }
+      const binding = JSON.parse(request.messages[0].content.split('\n')[1]).binding
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe',
+        source_sha256: binding.sourceSha256, draft_sha256: binding.draftSha256, public_context_sha256: binding.publicContextSha256 }) }] }
+    } }
+  }
+  function load(file) {
+    if (cache[file]) return cache[file]
+    const exports = {}; cache[file] = exports
+    vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, {
+      exports, Date: Clock, Intl, URL, URLSearchParams, Request, Response, AbortController, TextDecoder, Uint8Array, setTimeout, clearTimeout, process: { env },
+      console: { error() { throw Error('No logging allowed') }, log() { throw Error('No logging allowed') } },
+      fetch: async (input, init) => {
+        const url = new URL(input); fetches.push({ url, init })
+        if (options.fetch) return options.fetch(url, init)
+        if (url.pathname === '/rest/v1/my_events_v') return Response.json([{ id: '00e7d9c6-61b9-4af9-827e-b6d13310b762', slug: 'hit-em-release-party',
+          title: 'Hit Em Release Party', status: 'scheduled', starts_at: '2026-11-11T06:00:00+00:00', ticket_price_cents: 0, ...options.row }])
+        if (url.pathname.startsWith('/rest/v1/rpc/')) return Response.json(options.reserve ?? true)
+        throw Error('Unexpected destination')
+      },
+      require(name) {
+        if (name === 'node:crypto') return require(name)
+        if (name === '@anthropic-ai/sdk') return Anthropic
+        if (name.startsWith('@/')) return load(name.replace('@/', '') + '.ts')
+        throw Error('Unexpected dependency: ' + name)
+      },
+    }, { filename: file })
+    return exports
+  }
+  const route = load('app/api/concierge/youtube/route.ts')
+  const T = load('lib/concierge/youtube-draft-bridge.ts').YOUTUBE_DRAFT_TARGET
+  const body = { source: { eventId: T.eventId, videoId: T.videoId, liveChatId: T.liveChatId, authenticatedChannelId: T.channelId,
+    messageId: 'public-source', authorChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa', text: 'Hi everyone!', publishedAt: now, observedAt: now }, history: [] }
+  const req = (value = body) => new Request('https://www.cafe-sativa.com/api/concierge/youtube', { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + token }, body: typeof value === 'string' ? value : JSON.stringify(value) })
+  return { route, req, fetches, modelCalls, clients }
+}
+test('route import has no network/model I/O; fully composed success isolates public and service credentials', async () => {
+  const h = harness(); assert.equal(h.fetches.length, 0); assert.equal(h.clients.length, 0)
+  const response = await h.route.POST(h.req()); assert.equal(response.status, 200)
+  assert.equal(h.fetches.length, 2); assert.equal(h.modelCalls.length, 2)
+  const [publicRead, reserve] = h.fetches
+  assert.equal(publicRead.url.searchParams.get('select'), 'id,slug,title,status,starts_at,ticket_price_cents')
+  assert.equal(publicRead.init.headers.apikey, 'synthetic-anon'); assert.equal(reserve.init.headers.apikey, 'synthetic-service')
+  assert.equal(reserve.url.pathname, '/rest/v1/rpc/cs_reserve_youtube_generation')
+  for (const { url, init } of h.fetches) { assert.equal(url.origin, 'https://nwfxvhqbjtfvoopcadff.supabase.co'); assert.equal(init.redirect, 'error'); assert.equal(init.credentials, 'omit'); assert.equal(init.cache, 'no-store') }
+  for (const config of h.clients) assert.equal(config.maxRetries, 0)
+  for (const { opts } of h.modelCalls) assert.equal(opts.maxRetries, 0)
+  assert.doesNotMatch(await response.text(), /synthetic-|SUPABASE|ANTHROPIC|DO_NOT_REFLECT/)
+})
+test('missing token/key or nonpinned database origin performs no network I/O', async () => {
+  for (const env of [{ LAVICHE_DYNAMIC_BRIDGE_TOKEN: undefined }, { ANTHROPIC_API_KEY: undefined },
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://other.supabase.co' }, { NEXT_PUBLIC_SUPABASE_URL: 'https://user:pass@nwfxvhqbjtfvoopcadff.supabase.co' },
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://nwfxvhqbjtfvoopcadff.supabase.co?x=1' }]) {
+    const h = harness({ env }); assert.equal((await h.route.POST(h.req())).status, 503); assert.equal(h.fetches.length, 0)
+  }
+})
+test('anonymous fresh event mismatch, redirect, oversize, HTTP failure never reserves quota', async () => {
+  for (const options of [{ row: { status: 'ended' } }, { row: { ticket_price_cents: 100 } }, { row: { starts_at: '2026-11-12T06:00:00Z' } },
+    { fetch: async () => Response.json({ private: 'NEVER_REFLECT' }, { status: 500 }) },
+    { fetch: async () => new Response('x'.repeat(2049), { headers: { 'content-type': 'application/json' } }) },
+    { fetch: async () => ({ ok: true, redirected: true }) }]) {
+    const h = harness(options), response = await h.route.POST(h.req())
+    assert.equal(response.status, 503); assert.equal(h.fetches.length, 1); assert.equal(h.modelCalls.length, 0)
+    assert.doesNotMatch(await response.text(), /NEVER_REFLECT/)
+  }
+})
+test('durable RPC false or provider exception return generic fail-closed response without retries', async () => {
+  const denied = harness({ reserve: false }); assert.equal((await denied.route.POST(denied.req())).status, 429)
+  assert.equal(denied.modelCalls.length, 0)
+  const failed = harness({ providerFails: true }), response = await failed.route.POST(failed.req())
+  assert.equal(response.status, 503); assert.equal(failed.modelCalls.length, 1); assert.equal(failed.fetches.length, 2)
+  assert.doesNotMatch(await response.text(), /DO_NOT_REFLECT|synthetic-provider/)
+})
+
+test('separate authenticated pre-event rehearsal uses fixed fixtures and isolated one-time RPC, never emits live candidate', async () => {
+  const h = harness({ now: Date.parse('2026-11-09T12:00:00Z') })
+  const response = await h.route.POST(h.req({ action: 'rehearsal' })), result = await response.json()
+  assert.equal(response.status, 200); assert.equal(result.cases.length, 2); assert.ok(result.cases.every(c => c.passed))
+  assert.deepEqual(Object.keys(result), ['cases'])
+  assert.equal(h.fetches.length, 2); assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal')
+  assert.equal(h.fetches[1].init.body, '{}'); assert.equal(h.modelCalls.length, 4)
+  assert.doesNotMatch(JSON.stringify(result), /draft|text|messageId|source|proof|binding|Welcome in/)
+  assert.equal((await h.route.POST(h.req())).status, 503) // live source/window was never opened
+})
+test('rehearsal route rejects duplicate action JSON before fixture spending', async () => {
+  const h = harness({ now: Date.parse('2026-11-09T12:00:00Z') })
+  const response = await h.route.POST(h.req('{"action":"different","action":"rehearsal"}'))
+  assert.equal(response.status, 400); assert.equal(h.fetches.length, 0); assert.equal(h.modelCalls.length, 0)
+})

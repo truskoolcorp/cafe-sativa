@@ -36,7 +36,11 @@ function harness(options = {}) {
         } }
         if (name === '@anthropic-ai/sdk') return { default: class {
           constructor() { calls.provider++ }
-          messages = { create: async () => ({ content: [{ type: 'text', text: 'Synthetic general reply' }] }) }
+          messages = { create: async request => {
+            calls.modelRequest = request
+            if (options.providerError) throw options.providerError
+            return { content: options.providerContent ?? [{ type: 'text', text: 'Synthetic general reply' }] }
+          } }
         } }
         if (name.endsWith('/concierge-canon')) return { canonicalConciergeHost: async () => ({ context: 'Approved identity' }) }
         if (name.endsWith('/content/site')) return { getSiteContent: async () => {
@@ -205,4 +209,36 @@ test('real origin resolver retains approved mall/preview callers and rejects unt
     assert.equal(denied.calls.database, 0)
     assert.equal(denied.calls.provider, 0)
   }
+})
+
+test('model extraction preserves missing-credential and upstream-error responses without writes', async () => {
+  const missing = harness()
+  const unavailable = await missing.post({ message: 'Hello Laviche' })
+  assert.equal(unavailable.status, 503)
+  assert.equal(unavailable.body.error, 'Concierge is offline.')
+  assert.equal(unavailable.body.code, 'not_configured')
+  assert.equal(missing.calls.writes.length, 0)
+  const failed = harness({ configured: true, providerError: {
+    status: 429, message: 'private diagnostic', error: { type: 'rate_limit_error' },
+  } })
+  const response = await failed.post({ message: 'Hello Laviche' })
+  assert.equal(response.status, 502)
+  assert.equal(response.body.error, 'Concierge is having trouble right now. Try again in a bit.')
+  assert.equal(response.body.upstream_error_type, 'rate_limit_error')
+  assert.equal(response.body.debug, undefined)
+  assert.ok(!JSON.stringify(response.body).includes('private diagnostic'))
+  assert.equal(failed.calls.writes.length, 0)
+})
+test('model extraction retains provider payload and persists exact blank-response fallback', async () => {
+  const h = harness({ configured: true, providerContent: [] })
+  const response = await h.post({ message: 'Hello Laviche' })
+  assert.equal(response.status, 200)
+  assert.equal(response.body.message, "Sorry, I didn't catch that — try me again?")
+  assert.equal(h.calls.writes[0].value[1].content, response.body.message)
+  assert.equal(h.calls.modelRequest.model, 'claude-haiku-4-5-20251001')
+  assert.equal(h.calls.modelRequest.max_tokens, 512)
+  assert.equal(h.calls.modelRequest.messages.length, 1)
+  assert.equal(h.calls.modelRequest.messages[0].content, 'Hello Laviche')
+  assert.match(h.calls.modelRequest.system, /Approved host\nCurrent approved GLYPH canonical context/)
+  assert.match(h.calls.modelRequest.system, /Approved identity\nVerified website programming:/)
 })

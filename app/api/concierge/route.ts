@@ -13,8 +13,9 @@ import { conciergeAdmissionDenial, conciergeRequesterValid, conciergeRequesterMa
 import { conciergeOriginAllowed } from '@/lib/concierge/request-origin'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { conversationMatchesRequester } from '@/lib/concierge/conversation-access'
-import { conciergeEventFacts, PROGRAMMING_FACT_RULES, verifiedPremiereAnswer } from '@/lib/concierge/programming'
+import { conciergeEventFacts, verifiedPremiereAnswer } from '@/lib/concierge/programming'
 import { jsonWithCors, preflight } from '@/lib/cors'
+import { generateConciergeResponse } from '@/lib/concierge/response-engine'
 
 /**
  * POST /api/concierge
@@ -261,28 +262,12 @@ async function handlePost(req: Request) {
     const anthropic = new Anthropic({ apiKey: anthropicKey,timeout:25000,maxRetries:0 })
     // Call the model only for general conversation.
     try {
-      const completion = await anthropic.messages.create({
-        // Use the dated, pinned model id. The short alias 'claude-haiku-4-5'
-        // can route to a model the current account doesn't have entitlement
-        // for, resulting in a 404 from the Anthropic API that surfaces as
-        // a 502 from this route.
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        system: `${host.system_prompt}\nCurrent approved GLYPH canonical context (use this for identity facts; it supersedes conflicting legacy descriptions):\n${canonicalHost.context}\nVerified website programming: ${liveProgramming}\n${PROGRAMMING_FACT_RULES}\nOnly announce dates and availability from the live programming records. An approved concept preview is not a booked performance or an operating physical venue.`,
+      replyText = await generateConciergeResponse({
+        hostSystemPrompt: host.system_prompt,
+        canonicalContext: canonicalHost.context,
+        liveProgramming,
         messages,
-      })
-
-      // The response is a list of content blocks. For our use case
-      // (no tool use) we expect exactly one text block.
-      replyText = completion.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('')
-        .trim()
-
-      if (!replyText) {
-        replyText = "Sorry, I didn't catch that — try me again?"
-      }
+      }, request => anthropic.messages.create(request))
     } catch (err: any) {
       // Log every field we can get our hands on. When this fires in prod,
       // the Vercel dashboard truncates the message preview but the full

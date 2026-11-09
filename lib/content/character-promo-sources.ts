@@ -38,7 +38,8 @@ const digest=(value:string|Uint8Array)=>createHash('sha256').update(value).diges
  * Hash ALL source character fields, including context and any exposed rights evidence.
  * Only portrait_url is excluded: glyph-live constructs that local presentation URL.
  */
-export function normalizePromoCanon(value:unknown,characterId:string,checkedAt:string):PromoCanon {
+export type PromoReviewSources=Omit<PromoSources,'canon'> & {canon:PromoCanon & {canonical_context:string}}
+export function normalizePromoCanon(value:unknown,characterId:string,checkedAt:string):PromoReviewSources['canon'] {
   const source=object(value,'glyph_unavailable')
   need(source.live===true && Array.isArray(source.characters),'glyph_not_live','Live GLYPH character registry required')
   const matches=source.characters.filter(row=>row && typeof row==='object' && row.id===characterId)
@@ -53,7 +54,7 @@ export function normalizePromoCanon(value:unknown,characterId:string,checkedAt:s
   const evidence=Object.fromEntries(Object.entries(row).filter(([key])=>key!=='portrait_url'))
   const serialized=stable(evidence)
   need(serialized.length<=262144,'glyph_evidence_too_large','Canonical character evidence exceeds review limit')
-  return {revision_sha256:digest(serialized),live:true,checked_at:checkedAt,character_id:characterId,primary_asset_id:asset,portrait_sha256:sha,voice_id:voice,rights_status:'approved',voice_status:'canonical',production_ready:true}
+  return {canonical_context:row.canonical_context as string,revision_sha256:digest(serialized),live:true,checked_at:checkedAt,character_id:characterId,primary_asset_id:asset,portrait_sha256:sha,voice_id:voice,rights_status:'approved',voice_status:'canonical',production_ready:true}
 }
 export function normalizePromoConnection(value:unknown,checkedAt:string):PromoConnection {
   const rows=Array.isArray(value)?value:object(value,'metricool_unavailable').data
@@ -92,7 +93,7 @@ async function records(db:PromoSourceClient,planId:string) {
 }
 
 /** Reads only. Missing content approvals can be returned for review, never filled in. */
-export async function readCharacterPromoSources(planId:string,deps:PromoSourceDependencies):Promise<PromoSources> {
+export async function readCharacterPromoSources(planId:string,deps:PromoSourceDependencies):Promise<PromoReviewSources> {
   need(UUID.test(planId),'plan_id_invalid','Valid delivery plan UUID required')
   const first=await records(deps.db,planId)
   const file=await readStep(()=>deps.db.storage.from('cafe-sativa-content').download(first.path),'media_read_failed','Private approved MP4 download failed')

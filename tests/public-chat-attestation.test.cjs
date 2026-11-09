@@ -4,7 +4,7 @@ const ts = require('typescript')
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 function load(file) {
- const context = { exports: {}, Date, Object, Array, require(name) {
+ const context = { exports: {}, Date, Object, Array, process: { env: {} }, require(name) {
   if(name === 'node:crypto' || name === 'node:perf_hooks') return require(name)
   if(name === '../events/hit-em-premiere') return load('lib/events/hit-em-premiere.ts')
   if(name === './public-chat-attestation') return load('lib/content/public-chat-attestation.ts')
@@ -128,3 +128,4 @@ test('adapter rejects clock regression, overlong read, changed loader policy and
  const p=adapter.createTrustedPublicChatProviders({now:()=>NOW,liveGlyphCharacters:async()=>{throw Error(secret)},loadHitEmPremiere:async()=>null})
  await assert.rejects(()=>p.readCanon(),error=>error.message==='unavailable')
 })
+

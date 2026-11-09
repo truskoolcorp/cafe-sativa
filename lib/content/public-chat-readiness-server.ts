@@ -4,7 +4,7 @@ import { HIT_EM_PREMIERE, publicHitEmPremiere } from '../events/hit-em-premiere'
 import { createTrustedPublicChatProviders } from './public-chat-attestation-adapter'
 import { createBoundedPublicChatReadiness, readBoundedPublicChatJson } from './public-chat-readiness-resources'
 
-/** Dormant fixed server factory. Not imported by runtime. No calls at construction.
+/** Fixed server factory. No calls at construction.
  * Public anonymous REST only: no cookies, session, service-role or admin client.
  * Existing environment variable NAMES only; values are not inspected by this module
  * until an approved future request. Deployment credentials/RLS remain unverified.
@@ -16,7 +16,7 @@ export function createFixedServerReadiness(approval: unknown) {
     const url = new URL(base)
     if (url.origin !== 'https://nwfxvhqbjtfvoopcadff.supabase.co' || url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw Error('unavailable')
   }
-  const now = () => { preflight(); return Date.now() }
+  const now = () => Date.now()
   const providers = (signal: AbortSignal) => createTrustedPublicChatProviders({
     now,
     liveGlyphCharacters: () => liveLavicheCanonicalObservation(signal),
@@ -36,7 +36,8 @@ export function createFixedServerReadiness(approval: unknown) {
   })
   return createBoundedPublicChatReadiness(approval, {
     now,
-    readCanon: signal => providers(signal).readCanon(),
-    readEvent: signal => providers(signal).readEvent(),
+    readCanon: signal => { preflight(); return providers(signal).readCanon() },
+    readEvent: signal => { preflight(); return providers(signal).readEvent() },
   })
 }
+

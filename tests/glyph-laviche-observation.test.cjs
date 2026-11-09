@@ -163,10 +163,11 @@ test('complete enriched row changes remain privately pinned; source readiness fa
   }
 })
 
-test('literal-null runtime remains 503 with no environment reads or network access', async () => {
+test('unconfigured runtime remains 503 with one private configuration read and no credentials or network', async () => {
   let calls = 0, envReads = 0
-  const h = createHarness({ env: new Proxy({}, { get() { envReads++; throw Error('No environment read allowed') } }), fetch: async () => { calls++; throw Error('No network allowed') } })
+  const h = createHarness({ env: new Proxy({}, { get(_target, key) { envReads++; assert.equal(key, 'CAFE_PRIVATE_CHAT_READINESS_JSON', 'Credential and other environment reads forbidden'); return undefined } }), fetch: async () => { calls++; throw Error('No network allowed') } })
   const runtime = h.load('lib/content/public-chat-attestation-runtime.ts')
   for (let i = 0; i < 3; i++) assert.deepEqual(await runtime.publicChatReadiness(), { status: 503, body: { error: 'Readiness unavailable' } })
-  assert.equal(envReads, 0); assert.equal(calls, 0)
+  assert.equal(envReads, 1); assert.equal(calls, 0)
 })
+

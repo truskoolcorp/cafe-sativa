@@ -1,15 +1,16 @@
 import {createHash} from 'node:crypto'
+import {readBoundedPublicChatJson} from './public-chat-readiness-resources'
 import {GLYPH_CHARACTER_SNAPSHOT} from './glyph-characters'
 const SOURCE='https://studio.truskool.net/api/studios/cafe-sativa-canon'
 const allowed=new Set<string>(GLYPH_CHARACTER_SNAPSHOT.characters.map(c=>c.id))
-export async function readGlyph(path='') {
+export async function readGlyph(path='', signal?: AbortSignal) {
  const secret=process.env.GLYPH_CANON_READ_TOKEN
  if(!secret)throw Error('GLYPH live connection not configured')
- return fetch(`${SOURCE}${path}`,{headers:{Authorization:`Bearer ${secret}`},cache:'no-store',redirect:'error',signal:AbortSignal.timeout(25000)})
+ return fetch(`${SOURCE}${path}`,{headers:{Authorization:`Bearer ${secret}`},cache:'no-store',redirect:'error',signal:signal ?? AbortSignal.timeout(25000)})
 }
-export async function liveGlyphCharacters() {
- const r=await readGlyph();if(!r.ok)throw Error('GLYPH live source unavailable')
- const b=await r.json()
+export async function liveGlyphCharacters(signal?: AbortSignal) {
+ const r=await readGlyph('', signal);if(!signal&&!r.ok)throw Error('GLYPH live source unavailable')
+ const b=signal ? await readBoundedPublicChatJson(r, signal) as {live:unknown;characters:unknown[]} : await r.json()
  if(b.live!==true||!Array.isArray(b.characters)||b.characters.length>allowed.size)throw Error('Invalid canonical source response')
  return {...b,characters:b.characters.filter((c:{id:string})=>allowed.has(c.id)).map((c:{id:string;primary_asset_id:string|null;portrait_available:boolean})=>({...c,portrait_url:c.portrait_available&&c.primary_asset_id?`/api/content/glyph/portrait?characterId=${encodeURIComponent(c.id)}&assetId=${encodeURIComponent(c.primary_asset_id)}`:null}))}
 }

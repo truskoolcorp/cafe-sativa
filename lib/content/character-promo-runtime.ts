@@ -6,7 +6,7 @@ import { liveGlyphCharacters } from './glyph-live'
 import { unseal } from './metricool-oauth'
 import { metricoolSession } from './metricool-mcp'
 import { readPromoMetricoolBrands, PromoConnectionReadError } from './character-promo-metricool-readonly'
-import { readCharacterPromoMaterial, readVerifiedPromoBytes } from './character-promo-material'
+import { readCharacterPromoMaterial, readCharacterPromoAssetMaterial, readVerifiedPromoBytes } from './character-promo-material'
 import { readCharacterPromoSources, normalizePromoCanon, PromoSourceError } from './character-promo-sources'
 import { readCharacterPromoGates, beginCharacterPromoReview, confirmCharacterPromoGate } from './character-promo-confirmation'
 import { buildCharacterPromoReview } from './character-promo-review'
@@ -33,6 +33,12 @@ export function personaReviewHandlers() {
   enabled:personaReviewRuntimeEnabled,
   authorize:async()=>{const r=await auth().getUser();return !r.error && r.data.user?.app_metadata?.cafe_sativa_admin===true},
   preview:(id,sha)=>readVerifiedPromoBytes(database(),id,sha),
+  assetView:async promoId=>{
+   const candidate=await readCharacterPromoAssetMaterial(promoId,database())
+   let canonicalMaterial:unknown=null,canonicalBlocker:string|null=null
+   try {canonicalMaterial=normalizePromoCanon(await liveGlyphCharacters(),candidate.draft.characterId,new Date().toISOString())}catch{canonicalBlocker='Live canonical verification unavailable; no canonical approval is inferred.'}
+   return {candidate,controls:null,canonicalMaterial,canonicalBlocker,review:null,executionReview:null,reviewBlocker:{code:'asset_review_only',message:'Asset review only. No delivery plan is selected. Destination and time remain unset; final approvals require a proper destination plan.'}}
+  },
   view:async planId=>{
    const candidate=await readCharacterPromoMaterial(planId,database())
    let controls:Awaited<ReturnType<ReturnType<typeof createCharacterPromoControls>['read']>>|null=null

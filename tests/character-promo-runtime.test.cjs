@@ -44,3 +44,40 @@ test('candidate retains microsecond revision/schedule and requires explicit sche
 test('timestamp normalization converts whole-second offsets without losing fractional CAS precision',()=>{const f=load('lib/content/character-promo-time.ts').normalizePromoDatabaseTime;assert.equal(f('2026-11-09T07:00:00.123456-05:00'),'2026-11-09T12:00:00.123456Z');assert.equal(f('2026-11-09T12:00:00.123000+00:00',true),'2026-11-09T12:00:00.123Z');assert.equal(f('2026-11-09T12:00:00.123001Z',true),null);assert.equal(f('2026-11-09T12:00:00.1234567Z'),null);assert.equal(f('not time'),null)})
 
 test('production-shaped blocked plan with null schedule still exposes actual candidate without inventing time',async()=>{const f=candidateFixture();f.plan.scheduled_at=null;const c=await material.readCharacterPromoMaterial(pid,f.db,now);assert.equal(c.plan.scheduledAt,null);assert.equal(c.approvalGranted,false);assert.ok(c.blockers.includes('future_schedule_not_authored'));assert.equal(c.video.sha256,f.sha);assert.equal(c.draft.script,f.draft.spoken_script)})
+
+test('unplanned asset exposes exact current material without reading or inventing a plan',async()=>{
+ const f=candidateFixture();f.errorTable='cs_character_promo_delivery_plans'
+ const v=await material.readCharacterPromoAssetMaterial(did,f.db,now)
+ assert.equal(v.plan,null);assert.equal(v.approvalGranted,false);assert.equal(v.draft.script,f.draft.spoken_script)
+ assert.equal(v.video.sha256,f.sha);assert.equal(v.draft.revision,at);assert.equal(v.checks.length,8)
+ assert.ok(v.blockers.includes('delivery_plan_not_selected'));assert.equal(f.reads.includes(f.errorTable),false)
+ await assert.rejects(()=>material.readCharacterPromoAssetMaterial('bad',f.db),e=>e.code==='promo_id_invalid')
+})
+test('asset current hash, stale QA and mid-read revision changes fail closed',async()=>{
+ let f=candidateFixture();f.bytes[9]=0
+ await assert.rejects(()=>material.readCharacterPromoAssetMaterial(did,f.db),e=>e.code==='media_integrity_invalid')
+ f=candidateFixture();f.qa=[{promo_id:did,video_sha256:'f'.repeat(64)}]
+ await assert.rejects(()=>material.readCharacterPromoAssetMaterial(did,f.db),e=>e.code==='qa_identity_invalid')
+ f=candidateFixture();const original=f.db.storage.from
+ f.db.storage.from=(bucket)=>{const store=original(bucket);return {download:async path=>{const r=await store.download(path);f.draft.updated_at='2026-11-10T00:00:00.000Z';return r}}}
+ await assert.rejects(()=>material.readCharacterPromoAssetMaterial(did,f.db),e=>e.code==='candidate_changed')
+})
+test('asset HTTP reads are gated and mutually exclusive with plan identity, never actions',async()=>{
+ const calls=[];let enabled=true,admin=true
+ const handlers=http.createPromoHttpHandlers({enabled:()=>enabled,authorize:async()=>admin,view:async id=>{calls.push('plan');return {}},assetView:async id=>{calls.push(id);return {plan:null}},action:async()=>{throw Error('write forbidden')},preview:async()=>{throw Error('unexpected')}})
+ const req=q=>new Request('https://test.local/review?'+q)
+ assert.equal((await handlers.GET(req('promoId='+did))).status,200);assert.deepEqual(calls,[did])
+ for(const q of ['promoId=bad','promoId='+did+'&planId='+pid,'promoId='+did+'&promoId='+did])assert.equal((await handlers.GET(req(q))).status,400)
+ enabled=false;assert.equal((await handlers.GET(req('promoId='+did))).status,503)
+ enabled=true;admin=false;assert.equal((await handlers.GET(req('promoId='+did))).status,401)
+ assert.deepEqual(calls,[did])
+})
+
+test('asset hash replacement during download and duplicate observations never infer approval',async()=>{
+ const f=candidateFixture(),original=f.db.storage.from
+ f.db.storage.from=bucket=>{const store=original(bucket);return {download:async path=>{const result=await store.download(path);f.draft.video_asset_path=f.draft.video_asset_path.replace(f.sha,'f'.repeat(64));return result}}}
+ await assert.rejects(()=>material.readCharacterPromoAssetMaterial(did,f.db),e=>e.code==='media_changed')
+ const g=candidateFixture();g.qa=[1,2].map(i=>({id:String(i),promo_id:did,video_sha256:g.sha,check_name:'lip_sync',result:'pass'}))
+ const v=await material.readCharacterPromoAssetMaterial(did,g.db)
+ assert.equal(v.checks.find(q=>q.name==='lip_sync').passed,false);assert.equal(v.approvalGranted,false);assert.equal(v.plan,null)
+})

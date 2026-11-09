@@ -33,4 +33,5 @@ jobs:
         with:
           name: persona-browser-evidence
           path: .persona-browser-evidence/
+          include-hidden-files: true
           retention-days: 7

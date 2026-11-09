@@ -7,7 +7,7 @@ $$;
 create table public.gate_content as select s-array['approvals','draftRevision'] c from fixture_snapshot;
 create table public.saved_state(expected jsonb);
 insert into saved_state select public.gate_expected();
-select public.assert_ok(public.cs_read_character_promo_gates('00000000-0000-0000-0000-000000000020')='{"generationId":null,"invalidated":false,"gates":[],"hasSharedAttempt":false,"pendingSiblingGatePlans":0,"pendingSiblingDeliveryApprovals":0,"ownDeliveryApprovalCurrent":false}'::jsonb,'no generation inferred');
+select public.assert_ok(public.cs_read_character_promo_gates('00000000-0000-0000-0000-000000000020')='{"generationId":null,"generationContentDigest":null,"invalidated":false,"gates":[],"hasSharedAttempt":false,"pendingSiblingGatePlans":0,"pendingSiblingDeliveryApprovals":0,"ownDeliveryApprovalCurrent":false}'::jsonb,'no generation inferred');
 select public.assert_ok(public.cs_confirm_character_promo_gate('00000000-0000-0000-0000-000000000020',c,repeat('c',64),public.gate_expected(),'voice','00000000-0000-0000-0000-000000000001') is null,'explicit begin required') from gate_content;
 select public.assert_ok(public.cs_begin_character_promo_review('00000000-0000-0000-0000-000000000020',c,repeat('c',64),public.gate_expected(),'00000000-0000-0000-0000-000000000001')->>'generationId' is not null,'explicit begin') from gate_content;
 select public.assert_ok(public.cs_confirm_character_promo_gate('00000000-0000-0000-0000-000000000020',c,repeat('c',64),expected,'voice','00000000-0000-0000-0000-000000000001') is null,'old generation token rejected') from gate_content cross join saved_state;

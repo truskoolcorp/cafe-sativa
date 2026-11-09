@@ -6,9 +6,10 @@ const input=JSON.parse(fs.readFileSync(process.argv[2],'utf8')),bytes=Buffer.fro
 const source=load('lib/content/character-promo-sources.ts'),review=load('lib/content/character-promo-review.ts'),core=load('lib/content/character-promo-delivery.ts')
 const db={from(table){const q={select(){return q},eq(){return q},maybeSingle(){return q},limit(){return q},then(resolve,reject){return Promise.resolve({data:structuredClone({cs_character_promo_drafts:input.draft,cs_character_promo_delivery_plans:input.plan,cs_character_promo_qa_checks:input.qa}[table]),error:null}).then(resolve,reject)}};return q},storage:{from(){return {download:async()=>({error:null,data:{size:bytes.length,arrayBuffer:async()=>Uint8Array.from(bytes).buffer}})}}}}
 ;(async()=>{
- const s=await source.readCharacterPromoSources(input.plan.id,{db,now:Date.now,readGlyph:async()=>({live:true,characters:[{id:'keith',canonical_context:'Synthetic SQL timestamp regression',primary_asset_id:'00000000-0000-0000-0000-000000000099',sha256:'b'.repeat(64),voice_id:'canonical-voice',rights_status:'approved',voice_status:'canonical',production_ready:true}]}),readMetricoolBrands:async()=>[{id:5373515,userId:4174093,timezone:'UTC',networksData:{facebookData:'146219355471397',threadsData:'truskoolcorp'}}]})
+ const s=await source.readCharacterPromoSources(input.plan.id,{db,now:Date.now,readGlyph:async()=>({live:true,characters:[{id:'keith',canonical_context:input.canonOverride||'Synthetic SQL timestamp regression',primary_asset_id:'00000000-0000-0000-0000-000000000099',sha256:'b'.repeat(64),voice_id:'canonical-voice',rights_status:'approved',voice_status:'canonical',production_ready:true}]}),readMetricoolBrands:async()=>[{id:5373515,userId:4174093,timezone:input.timezoneOverride||'UTC',networksData:{facebookData:'146219355471397',threadsData:'truskoolcorp'}}]})
  const model=review.buildCharacterPromoReview(s,input.state,Date.now())
  assert.ok(model.content,JSON.stringify(model.blockers))
+ if(input.expectedNextAction)assert.equal(model.nextAction,input.expectedNextAction)
  const result={content:model.content,digest:model.contentDigest,expected:model.expected,nextAction:model.nextAction}
  if(input.requireMicroseconds){
   assert.match(input.draft.voice_approved_at,/\.\d{3}(\d{1,3})(?:Z|\+00:00)$/)

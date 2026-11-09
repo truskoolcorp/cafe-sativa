@@ -9,7 +9,7 @@ export type ContentGate=typeof CONTENT_GATES[number]
 export type PromoReviewContent=Omit<PromoSnapshot,'approvals'|'draftRevision'>
 export type PromoReviewExpected={generationId:string|null;planStatus:string;draftRevision:string;voiceApprovedAt:string|null;videoApprovedAt:string|null;publicationApprovedAt:string|null}
 export type PromoGateEvidence={generationId:string;gate:ContentGate;contentDigest:string;content:PromoReviewContent;confirmedBy:string;confirmedAt:string;invalidated:boolean}
-export type PromoGateState={generationId:string|null;invalidated:boolean;gates:PromoGateEvidence[];hasSharedAttempt:boolean;pendingSiblingGatePlans:number;pendingSiblingDeliveryApprovals:number;ownDeliveryApprovalCurrent:boolean}
+export type PromoGateState={generationId:string|null;generationContentDigest:string|null;invalidated:boolean;gates:PromoGateEvidence[];hasSharedAttempt:boolean;pendingSiblingGatePlans:number;pendingSiblingDeliveryApprovals:number;ownDeliveryApprovalCurrent:boolean}
 export class PromoReviewError extends Error {
   constructor(readonly code:string,message:string){super(message);this.name='PromoReviewError'}
 }
@@ -29,6 +29,7 @@ export function buildCharacterPromoReview(s:PromoReviewSources,state:PromoGateSt
   const blockers:string[]=[]
   const check=(ok:unknown,code:string)=>{if(!ok)blockers.push(code)}
   check(Number.isFinite(now),'clock_invalid')
+  check(state.generationId===null?state.generationContentDigest===null:typeof state.generationContentDigest==='string' && /^[a-f0-9]{64}$/.test(state.generationContentDigest),'generation_content_digest_invalid')
   check(typeof state.hasSharedAttempt==='boolean' && typeof state.ownDeliveryApprovalCurrent==='boolean' && Number.isSafeInteger(state.pendingSiblingGatePlans) && state.pendingSiblingGatePlans>=0 && Number.isSafeInteger(state.pendingSiblingDeliveryApprovals) && state.pendingSiblingDeliveryApprovals>=0,'review_state_invalid')
   check(d.id && p.id && p.promo_id===d.id && p.character_id===d.character_id,'plan_ownership_mismatch')
   check(d.character_id==='keith' && d.intended_channel==='truskoolcorp_metricool_brand_5373515' && d.actual_social_account==='metricool-brand:5373515','persona_mapping_unverified')
@@ -59,13 +60,15 @@ export function buildCharacterPromoReview(s:PromoReviewSources,state:PromoGateSt
   const contentDigest=content?promoReviewDigest(content):null
   const contentBlockers=[...blockers]
   if(state.hasSharedAttempt)blockers.push('shared_promo_attempt_freezes_review')
-  let needsReplacement=state.invalidated
+  const generationContentChanged=Boolean(state.generationId && contentDigest && state.generationContentDigest!==contentDigest)
+  let needsReplacement=state.invalidated || generationContentChanged
+  if(generationContentChanged)blockers.push('generation_content_changed_requires_review')
   if(state.invalidated)blockers.push('confirmation_invalidated_requires_review')
   const evidence=state.gates
   const confirmed:Record<ContentGate,boolean>={voice:false,video:false,publication:false}
   let previousTime=-Infinity
   for(const gate of CONTENT_GATES) {
-    if(state.invalidated)continue
+    if(state.invalidated || generationContentChanged)continue
     const rows=evidence.filter(r=>r.gate===gate)
     if(rows.length>1){blockers.push('confirmation_ambiguous');continue}
     const row=rows[0]

@@ -36,10 +36,11 @@ sha=hashlib.sha256(b'0000ftypisom0000000000000000000').hexdigest()
 sql('prepare',f"""update public.cs_character_promo_drafts set video_asset_path=replace(video_asset_path,repeat('a',64),'{sha}'),voice_approved_at=null,video_qa_approved_at=null,publication_approved_at=null;
 update public.cs_character_promo_qa_checks set video_sha256='{sha}';
 update public.cs_character_promo_delivery_plans set scheduled_at='2099-01-01T12:00:00.000Z',status='blocked_assets';""")
-def read(label,micro=False,final=False):
+overrides={}
+def read(label,micro=False,final=False,expectedNextAction=None):
     output=sql(label+'-export',f"""select encode(convert_to(jsonb_build_object('draft',to_jsonb(d),'plan',to_jsonb(p),'qa',(select jsonb_agg(to_jsonb(q) order by q.id) from public.cs_character_promo_qa_checks q),'state',public.cs_read_character_promo_gates(p.id))::text,'UTF8'),'hex') payload from public.cs_character_promo_delivery_plans p join public.cs_character_promo_drafts d on d.id=p.promo_id;""")
     m=re.search(r'^([0-9a-f]+)$',output,re.M) if HOSTED else re.search(r'payload = "([0-9a-f]+)"',output);assert m,output
-    data=json.loads(bytes.fromhex(m.group(1)));data.update(requireMicroseconds=micro,final=final)
+    data=json.loads(bytes.fromhex(m.group(1)));data.update(requireMicroseconds=micro,final=final,expectedNextAction=expectedNextAction,**overrides)
     source=OUT/(label+'-rows.json');target=OUT/(label+'-payload.json');source.write_text(json.dumps(data,indent=2)+'\n')
     r=subprocess.run(['node','tests/sql/persona-timestamp-reader.cjs',str(source),str(target)],cwd=ROOT,text=True,capture_output=True)
     (OUT/(label+'-reader.log')).write_text(r.stdout+r.stderr)
@@ -48,7 +49,18 @@ def read(label,micro=False,final=False):
 def lit(x):return "'"+json.dumps(x,separators=(',',':')).replace("'","''")+"'::jsonb"
 r=read('initial')
 sql('begin',f"select assert_ok(public.cs_begin_character_promo_review('{plan}',{lit(r['content'])},'{r['digest']}',{lit(r['expected'])},'{actor}') is not null,'real reader begins generation');")
-r=read('begun')
+r=read('begun',expectedNextAction='voice')
+# Before first gate, external canon/timezone changes do not change draft/QA rows.
+# Real reader content digest must detect this even though the generation has no gates.
+for kind,key,value in [('canon','canonOverride','Explicitly changed synthetic canon'),('timezone','timezoneOverride','America/Chicago')]:
+    prior=r
+    overrides[key]=value
+    changed=read(kind+'-drift',expectedNextAction='replace_review')
+    assert changed['digest']!=prior['digest']
+    sql(kind+'-refuse-stale-generation',f"select assert_ok(public.cs_confirm_character_promo_gate('{plan}',{lit(changed['content'])},'{changed['digest']}',{lit(changed['expected'])},'voice','{actor}') is null,'fresh content cannot attach to old generation');")
+    sql(kind+'-replace',f"select assert_ok(public.cs_begin_character_promo_review('{plan}',{lit(changed['content'])},'{changed['digest']}',{lit(changed['expected'])},'{actor}')->>'generationContentDigest'='{changed['digest']}','explicit replacement exposes real JS content digest');")
+    r=read(kind+'-replaced',expectedNextAction='voice')
+    sql(kind+'-zero-gates',"select assert_ok((select count(*)=0 from cs_promo_private.gates),'replacement grants zero gates');")
 # Generate the stamp only inside the real voice RPC, never synthesize fractional digits.
 sql('voice',f"""do $$ declare tries int; accepted boolean:=false; begin
  for tries in 1..10 loop
@@ -74,5 +86,5 @@ r=read('after-video',True);assert r['nextAction']=='publication',r
 sql('publication',f"select assert_ok(public.cs_confirm_character_promo_gate('{plan}',{lit(r['content'])},'{r['digest']}',{lit(r['expected'])},'publication','{actor}') is not null,'precision-preserving publication CAS');")
 r=read('final',True,True)
 sql('final-approval',f"select assert_ok(public.cs_approve_character_promo('{plan}','{r['snapshotDigest']}',{lit(r['snapshot'])},clock_timestamp(),'{actor}'),'real SQL accepts exact final snapshot from reader');")
-(OUT/'timestamp-results.json').write_text(json.dumps({'passed':['real clock_timestamp nonzero microseconds','SQL rows through actual TS source reader and review model','truncated next-gate negative control','exact video and publication CAS','exact final snapshot accepted by SQL'],'mode':('hosted isolated PG17' if HOSTED else 'PG17 single-user')+', mocked external data only'},indent=2)+'\n')
+(OUT/'timestamp-results.json').write_text(json.dumps({'passed':['pre-first-gate canon and timezone drift SQL to TS replace_review and explicit replacement', 'real clock_timestamp nonzero microseconds','SQL rows through actual TS source reader and review model','truncated next-gate negative control','exact video and publication CAS','exact final snapshot accepted by SQL'],'mode':('hosted isolated PG17' if HOSTED else 'PG17 single-user')+', mocked external data only'},indent=2)+'\n')
 print('PASS: actual SQL → TS reader → next gates → final SQL approval retains microseconds; truncation negative control fails closed')

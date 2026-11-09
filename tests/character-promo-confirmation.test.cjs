@@ -11,14 +11,14 @@ function fixture(){
  const draft={id:promo,character_id:'keith',status:'script_approved',spoken_script:'Join Keith.',visual_brief:'Reviewed portrait',duration_seconds:20,intended_channel:'truskoolcorp_metricool_brand_5373515',actual_social_account:'metricool-brand:5373515',video_asset_path:`character-promos/keith/${promo}/${sha}.mp4`,audio_asset_path:null,voice_approved_at:null,video_qa_approved_at:null,publication_approved_at:null,updated_at:new Date(now-1000).toISOString()}
  const sources={draft,plan:{id,promo_id:promo,character_id:'keith',network:'facebook',account_id:'146219355471397',scheduled_at:new Date(now+3600000).toISOString(),status:'blocked_assets',caption:'Approved exact caption'},qa:core.PROMO_QA.map((check_name,i)=>({id:`dddddddd-dddd-dddd-dddd-${String(i).padStart(12,'0')}`,promo_id:promo,video_sha256:sha,check_name,result:'pass',reviewer_id:actor,evidence:'Explicit current-video observation',created_at:at})),canon:{canonical_context:'Keith: current approved canonical persona context.',revision_sha256:'d'.repeat(64),live:true,checked_at:at,character_id:'keith',primary_asset_id:actor,portrait_sha256:'e'.repeat(64),voice_id:'canonical',rights_status:'approved',voice_status:'canonical',production_ready:true},connection:{verified:true,checked_at:at,user_id:'4174093',brand_id:'5373515',timezone:'America/New_York',accounts:[{network:'facebook',account_id:'146219355471397'},{network:'threads',account_id:'truskoolcorp'}]},videoBytes}
  let generation=0
- const f={sources,state:{generationId:null,invalidated:false,gates:[],hasSharedAttempt:false,pendingSiblingGatePlans:0,pendingSiblingDeliveryApprovals:0,ownDeliveryApprovalCurrent:false},calls:[],writes:0,actor,clock:now}
+ const f={sources,state:{generationId:null,generationContentDigest:null,invalidated:false,gates:[],hasSharedAttempt:false,pendingSiblingGatePlans:0,pendingSiblingDeliveryApprovals:0,ownDeliveryApprovalCurrent:false},calls:[],writes:0,actor,clock:now}
  f.model=()=>review.buildCharacterPromoReview(f.sources,f.state,f.clock)
  f.input=(kind)=>{const m=f.model();return {planId:f.sources.plan.id,contentDigest:m.contentDigest,reviewedStateDigest:m.reviewedStateDigest,explicitConfirmation:true,...(kind.endsWith('_review')?{action:kind}:{gate:kind})}}
  f.deps={now:()=>f.clock,auth:{getUser:async()=>({data:{user:{id:f.actor,app_metadata:{cafe_sativa_admin:true}}},error:null})},readSources:async()=>f.sources,db:{rpc:async(name,args)=>{
    f.calls.push({name,args})
    if(name==='cs_read_character_promo_gates')return {data:structuredClone(f.state),error:null}
    f.writes++
-   if(name==='cs_begin_character_promo_review'){generation++;f.state={generationId:`eeeeeeee-eeee-eeee-eeee-${String(fixtureNumber*100+generation).padStart(12,'0')}`,invalidated:false,gates:[],hasSharedAttempt:false,pendingSiblingGatePlans:0,pendingSiblingDeliveryApprovals:0,ownDeliveryApprovalCurrent:false};return {data:structuredClone(f.state),error:null}}
+   if(name==='cs_begin_character_promo_review'){generation++;f.state={generationId:`eeeeeeee-eeee-eeee-eeee-${String(fixtureNumber*100+generation).padStart(12,'0')}`,generationContentDigest:args.p_digest,invalidated:false,gates:[],hasSharedAttempt:false,pendingSiblingGatePlans:0,pendingSiblingDeliveryApprovals:0,ownDeliveryApprovalCurrent:false};return {data:structuredClone(f.state),error:null}}
    if(name==='cs_confirm_character_promo_gate'){const when=new Date(f.deps.now()).toISOString();const row={generationId:f.state.generationId,gate:args.p_gate,contentDigest:args.p_digest,content:args.p_content,confirmedBy:args.p_actor,confirmedAt:when,invalidated:false};f.state.gates.push(row);f.sources.draft[{voice:'voice_approved_at',video:'video_qa_approved_at',publication:'publication_approved_at'}[args.p_gate]]=when;f.sources.draft.updated_at=when;if(args.p_gate==='publication')f.sources.plan.status='ready_for_delivery';return {data:structuredClone(row),error:null}}
    throw Error(`Unexpected operation ${name}`)
  }}}
@@ -74,3 +74,35 @@ test('panel only renders exact-hash authenticated video path, never current-prom
 test('pending unwanted sibling plans stay blocked and are never implicitly approved to clear dispatch',async()=>{const f=fixture();await f.begin();for(const gate of ['voice','video','publication'])await f.confirm(gate);f.state.pendingSiblingGatePlans=1;f.state.pendingSiblingDeliveryApprovals=1;const before=f.writes;assert.equal(f.model().dispatchPrerequisitesMet,false);assert.equal(f.model().readyForSeparateDeliveryApproval,true);assert.equal(f.writes,before);assert.equal(f.state.pendingSiblingGatePlans,1);assert.equal(f.calls.some(c=>c.args.p_plan_id&&c.args.p_plan_id!==id),false)})
 test('missing or invalid sibling-readiness metadata cannot make the pure review model dispatch-ready',()=>{for(const mutate of [f=>delete f.state.hasSharedAttempt,f=>f.state.pendingSiblingGatePlans=NaN,f=>f.state.pendingSiblingDeliveryApprovals=-1]){const f=fixture();mutate(f);assert.ok(f.model().blockers.includes('review_state_invalid'));assert.equal(f.model().nextAction,null);assert.equal(f.model().dispatchPrerequisitesMet,false)}})
 test('review panel labels stored duration as draft target, never as measured MP4 playback duration',()=>{const f=fixture(),Panel=loadPanel(),html=ReactDOMServer.renderToStaticMarkup(React.createElement(Panel,{model:f.model()}));assert.ok(html.includes('Draft target duration: 20 seconds'));assert.ok(html.includes('Measured playback duration is not supplied'));assert.equal(html.includes('Final video · 20 seconds'),false);assert.equal(f.sources.draft.duration_seconds,20)})
+
+test('live canon or provider timezone drift before first gate requires explicit generation replacement',async()=>{
+ for(const mutate of [f=>{f.sources.canon.revision_sha256='f'.repeat(64)},f=>{f.sources.connection.timezone='America/Chicago'}]){
+  const f=fixture();await f.begin();const originalDigest=f.model().contentDigest,originalGeneration=f.state.generationId;mutate(f)
+  assert.notEqual(f.model().contentDigest,originalDigest)
+  assert.equal(f.model().nextAction,'replace_review')
+  assert.equal(f.model().nextGate,null)
+  await assert.rejects(()=>f.confirm('voice'),e=>e.code==='confirmation_review_changed')
+  assert.equal(f.writes,1)
+  await f.begin();assert.notEqual(f.state.generationId,originalGeneration);assert.equal(f.state.gates.length,0)
+  assert.equal(f.model().nextAction,'voice');await f.confirm('voice');assert.equal(f.model().confirmed.voice,true)
+ }
+})
+
+test('generation digest read contract rejects missing malformed and inconsistent metadata',async()=>{
+ for(const begun of [false,true])for(const mutate of [s=>delete s.generationContentDigest,s=>s.generationContentDigest='invalid',s=>s.generationContentDigest=begun?null:'f'.repeat(64)]){
+  const f=fixture();if(begun)await f.begin();mutate(f.state)
+  assert.equal(f.model().nextAction,null);assert.equal(f.model().nextGate,null)
+  await assert.rejects(()=>actions.readCharacterPromoGates(f.deps.db,id),e=>e.code==='gate_read_failed')
+ }
+})
+test('begin acknowledgement must return the requested immutable content digest',async()=>{
+ const f=fixture(),rpc=f.deps.db.rpc;f.deps.db.rpc=async(n,a)=>{const r=await rpc(n,a);if(n==='cs_begin_character_promo_review')r.data.generationContentDigest='f'.repeat(64);return r}
+ await assert.rejects(()=>f.begin(),e=>e.code==='review_generation_outcome_unknown');assert.equal(f.writes,1)
+})
+test('generation drift never bypasses shared-attempt freeze or infers any confirmation',async()=>{
+ const f=fixture();await f.begin();f.sources.connection.timezone='America/Chicago';f.state.hasSharedAttempt=true
+ assert.equal(f.model().nextAction,null);assert.equal(f.model().nextGate,null)
+ assert.equal(f.model().readyForSeparateDeliveryApproval,false)
+ assert.deepEqual(Object.values(f.model().confirmed),[false,false,false])
+ await assert.rejects(()=>f.begin(),e=>e.code==='review_generation_not_eligible');assert.equal(f.writes,1)
+})

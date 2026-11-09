@@ -38,3 +38,9 @@ Existing SQL and provider activation restrictions still apply. Real multi-sessio
 ## Remaining plan lifecycle gaps
 
 Draft-wide freezing requires every existing sibling plan to have valid current gate and final delivery approval before the first claim. The read model shows pending sibling blockers; it never approves or changes them. A blocked unwanted account must stay unapproved, not receive consent merely to unblock a different network. This slice does not implement an explicit preclaim sibling exclusion/cancellation flow. Caption/schedule authoring, exclusion choices, the authenticated exact-hash preview, mounted UI, protected action routes, and approved production rollout remain separate work.
+
+### Generation identity before the first confirmation
+
+The read-gates response includes `generationContentDigest`: null with no review generation, otherwise the immutable digest stored when that generation began. The server rejects missing or malformed metadata. It compares this digest with the freshly read complete content even when there are no gate rows yet. A changed GLYPH canonical payload or verified provider timezone therefore offers an explicit replacement review, not an ineligible voice confirmation. Replacement records no content consent and remains forbidden after a shared attempt. Begin/replace acknowledgements must match the requested content digest as well as a new generation ID.
+
+This is a coordinated read-contract change in both the base approval-gates proposal and the later plan-withdrawal override. The final installed read definition must expose the field before this reader can operate; an older definition fails closed. No grants, CAS comparisons or production data are changed by this source increment.

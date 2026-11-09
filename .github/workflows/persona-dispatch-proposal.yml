@@ -6,6 +6,7 @@ on:
       - 'docs/proposals/persona-*.sql'
       - 'tests/sql/persona-dispatch*'
       - 'tests/sql/persona-null-schedule*'
+      - 'tests/sql/persona-generation-match-tests.sql'
       - 'tests/sql/persona-production-schedule-overlay.sql'
       - 'lib/content/character-promo-controls.ts'
       - 'lib/content/character-promo-material.ts'

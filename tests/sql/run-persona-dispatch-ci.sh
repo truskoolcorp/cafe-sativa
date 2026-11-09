@@ -10,9 +10,14 @@ setup() {
  if $first_setup; then psql -X -v ON_ERROR_STOP=1 -f tests/sql/persona-ledger-fixture.sql; first_setup=false
  else sed '/^create role /d' tests/sql/persona-ledger-fixture.sql | psql -X -v ON_ERROR_STOP=1; fi
  for file in supabase/migrations/20261020154000_character_canon_spoken_promos.sql supabase/migrations/20261020173000_character_promo_qa_checks.sql supabase/migrations/20261021103000_decouple_promo_script_approval_from_audio.sql docs/proposals/persona-delivery-ledger.sql tests/sql/persona-gates-seed.sql docs/proposals/persona-approval-gates.sql docs/proposals/persona-owner-revocation.sql docs/proposals/persona-plan-authoring.sql docs/proposals/persona-plan-withdrawal.sql docs/proposals/persona-dispatch-owner.sql; do
+  if [[ "$1" == generation_match_base && ( "$file" == docs/proposals/persona-plan-withdrawal.sql || "$file" == docs/proposals/persona-dispatch-owner.sql ) ]]; then continue; fi
   psql -X -v ON_ERROR_STOP=1 -f "$file"
  done
 }
+setup generation_match_base
+psql -X -v ON_ERROR_STOP=1 -f tests/sql/persona-generation-match-tests.sql
+setup generation_match
+psql -X -v ON_ERROR_STOP=1 -f tests/sql/persona-generation-match-tests.sql
 setup null_schedule
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/persona-production-schedule-overlay.sql
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/persona-null-schedule-tests.sql

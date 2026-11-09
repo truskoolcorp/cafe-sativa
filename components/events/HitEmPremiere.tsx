@@ -53,6 +53,15 @@ export default function HitEmPremiere({ event, calendarHref = `${HIT_EM_PREMIERE
           <p className="mt-2 text-xs text-muted-foreground">Downloads a calendar file. Your calendar app controls any reminder; Café Sativa does not subscribe or message you.</p>
         </section>}
 
+        <section aria-labelledby="host-conversation-heading" className="rounded-xl border border-border bg-card p-6">
+          <h2 id="host-conversation-heading" className="font-heading text-2xl font-bold">A separate conversation with Café hosts</h2>
+          <p className="mt-3">Find Laviche, Ginger, and Ahnika in the “Talk to one of the hosts” section on ASK.</p>
+          <p id="host-conversation-help" className="mt-3 text-sm text-muted-foreground">ASK is separate from the YouTube premiere chat. It opens in a new tab so you can keep the premiere open here.</p>
+          <a href="/ask?host=laviche" target="_blank" rel="noopener noreferrer" aria-describedby="host-conversation-help" className="mt-5 inline-flex min-h-11 max-w-full items-center rounded-lg border border-border px-4 py-3 font-semibold">
+            Talk with Laviche on ASK (new tab) ↗
+          </a>
+        </section>
+
         <PartyShare />
 
         <section aria-labelledby="about-gathering-heading" className="space-y-3">

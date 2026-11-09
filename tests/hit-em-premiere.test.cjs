@@ -40,11 +40,11 @@ for(const [name,patch] of Object.entries({
   'oversized description':{description:'x'.repeat(10001)},
 }))test(`${name} cannot expose the public premiere page`,()=>assert.equal(policy.publicHitEmPremiere({...valid(),...patch}),null))
 
-test('cancellation removes the player, chat link, and calendar',()=>{
+test('cancellation removes the player, chat links, and calendar',()=>{
   const event=policy.publicHitEmPremiere({...valid(),status:'canceled'})
   assert.equal(event.state,'canceled')
   const output=html(event)
-  assert.match(output,/canceled/);assert.doesNotMatch(output,/<iframe|youtube|calendar|Zoom/)
+  assert.match(output,/canceled/);assert.doesNotMatch(output,/<iframe|youtube|calendar|Zoom|\/ask|host-conversation/)
 })
 test('public page has verified player and fallback, with no account or ticket gate',()=>{
   const output=html(policy.publicHitEmPremiere(valid()))
@@ -71,6 +71,28 @@ test('mobile and failed-embed fallback opens the exact premiere with safe target
   const output=html(policy.publicHitEmPremiere(valid()))
   assert.match(output,/href="https:\/\/www\.youtube\.com\/watch\?v=ZYA0r9JM6eA" target="_blank" rel="noopener noreferrer"/)
   assert.match(output,/on mobile or if the embedded player does not load/)
+})
+test('ASK host conversation is distinct from YouTube chat and preserves the premiere tab',()=>{
+  for(const status of ['scheduled','live','ended']) {
+    const output=html(policy.publicHitEmPremiere({...valid(),status}))
+    assert.match(output,/A separate conversation with Café hosts/)
+    assert.match(output,/Laviche, Ginger, and Ahnika/)
+    assert.match(output,/Talk to one of the hosts/)
+    assert.match(output,/ASK is separate from the YouTube premiere chat/)
+    assert.match(output,/href="\/ask\?host=laviche" target="_blank" rel="noopener noreferrer" aria-describedby="host-conversation-help"/)
+    assert.match(output,/Talk with Laviche on ASK \(new tab\)/)
+    assert.match(output,/id="host-conversation-help"/)
+    assert.match(output,/youtube-nocookie\.com\/embed\/ZYA0r9JM6eA/)
+    assert.doesNotMatch(output,/autoplay|microphone|live audio|listening to the premiere|hosts are watching/)
+  }
+})
+test('ASK link uses mobile-safe wrapping and a touch-sized target without embedding another session',()=>{
+  const output=html(policy.publicHitEmPremiere(valid()))
+  const link=output.match(/<a href="\/ask\?host=laviche"[^>]*>/)?.[0]
+  assert.ok(link)
+  assert.match(link,/min-h-11 max-w-full/)
+  assert.doesNotMatch(link,/whitespace-nowrap|w-\[|onclick=/)
+  assert.equal((output.match(/<iframe/g)||[]).length,1)
 })
 
 function loaderFixture(data,error=null) {

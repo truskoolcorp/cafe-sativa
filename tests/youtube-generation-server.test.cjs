@@ -13,7 +13,7 @@ function modules(extra = {}) {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText, { exports, Date, Intl, URL, Request, Response, TextDecoder, Uint8Array, AbortController, setTimeout, clearTimeout,
       require(name) {
-        if (name === 'node:crypto') return require(name)
+        if (name === 'node:crypto') return extra.crypto ?? require(name)
         if (name.startsWith('@/')) return load(name.replace('@/', '') + '.ts')
         throw Error('Unexpected dependency: ' + name)
       }, ...extra,
@@ -344,5 +344,78 @@ test('reviewer plain-text JSON or another tool cannot become a sendable draft or
     const response = await h.handlers.POST(h.request())
     assert.equal(response.status, 503); assert.equal(h.calls.length, 2)
     assert.doesNotMatch(await response.text(), /Welcome to the room|send_chat_message/)
+  }
+})
+
+const NEXT_TOKEN = 'synthetic_next_token_only_for_unit_tests_67890'
+test('each valid token slot authenticates independently without revoking or weakening the other', async () => {
+  for (const [primary, next, accepted] of [
+    [TOKEN, undefined, [TOKEN]], [undefined, NEXT_TOKEN, [NEXT_TOKEN]],
+    [TOKEN, NEXT_TOKEN, [TOKEN, NEXT_TOKEN]], [TOKEN, 'invalid', [TOKEN]],
+    ['invalid', NEXT_TOKEN, [NEXT_TOKEN]], [TOKEN, TOKEN, [TOKEN]],
+  ]) {
+    for (const bearer of accepted) {
+      const h = harness({ deps: { token: () => primary, nextToken: () => next } })
+      const response = await h.handlers.POST(h.request(h.body(), { authorization: 'Bearer ' + bearer }))
+      assert.equal(response.status, 200); assert.equal(h.counts().reservations, 1); assert.equal(h.calls.length, 2)
+      assert.equal(api.youtubeBearerMatches('Bearer ' + bearer, primary, next), true)
+      const output = await response.text()
+      assert.ok(!output.includes(TOKEN)); assert.ok(!output.includes(NEXT_TOKEN)); assert.doesNotMatch(output, /matchedSlot|nextToken/)
+    }
+  }
+})
+test('absent or invalid token configuration is disabled and unmatched headers never cause database/model calls', async () => {
+  for (const [primary, next] of [[undefined, undefined], ['', ''], ['short', undefined], [undefined, 'x'.repeat(257)], [null, 'bad value']]) {
+    const h = harness({ deps: { token: () => primary, nextToken: () => next } })
+    assert.equal((await h.handlers.POST(h.request())).status, 503)
+    assert.deepEqual(await (await h.handlers.GET(new Request('https://www.cafe-sativa.com/api/concierge/youtube'))).json(), { available: false })
+    assert.deepEqual(h.counts(), { reads: 0, reservations: 0, checks: 0 }); assert.equal(h.calls.length, 0)
+  }
+  for (const authorization of ['Bearer ' + 'z'.repeat(40), 'Bearer ' + TOKEN + ', Bearer ' + NEXT_TOKEN, 'Basic ' + NEXT_TOKEN, '']) {
+    const h = harness({ deps: { nextToken: () => NEXT_TOKEN } })
+    assert.equal((await h.handlers.POST(h.request('{', { authorization }))).status, 401)
+    assert.deepEqual(h.counts(), { reads: 0, reservations: 0, checks: 0 }); assert.equal(h.calls.length, 0)
+  }
+})
+test('both fixed-size digest comparisons always run regardless of matching slot or invalid configuration', () => {
+  const native = require('node:crypto'), comparisons = []
+  const lib = modules({ crypto: { ...native, timingSafeEqual(a, b) { comparisons.push([a.length, b.length]); return native.timingSafeEqual(a, b) } } }).api
+  for (const [bearer, primary, next, expected] of [
+    [TOKEN, TOKEN, NEXT_TOKEN, true], [NEXT_TOKEN, TOKEN, NEXT_TOKEN, true],
+    ['x'.repeat(40), TOKEN, NEXT_TOKEN, false], [NEXT_TOKEN, undefined, NEXT_TOKEN, true],
+    [TOKEN, TOKEN, 'invalid', true], [TOKEN, undefined, undefined, false],
+    ['a'.repeat(32), 'a'.repeat(32), 'b'.repeat(256), true], ['b'.repeat(256), 'a'.repeat(32), 'b'.repeat(256), true],
+  ]) {
+    comparisons.length = 0
+    assert.equal(lib.youtubeBearerMatches('Bearer ' + bearer, primary, next), expected)
+    assert.deepEqual(comparisons, [[32, 32], [32, 32]])
+  }
+  for (const value of ['x'.repeat(31), 'x'.repeat(257), NEXT_TOKEN + ' ', 'a'.repeat(31) + '@'])
+    assert.equal(lib.youtubeBearerMatches('Bearer ' + value, undefined, value), false)
+})
+test('both tokens retain exact live window expiry, target pins and a shared reservation authority', async () => {
+  for (const bearer of [TOKEN, NEXT_TOKEN]) {
+    for (const at of [T.startsAt - 1, T.endsAt, T.endsAt + 1]) {
+      const h = harness({ deps: { nextToken: () => NEXT_TOKEN } }); h.advance(at - h.now())
+      assert.equal((await h.handlers.POST(h.request(h.body(), { authorization: 'Bearer ' + bearer }))).status, 503)
+      assert.equal(h.counts().reads, 0); assert.equal(h.calls.length, 0)
+    }
+    const h = harness({ deps: { nextToken: () => NEXT_TOKEN } })
+    assert.equal((await h.handlers.POST(h.request(h.body({ videoId: 'wrong-video' }), { authorization: 'Bearer ' + bearer }))).status, 400)
+    assert.equal(h.counts().reads, 0); assert.equal(h.calls.length, 0)
+  }
+  const seen = new Set(), h = harness({ deps: { nextToken: () => NEXT_TOKEN }, reserve: async source => {
+    if (seen.has(source.messageId)) return false; seen.add(source.messageId); return true
+  } })
+  const source = h.body()
+  assert.equal((await h.handlers.POST(h.request(source))).status, 200)
+  assert.equal((await h.handlers.POST(h.request(source, { authorization: 'Bearer ' + NEXT_TOKEN }))).status, 429)
+  assert.equal(h.calls.length, 2); assert.equal(seen.size, 1)
+})
+test('secondary token supports boolean-only readiness without revealing configured slots', async () => {
+  for (const primary of [undefined, TOKEN]) {
+    const h = harness({ deps: { token: () => primary, nextToken: () => NEXT_TOKEN } })
+    const response = await h.handlers.GET(new Request('https://www.cafe-sativa.com/api/concierge/youtube'))
+    assert.deepEqual(await response.json(), { available: true }); assert.equal(h.counts().reservations, 0); assert.equal(h.calls.length, 0)
   }
 })

@@ -39,6 +39,9 @@ export interface YoutubeGenerationModelRequest {
 }
 export interface YoutubeGenerationDependencies {
   token: () => string | undefined
+  // Optional second token for the same endpoint/window. It does not replace or
+  // revoke the primary token; either independently valid slot may authenticate.
+  nextToken?: () => string | undefined
   configured: () => boolean
   clock?: () => number
   readPublicEvent: (signal: AbortSignal) => Promise<unknown>
@@ -61,13 +64,18 @@ const validTime = (v: unknown): v is number => typeof v === 'number' && Number.i
 const active = (at: number) => validTime(at) && at >= TARGET.startsAt && at < TARGET.endsAt
 const configuredToken = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{32,256}$/u.test(v)
 
-export function youtubeBearerMatches(header: string | null, token: string | undefined): boolean {
-  if (!configuredToken(token) || typeof header !== 'string' || header.length > 263) return false
+export function youtubeBearerMatches(header: string | null, token: string | undefined, nextToken?: string): boolean {
+  if (typeof header !== 'string' || header.length > 263) return false
   const match = /^Bearer ([A-Za-z0-9_-]{32,256})$/u.exec(header)
   if (!match) return false
-  // Fixed-length digests avoid length-dependent comparison or timingSafeEqual
-  // exceptions. Neither digest nor token is retained in the response/history.
-  return timingSafeEqual(createHash('sha256').update(match[1]).digest(), createHash('sha256').update(token).digest())
+  const primaryValid = configuredToken(token), nextValid = configuredToken(nextToken)
+  const supplied = createHash('sha256').update(match[1]).digest()
+  // Always compare both fixed-length digests, without short-circuiting on the
+  // matched slot. Invalid/absent slots use a dummy digest and cannot authorize.
+  // Neither token, digest, nor matched slot is retained in responses/history.
+  const primaryMatch = Number(timingSafeEqual(supplied, createHash('sha256').update(primaryValid ? token : '').digest())) & Number(primaryValid)
+  const nextMatch = Number(timingSafeEqual(supplied, createHash('sha256').update(nextValid ? nextToken : '').digest())) & Number(nextValid)
+  return (primaryMatch | nextMatch) === 1
 }
 
 /** Strict allowlist. Even a trusted caller cannot inject its own persona, event
@@ -193,7 +201,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const unavailable = () => json({ status: 'unavailable', postingEnabled: false }, 503)
 
 export function createYoutubeGenerationHandlers(deps: YoutubeGenerationDependencies) {
-  const configured = () => configuredToken(deps.token()) && deps.configured()
+  const configured = () => (configuredToken(deps.token()) || configuredToken(deps.nextToken?.())) && deps.configured()
   const clock = deps.clock ?? Date.now
   return {
     /** Read-only boolean readiness. No token, key, runtime details, quota counts,
@@ -214,7 +222,7 @@ export function createYoutubeGenerationHandlers(deps: YoutubeGenerationDependenc
       try {
         // Authenticate before reading a body, public event, database or provider.
         if (!configured()) return unavailable()
-        if (!youtubeBearerMatches(req.headers.get('authorization'), deps.token())) return json({ status: 'unauthorized', postingEnabled: false }, 401)
+        if (!youtubeBearerMatches(req.headers.get('authorization'), deps.token(), deps.nextToken?.())) return json({ status: 'unauthorized', postingEnabled: false }, 401)
         if (req.headers.has('origin') || req.headers.has('cookie') || new URL(req.url).search) return json({ status: 'rejected', postingEnabled: false }, 400)
         if (req.signal.aborted) return unavailable()
         let previous = clock()

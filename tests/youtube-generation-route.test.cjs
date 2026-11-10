@@ -17,7 +17,7 @@ function harness(options = {}) {
       modelCalls.push({ request, opts })
       if (options.providerFails) throw Error('DO_NOT_REFLECT_PROVIDER_OR_KEY')
       if (request.max_tokens === 512) return { stop_reason: 'end_turn', content: [{ type: 'text', text: options.generationText ?? 'Welcome in. What has been on your playlist lately?' }] }
-      return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe' }) }] }
+      return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_synthetic', name: 'classify_public_reply', input: { decision: 'allow', reason: 'safe' } }] }
     } }
   }
   function load(file) {
@@ -118,7 +118,7 @@ test('v2 diagnostic rehearsal uses only its separate one-time RPC and exposes bo
     assert.ok(item.diagnostics.generation.completion.textCharacters <= 200)
   }
   assert.doesNotMatch(JSON.stringify(result), /Welcome in|synthetic-provider|synthetic-service|messageId|sourceSha256|draftSha256|publicContextProof/)
-  for (const { request } of h.modelCalls.filter(x => x.request.max_tokens === 512)) assert.match(request.system, /Aim for 160 characters or fewer, on one line\./)
+  for (const { request } of h.modelCalls.filter(x => x.request.max_tokens === 512)) assert.match(request.system, /Aim for 100 characters or fewer in one short sentence, on one line\./)
 })
 test('v2 oversize diagnostic does not trim, rewrite or retry the rejected generation', async () => {
   const h = harness({ now: Date.parse('2026-11-09T12:00:00Z'), generationText: 'secret-rehearsal-output-' + 'x'.repeat(201) })
@@ -140,5 +140,35 @@ test('denied or unavailable v2 RPC never falls back to original rehearsal or liv
     assert.equal(response.status, mode === 'denied' ? 429 : 503); assert.equal(h.fetches.length, 2)
     assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal_v2'); assert.equal(h.modelCalls.length, 0)
     assert.doesNotMatch(await response.text(), /private-database-detail/)
+  }
+})
+
+test('v3 rehearsal uses only its independently capped RPC and forwards native classifier configuration unchanged', async () => {
+  const h = harness({ now: Date.parse('2026-11-10T01:00:00Z') })
+  const response = await h.route.POST(h.req({ action: 'rehearsal-v3' })), result = await response.json()
+  assert.equal(response.status, 200); assert.equal(result.cases.length, 2); assert.ok(result.cases.every(c => c.passed))
+  assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal_v3')
+  assert.equal(h.fetches[1].init.body, '{}'); assert.equal(h.fetches.length, 2); assert.equal(h.modelCalls.length, 4)
+  for (const { request, opts } of h.modelCalls.filter(call => call.request.max_tokens === 256)) {
+    assert.equal(request.tools.length, 1); assert.equal(request.tools[0].name, 'classify_public_reply')
+    assert.equal(request.tool_choice.type, 'tool'); assert.equal(request.tool_choice.disable_parallel_tool_use, true)
+    assert.equal(opts.maxRetries, 0)
+  }
+  for (const item of result.cases) {
+    assert.equal(item.diagnostics.review.outcome, 'review_passed')
+    assert.equal(item.diagnostics.review.completion.stopReason, 'tool_use')
+  }
+  assert.doesNotMatch(JSON.stringify(result), /Welcome in|toolu_synthetic|classify_public_reply|synthetic-provider|sourceSha256|draftSha256/)
+})
+test('v3 denied or missing RPC never falls back to earlier rehearsal or live budget', async () => {
+  for (const mode of ['denied', 'missing']) {
+    const h = harness({ now: Date.parse('2026-11-10T01:00:00Z'), fetch: async url => {
+      if (url.pathname === '/rest/v1/my_events_v') return Response.json([{ id: '00e7d9c6-61b9-4af9-827e-b6d13310b762', slug: 'hit-em-release-party', title: 'Hit Em Release Party', status: 'scheduled', starts_at: '2026-11-11T06:00:00Z', ticket_price_cents: 0 }])
+      return mode === 'denied' ? Response.json(false) : Response.json({ message: 'private-v3-detail' }, { status: 404 })
+    } })
+    const response = await h.route.POST(h.req({ action: 'rehearsal-v3' }))
+    assert.equal(response.status, mode === 'denied' ? 429 : 503); assert.equal(h.fetches.length, 2)
+    assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal_v3'); assert.equal(h.modelCalls.length, 0)
+    assert.doesNotMatch(await response.text(), /private-v3-detail/)
   }
 })

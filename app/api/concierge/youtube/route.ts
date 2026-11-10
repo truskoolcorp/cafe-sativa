@@ -23,7 +23,7 @@ function configured(): boolean {
   } catch { return false }
 }
 
-async function rpc(name: 'cs_reserve_youtube_generation' | 'cs_youtube_generation_available' | 'cs_reserve_youtube_rehearsal' | 'cs_reserve_youtube_rehearsal_v2', body: unknown, signal: AbortSignal): Promise<boolean> {
+async function rpc(name: 'cs_reserve_youtube_generation' | 'cs_youtube_generation_available' | 'cs_reserve_youtube_rehearsal' | 'cs_reserve_youtube_rehearsal_v2' | 'cs_reserve_youtube_rehearsal_v3', body: unknown, signal: AbortSignal): Promise<boolean> {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!key) throw Error('unavailable')
   const response = await fetch(`${databaseOrigin()}/rest/v1/rpc/${name}`, {
@@ -88,6 +88,7 @@ const handlers = createYoutubeGenerationHandlers({ ...dependencies,
   rehearse: createYoutubeRehearsalHandler({ ...dependencies,
     reserveRehearsal: signal => rpc('cs_reserve_youtube_rehearsal', {}, signal),
     reserveRehearsalV2: signal => rpc('cs_reserve_youtube_rehearsal_v2', {}, signal),
+    reserveRehearsalV3: signal => rpc('cs_reserve_youtube_rehearsal_v3', {}, signal),
   }),
 })
 

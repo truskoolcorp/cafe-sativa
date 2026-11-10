@@ -23,6 +23,8 @@ export interface YoutubeRehearsalDependencies extends Pick<YoutubeGenerationDepe
   reserveRehearsal: (signal: AbortSignal) => Promise<boolean>
   // Separate, explicitly provisioned repair run. Never reset/fall back to v1.
   reserveRehearsalV2?: (signal: AbortSignal) => Promise<boolean>
+  // Separately reviewed tool-verdict repair. Never reset/fall back to v1/v2.
+  reserveRehearsalV3?: (signal: AbortSignal) => Promise<boolean>
 }
 
 const FIXTURES = Object.freeze([
@@ -40,9 +42,9 @@ const SYNTHETIC = Object.freeze({ eventId: 'private-rehearsal-only', videoId: 'p
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const time = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 
-export function isYoutubeRehearsalRequest(value: unknown): value is { action: 'rehearsal' | 'rehearsal-v2' } {
+export function isYoutubeRehearsalRequest(value: unknown): value is { action: 'rehearsal' | 'rehearsal-v2' | 'rehearsal-v3' } {
   return object(value) && Object.keys(value).length === 1 && Object.hasOwn(value, 'action')
-    && (value.action === 'rehearsal' || value.action === 'rehearsal-v2')
+    && (value.action === 'rehearsal' || value.action === 'rehearsal-v2' || value.action === 'rehearsal-v3')
 }
 
 const STOP_REASONS = ['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal'] as const
@@ -153,8 +155,9 @@ export function createYoutubeRehearsalHandler(deps: YoutubeRehearsalDependencies
       const url = new URL(req.url)
       if (req.method !== 'POST' || url.pathname !== '/api/concierge/youtube' || url.search
         || req.headers.has('origin') || req.headers.has('cookie') || !isYoutubeRehearsalRequest(body)) return json([], 400)
-      const repair = body.action === 'rehearsal-v2'
-      const reserve = repair ? deps.reserveRehearsalV2 : deps.reserveRehearsal
+      const version = body.action === 'rehearsal-v3' ? 3 : body.action === 'rehearsal-v2' ? 2 : 1
+      const repair = version > 1
+      const reserve = version === 3 ? deps.reserveRehearsalV3 : version === 2 ? deps.reserveRehearsalV2 : deps.reserveRehearsal
       if (!reserve) return json([], 503)
       let previous = clock()
       const now = () => {
@@ -194,7 +197,7 @@ export function createYoutubeRehearsalHandler(deps: YoutubeRehearsalDependencies
         try {
           startedAt = fresh()
           const source: Readonly<YoutubePublicObservation> = Object.freeze({ ...SYNTHETIC,
-            messageId: `private-rehearsal-${repair ? 'v2-' : ''}${fixture.name}`, text: fixture.text,
+            messageId: `private-rehearsal-${repair ? `v${version}-` : ''}${fixture.name}`, text: fixture.text,
             publishedAt: startedAt, observedAt: startedAt })
           const sourceFresh = () => {
             const at = fresh()

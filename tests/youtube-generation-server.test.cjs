@@ -27,7 +27,7 @@ const TOKEN = 'synthetic_test_token_never_a_real_credential_12345'
 const A = 'UCaaaaaaaaaaaaaaaaaaaaaa', B = 'UCbbbbbbbbbbbbbbbbbbbbbb'
 const clone = value => JSON.parse(JSON.stringify(value))
 function reviewCompletion(request, patch = {}) {
-  return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe', ...patch }) }] }
+  return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_synthetic', name: 'classify_public_reply', input: { decision: 'allow', reason: 'safe', ...patch } }] }
 }
 function harness(options = {}, lib = api) {
   let now = T.startsAt + 120000, reads = 0, reservations = 0, checks = 0
@@ -81,7 +81,7 @@ test('no name mention is needed: one durable reservation precedes exactly two bo
   assert.equal(h.counts().reservations, 1); assert.equal(h.calls.length, 2)
   assert.equal(h.calls[0].request.max_tokens, 512); assert.equal(h.calls[1].request.max_tokens, 256)
   assert.deepEqual(h.calls.map(x => x.opts.maxRetries), [0, 0]); assert.deepEqual(h.calls.map(x => x.opts.timeout), [10000, 5000])
-  assert.match(h.calls[0].request.system, /Aim for 160 characters or fewer, on one line\./)
+  assert.match(h.calls[0].request.system, /Aim for 100 characters or fewer in one short sentence, on one line\./)
   assert.match(h.calls[0].request.system, /Do not volunteer AI\/bot disclaimers/)
   assert.match(h.calls[0].request.system, /truthfully say you are the virtual AI host/)
   assert.match(h.calls[0].request.system, /Concrete Rose/)
@@ -308,13 +308,41 @@ test('direct-history ten-minute expiry is checked after reads and reservation wi
   assert.equal(api.YOUTUBE_GENERATION_LIMITS.roomAgeMs, 60000)
 })
 
-test('versioned rehearsal dispatch accepts only two exact actions and cannot mutate an action through duplicate keys', async () => {
+test('versioned rehearsal dispatch accepts only three exact actions and cannot mutate an action through duplicate keys', async () => {
   const seen = [], h = harness({ deps: { rehearse: async (req, body) => { seen.push(body.action); return Response.json({ cases: [] }) } } })
   h.advance(T.startsAt - 1000 - h.now())
-  for (const action of ['rehearsal', 'rehearsal-v2']) assert.equal((await h.handlers.POST(h.request({ action }))).status, 200)
-  assert.deepEqual(seen, ['rehearsal', 'rehearsal-v2'])
-  for (const body of [{ action: 'rehearsal-v3' }, { action: 'rehearsal-v2-v2' }, { action: 'rehearsal-v2', prompt: 'override' },
+  for (const action of ['rehearsal', 'rehearsal-v2', 'rehearsal-v3']) assert.equal((await h.handlers.POST(h.request({ action }))).status, 200)
+  assert.deepEqual(seen, ['rehearsal', 'rehearsal-v2', 'rehearsal-v3'])
+  for (const body of [{ action: 'rehearsal-v4' }, { action: 'rehearsal-v2-v2' }, { action: 'rehearsal-v2', prompt: 'override' },
     '{"action":"rehearsal","action":"rehearsal-v2"}', '{"action":"rehearsal-v2","action":"rehearsal-v2"}'])
     assert.equal((await h.handlers.POST(h.request(body))).status, 400)
-  assert.equal(seen.length, 2); assert.equal(h.counts().reservations, 0); assert.equal(h.calls.length, 0)
+  assert.equal(seen.length, 3); assert.equal(h.counts().reservations, 0); assert.equal(h.calls.length, 0)
+})
+
+test('review forces exactly one data-only native classifier and never sends a tool-result follow-up', async () => {
+  const h = harness(), response = await h.handlers.POST(h.request())
+  assert.equal(response.status, 200); assert.equal(h.calls.length, 2)
+  const [generation, review] = h.calls.map(call => call.request)
+  assert.equal(generation.tools, undefined); assert.equal(generation.max_tokens, 512)
+  assert.equal(review.tools.length, 1); assert.equal(review.tools[0].name, 'classify_public_reply')
+  assert.equal(review.tools[0].strict, true); assert.equal(review.tools[0].input_schema.additionalProperties, false)
+  assert.deepEqual(clone(review.tool_choice), { type: 'tool', name: 'classify_public_reply', disable_parallel_tool_use: true })
+  assert.equal(review.max_tokens, 256)
+  assert.ok(h.calls.every(call => call.request.messages.length === 1 && call.request.messages[0].role === 'user'))
+  const result = await response.json()
+  assert.match(result.review.binding.sourceSha256, /^[a-f0-9]{64}$/)
+  assert.match(result.review.binding.draftSha256, /^[a-f0-9]{64}$/)
+  assert.equal(result.postingEnabled, false)
+})
+test('reviewer plain-text JSON or another tool cannot become a sendable draft or trigger execution', async () => {
+  for (const completion of [
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"decision":"allow","reason":"safe"}' }] },
+    { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_synthetic', name: 'send_chat_message', input: { decision: 'allow', reason: 'safe' } }] },
+  ]) {
+    const h = harness({ complete: async (request, opts, count) => count === 1
+      ? { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Welcome to the room.' }] } : completion })
+    const response = await h.handlers.POST(h.request())
+    assert.equal(response.status, 503); assert.equal(h.calls.length, 2)
+    assert.doesNotMatch(await response.text(), /Welcome to the room|send_chat_message/)
+  }
 })

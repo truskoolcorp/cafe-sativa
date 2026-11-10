@@ -45,9 +45,7 @@ function payload(request) {
   return JSON.parse(text.slice(text.indexOf('\n') + 1, text.lastIndexOf('\n')))
 }
 function verdict(request, patch = {}) {
-  const { binding } = payload(request)
-  return { decision: 'allow', reason: 'safe', source_sha256: binding.sourceSha256,
-    draft_sha256: binding.draftSha256, public_context_sha256: binding.publicContextSha256, ...patch }
+  return { decision: 'allow', reason: 'safe', ...patch }
 }
 const completion = text => ({ stop_reason: 'end_turn', content: [{ type: 'text', text }] })
 const allow = request => completion(JSON.stringify(verdict(request)))
@@ -153,16 +151,46 @@ test('truncation, unknown/missing stop metadata, mixed/tool/multiple text blocks
   }
 })
 
-test('each wrong or missing hash fails closed and cannot be replayed against another source', async () => {
+test('model responses cannot supply binding hashes or any other extra fields', async () => {
   for (const key of ['source_sha256', 'draft_sha256', 'public_context_sha256']) {
     const h = harness(api, r => completion(JSON.stringify(verdict(r, { [key]: '0'.repeat(64) }))))
-    assert.equal((await h.review()).reason, 'binding_mismatch')
+    assert.equal((await h.review()).reason, 'invalid_completion')
   }
-  let oldCompletion
-  const first = harness(api, r => { oldCompletion = allow(r); return oldCompletion })
-  assert.equal((await first.review()).decision, 'allow')
-  const next = harness(api, () => oldCompletion); next.value.source.messageId = next.value.draft.sourceMessageId = 'new-source'
-  assert.equal((await next.review()).reason, 'binding_mismatch')
+})
+
+test('source, draft and context fingerprints are computed locally, not supplied or copied by the model', async () => {
+  const h = harness(), result = await h.review(), request = h.calls[0].request, data = payload(request)
+  assert.equal(Object.hasOwn(data, 'binding'), false)
+  assert.doesNotMatch(JSON.stringify(request), /source_sha256|draft_sha256|public_context_sha256|sourceSha256|draftSha256|publicContextSha256/)
+  const digest = (kind, value) => crypto.createHash('sha256')
+    .update(`youtube-public-response-review-v1:${kind}\n${JSON.stringify(value)}`).digest('hex')
+  assert.equal(result.binding.version, 'youtube-public-response-review-v1')
+  assert.equal(result.binding.sourceSha256, digest('source', data.source))
+  assert.equal(result.binding.draftSha256, digest('draft', data.draft))
+  assert.equal(result.binding.publicContextSha256, digest('public-context', data.publicFacts))
+  assert.equal(api.matchesYoutubeResponseReview(result, h.value, NOW), true)
+})
+
+test('concurrent transport responses stay associated with their exact request despite reverse completion order', async () => {
+  const pending = new Map(), first = input(), second = input()
+  second.source.messageId = second.draft.sourceMessageId = 'second-source'
+  second.source.text = 'A different guest message'; second.draft.text = 'A different candidate reply'
+  const complete = request => new Promise(resolve => pending.set(payload(request).source.messageId, { request, resolve }))
+  const one = api.reviewYoutubeResponse(first, complete, { clock: () => NOW })
+  const two = api.reviewYoutubeResponse(second, complete, { clock: () => NOW })
+  await Promise.resolve()
+  const later = pending.get('second-source')
+  later.resolve(allow(later.request))
+  const secondResult = await two
+  const earlier = pending.get(first.source.messageId)
+  earlier.resolve(completion(JSON.stringify(verdict(earlier.request, { decision: 'deny', reason: 'other_risk' }))))
+  const firstResult = await one
+  assert.equal(firstResult.decision, 'deny'); assert.equal(secondResult.decision, 'allow')
+  assert.equal(api.matchesYoutubeResponseReview(secondResult, second, NOW), true)
+  assert.equal(api.matchesYoutubeResponseReview(secondResult, first, NOW), false)
+  assert.equal(api.matchesYoutubeResponseReview(firstResult, second, NOW), false)
+  assert.notEqual(firstResult.binding.sourceSha256, secondResult.binding.sourceSha256)
+  assert.notEqual(firstResult.binding.draftSha256, secondResult.binding.draftSha256)
 })
 
 test('malformed, oversized or mismatched inputs never invoke the provider', async () => {

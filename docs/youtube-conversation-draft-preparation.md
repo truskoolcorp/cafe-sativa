@@ -10,7 +10,9 @@ this work does not claim that the dynamic YouTube responder is already active.
   origin/auth/session/rate/history/FAQ rules and private history ownership.
 - The YouTube draft bridge defaults to open-room conversation, without a Laviche
   keyword requirement. It uses the public host persona rather than website voice
-  instructions, bounded fresh pseudonymous room context, and per-guest continuity.
+  instructions, bounded fresh pseudonymous room context, and per-guest continuity. Other guests'
+  room dialogue expires after 60 seconds; the current guest's confirmed public
+  exchanges last up to 10 minutes, within the same six-turn bound.
 - Laviche speaks naturally with her supported biography, personality, character
   background, and Concrete Rose/Tru Skool identity. There are no routine AI/bot
   disclaimers, but direct identity answers remain truthful. Unsupported personal
@@ -33,15 +35,21 @@ successful authentication. Missing configuration fails closed. The bearer expire
 at event end in code, including on warm deployments.
 
 Generation and review are bounded, have zero automatic retries, observe aborts,
-and discard late/expired results. Review uses strict JSON, exact input hashes and
-an original-result check. The route returns a reviewed candidate with public proof
+and discard late/expired results. Review uses strict two-key JSON decisions, locally computed exact input hashes
+and an original-result check. The model does not need to copy random hashes;
+request-specific promises and immutable local snapshots bind each verdict. The route returns a reviewed candidate with public proof
 metadata, never sender authorization. Model review and syntax checks are defense
 in depth, not proof against every semantic prompt injection or factual error.
 
 The private fixture-only rehearsal is a separate action on the same authenticated
-endpoint. It has its own one-use durable budget, cannot accept arbitrary prompts
-or clocks, and returns pass/fail and timing only. Its results cannot become live
-candidates. Its implementation and deployment must pass the same review gates.
+endpoint. It has its own one-use durable budget and cannot accept arbitrary prompts
+or clocks. The first production batch returned two failed validations without
+recording enough diagnostic detail to identify their exact causes. Its original
+two-fixture budget remains consumed and is not reset. A separately versioned
+`rehearsal-v2` repair batch adds only allowlisted stage/reason/count/timing metadata,
+never generated text, prompts, credentials or review proofs. Both batches are
+permanently capped at two fixed fixtures. Their results cannot become live candidates.
+The v2 diagnostic batch requires its own reviewed migration and release before use.
 
 ## Durable quota
 
@@ -72,7 +80,18 @@ predecessor journal remains intact. One-time transfer requires a verified stoppe
 zero-attempt predecessor, exclusive ownership and proof that the old process cannot
 restart. Missing or uncertain evidence must block activation.
 
-## Release gates still required
+## Release status and remaining gates
+
+The initial Café endpoint was released in PR58, production commit
+`80bcd134291afbcf5f8b411a0ec34885eed25e1f`. Public readiness remains unavailable
+before the event; unauthenticated requests are rejected. The first private test
+made no YouTube posts and consumed no live generation reservations. Its two failed
+cases are why dynamic cutover remains held, despite passing offline tests.
+
+Follow-up changes preserve direct conversational continuity, remove unnecessary
+model hash-copying, aim for 160 characters within the unchanged hard 200-character
+limit, and provide narrowly bounded repair-test diagnostics. Neither protocol
+change is a claim about the unrecorded reason for the original failures.
 
 1. Complete and independently review the final route, fixture rehearsal, sender,
    endpoint adapter and one-time successor handoff together.

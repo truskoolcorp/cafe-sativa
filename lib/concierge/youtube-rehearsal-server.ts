@@ -19,7 +19,7 @@ import { matchesYoutubeResponseReview, reviewYoutubeResponse } from '@/lib/conci
  * refund this reservation. Nothing generated is returned, persisted or posted.
  */
 export interface YoutubeRehearsalDependencies extends Pick<YoutubeGenerationDependencies,
-  'token' | 'configured' | 'clock' | 'readPublicEvent' | 'complete'> {
+  'token' | 'nextToken' | 'configured' | 'clock' | 'readPublicEvent' | 'complete'> {
   reserveRehearsal: (signal: AbortSignal) => Promise<boolean>
   // Separate, explicitly provisioned repair run. Never reset/fall back to v1.
   reserveRehearsalV2?: (signal: AbortSignal) => Promise<boolean>
@@ -151,7 +151,7 @@ export function createYoutubeRehearsalHandler(deps: YoutubeRehearsalDependencies
   return async (req: Request, body: unknown): Promise<Response> => {
     try {
       if (!deps.configured()) return json([], 503)
-      if (!youtubeBearerMatches(req.headers.get('authorization'), deps.token())) return json([], 401)
+      if (!youtubeBearerMatches(req.headers.get('authorization'), deps.token(), deps.nextToken?.())) return json([], 401)
       const url = new URL(req.url)
       if (req.method !== 'POST' || url.pathname !== '/api/concierge/youtube' || url.search
         || req.headers.has('origin') || req.headers.has('cookie') || !isYoutubeRehearsalRequest(body)) return json([], 400)

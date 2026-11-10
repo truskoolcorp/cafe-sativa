@@ -47,7 +47,7 @@ function harness(options = {}) {
   const T = load('lib/concierge/youtube-draft-bridge.ts').YOUTUBE_DRAFT_TARGET
   const body = { source: { eventId: T.eventId, videoId: T.videoId, liveChatId: T.liveChatId, authenticatedChannelId: T.channelId,
     messageId: 'public-source', authorChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa', text: 'Hi everyone!', publishedAt: now, observedAt: now }, history: [] }
-  const req = (value = body) => new Request('https://www.cafe-sativa.com/api/concierge/youtube', { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + token }, body: typeof value === 'string' ? value : JSON.stringify(value) })
+  const req = (value = body, bearer = token) => new Request('https://www.cafe-sativa.com/api/concierge/youtube', { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + bearer }, body: typeof value === 'string' ? value : JSON.stringify(value) })
   return { route, req, fetches, modelCalls, clients }
 }
 test('route import has no network/model I/O; fully composed success isolates public and service credentials', async () => {
@@ -170,5 +170,49 @@ test('v3 denied or missing RPC never falls back to earlier rehearsal or live bud
     assert.equal(response.status, mode === 'denied' ? 429 : 503); assert.equal(h.fetches.length, 2)
     assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal_v3'); assert.equal(h.modelCalls.length, 0)
     assert.doesNotMatch(await response.text(), /private-v3-detail/)
+  }
+})
+
+const secondaryToken = 'synthetic_secondary_route_token_abcdefghijklmnopqrstuvwxyz'
+test('actual route reads both named token slots and preserves primary-only and secondary-only authentication', async () => {
+  for (const [primary, next, accepted] of [
+    [token, undefined, [token]], [undefined, secondaryToken, [secondaryToken]],
+    [token, secondaryToken, [token, secondaryToken]], [token, 'bad', [token]], ['bad', secondaryToken, [secondaryToken]],
+  ]) {
+    for (const bearer of accepted) {
+      const h = harness({ env: { LAVICHE_DYNAMIC_BRIDGE_TOKEN: primary, LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: next } })
+      const response = await h.route.POST(h.req(undefined, bearer))
+      assert.equal(response.status, 200); assert.equal(h.modelCalls.length, 2); assert.equal(h.fetches.length, 2)
+      const result = await response.text()
+      assert.ok(!result.includes(token)); assert.ok(!result.includes(secondaryToken))
+      assert.doesNotMatch(JSON.stringify(h.modelCalls), /synthetic_secondary_route_token|synthetic_route_token/)
+    }
+  }
+})
+test('actual route rejects unknown or absent tokens before all external work and expires both at the original end', async () => {
+  for (const env of [{ LAVICHE_DYNAMIC_BRIDGE_TOKEN: undefined, LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: undefined },
+    { LAVICHE_DYNAMIC_BRIDGE_TOKEN: 'invalid', LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: 'invalid' }]) {
+    const h = harness({ env }); assert.equal((await h.route.POST(h.req())).status, 503)
+    assert.equal(h.fetches.length, 0); assert.equal(h.modelCalls.length, 0)
+  }
+  const invalid = harness({ env: { LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: secondaryToken } })
+  assert.equal((await invalid.route.POST(invalid.req(undefined, 'unknown_token_value_not_accepted_here'))).status, 401)
+  assert.equal(invalid.fetches.length, 0); assert.equal(invalid.modelCalls.length, 0)
+  for (const bearer of [token, secondaryToken]) {
+    const h = harness({ now: Date.parse('2026-11-11T06:30:00Z'), env: { LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: secondaryToken } })
+    assert.equal((await h.route.POST(h.req(undefined, bearer))).status, 503)
+    assert.equal(h.fetches.length, 0); assert.equal(h.modelCalls.length, 0)
+  }
+})
+test('secondary token passes rehearsal defensive authentication but cannot change fixture budgets or expiry', async () => {
+  for (const action of ['rehearsal', 'rehearsal-v2', 'rehearsal-v3']) {
+    const h = harness({ now: Date.parse('2026-11-10T02:00:00Z'), env: { LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: secondaryToken } })
+    assert.equal((await h.route.POST(h.req({ action }, secondaryToken))).status, 200)
+    assert.equal(h.fetches.length, 2); assert.equal(h.modelCalls.length, 4)
+    const suffix = action === 'rehearsal' ? '' : action.slice('rehearsal'.length).replace('-', '_')
+    assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal' + suffix)
+    const ended = harness({ now: Date.parse('2026-11-11T06:30:00Z'), env: { LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT: secondaryToken } })
+    assert.equal((await ended.route.POST(ended.req({ action }, secondaryToken))).status, 503)
+    assert.equal(ended.fetches.length, 0); assert.equal(ended.modelCalls.length, 0)
   }
 })

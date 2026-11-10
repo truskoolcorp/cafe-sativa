@@ -40,6 +40,9 @@ const dependencies: YoutubeGenerationDependencies = {
   // Empty by default. Provisioning this event-scoped service capability is a
   // separate approved action; no default/shared/guest token or key fallback.
   token: () => process.env.LAVICHE_DYNAMIC_BRIDGE_TOKEN,
+  // Adding this optional slot preserves the existing token. Both remain bound
+  // to this endpoint's exact target and original 2026-11-11 06:30 UTC expiry.
+  nextToken: () => process.env.LAVICHE_DYNAMIC_BRIDGE_TOKEN_NEXT,
   configured,
   async readPublicEvent(signal) {
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

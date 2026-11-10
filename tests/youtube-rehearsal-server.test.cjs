@@ -508,3 +508,24 @@ test('v3 committed uncertainty, cancellation and duplicate calls cannot refill o
   assert.equal((await h.runToolRepair()).status, 429)
   assert.equal(h.v2reservations.length, 0); assert.equal(h.reservations.length, 0)
 })
+
+test('both scoped tokens share the same immutable rehearsal claims and preserve the original expiry', async () => {
+  const next = 'synthetic_secondary_rehearsal_token_abcdefghijklmnopqrstuvwxyz'
+  const authenticated = (action, bearer) => request({ action }, { headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + bearer } })
+  for (const action of ['rehearsal', 'rehearsal-v2', 'rehearsal-v3']) {
+    const before = action === 'rehearsal' ? {} : action === 'rehearsal-v2' ? { budget: { spent: true } }
+      : { budget: { spent: true }, v2budget: { spent: true } }
+    const h = harness({ ...before, changes: { nextToken: () => next } })
+    assert.equal((await h.endpoint.POST(authenticated(action, TOKEN))).status, 200)
+    assert.equal((await h.endpoint.POST(authenticated(action, next))).status, 429)
+    assert.equal(h.calls.length, 4)
+    h.setTime(END)
+    assert.equal((await h.endpoint.POST(authenticated(action, next))).status, 503)
+    assert.equal(h.calls.length, 4)
+  }
+  const onlyNext = harness({ changes: { token: () => undefined, nextToken: () => next } })
+  assert.equal((await onlyNext.endpoint.POST(authenticated('rehearsal', next))).status, 200)
+  const denied = harness({ changes: { nextToken: () => next } })
+  assert.equal((await denied.handle(authenticated('rehearsal', 'wrong_token_value_for_this_endpoint'), { action: 'rehearsal' })).status, 401)
+  assert.equal(denied.reads.length, 0); assert.equal(denied.reservations.length, 0); assert.equal(denied.calls.length, 0)
+})

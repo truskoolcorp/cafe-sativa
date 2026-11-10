@@ -33,7 +33,7 @@ test('footer renders all confirmed public social destinations exactly once', () 
   const expected = {
     Instagram: 'https://www.instagram.com/cafesativainc/',
     Threads: 'https://www.threads.com/@cafesativainc',
-    Facebook: 'https://www.facebook.com/profile.php?id=61556233581393',
+    Facebook: 'https://www.facebook.com/CafeSativaLLC',
     TikTok: 'https://www.tiktok.com/@cafesativa',
     Snapchat: 'https://www.snapchat.com/add/cafesativainc',
     LinkedIn: 'https://www.linkedin.com/company/cafesativa',

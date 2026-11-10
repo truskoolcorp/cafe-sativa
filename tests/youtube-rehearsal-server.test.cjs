@@ -42,21 +42,20 @@ function reviewPayload(request) {
 }
 function allow(request, patch = {}) {
   if (!isReview(request)) return completion('A welcoming room, a good groove, and a little space to discover something new together.')
-  const { binding } = reviewPayload(request)
-  return completion(JSON.stringify({ decision: 'allow', reason: 'safe', source_sha256: binding.sourceSha256,
-    draft_sha256: binding.draftSha256, public_context_sha256: binding.publicContextSha256, ...patch }))
+  return completion(JSON.stringify({ decision: 'allow', reason: 'safe', ...patch }))
 }
 function request(body = { action: 'rehearsal' }, options = {}) {
   return new Request('https://www.cafe-sativa.com/api/concierge/youtube', { method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
     body: typeof body === 'string' ? body : JSON.stringify(body), ...options })
 }
-function harness({ lib = libs, transport = request => allow(request), budget = { spent: false }, changes = {} } = {}) {
+function harness({ lib = libs, transport = request => allow(request), budget = { spent: false }, v2budget = { spent: false }, changes = {} } = {}) {
   let at = NOW
-  const calls = [], reads = [], reservations = []
+  const calls = [], reads = [], reservations = [], v2reservations = []
   const deps = { token: () => TOKEN, configured: () => true, clock: () => at,
     readPublicEvent: async signal => { reads.push(signal); return event(at) },
     reserveRehearsal: async signal => { reservations.push(signal); if (budget.spent) return false; budget.spent = true; return true },
+    reserveRehearsalV2: async signal => { v2reservations.push(signal); if (!budget.spent || v2budget.spent) return false; v2budget.spent = true; return true },
     complete: async (request, options) => { calls.push({ request, options }); return transport(request, options) },
     ...changes,
   }
@@ -65,9 +64,10 @@ function harness({ lib = libs, transport = request => allow(request), budget = {
     quotaAvailable: () => { throw Error('Rehearsal must not check live quota') },
     reserve: () => { throw Error('Rehearsal must not consume live quota') }, rehearse: handle,
   })
-  return { deps, calls, reads, reservations, budget, handle, endpoint,
+  return { deps, calls, reads, reservations, v2reservations, budget, v2budget, handle, endpoint,
     setTime: value => { at = value }, advance: ms => { at += ms },
     run: () => endpoint.POST(request()),
+    runRepair: () => endpoint.POST(request({ action: 'rehearsal-v2' })),
   }
 }
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -271,4 +271,139 @@ test('import is dormant and cannot import provider SDK, credentials, private rec
   const source = fs.readFileSync('lib/concierge/youtube-rehearsal-server.ts', 'utf8')
   assert.doesNotMatch(source, /process\.env|\bfetch\(|readFile|console\.|\.send\(|\.insert\(/)
   assert.equal(typeof libs.api.send, 'undefined')
+})
+
+test('v2 fixed-fixture repair uses only its independent one-time budget and emits closed diagnostics', async () => {
+  const budget = { spent: true }, v2budget = { spent: false }
+  const h = harness({ budget, v2budget, transport: model => ({ ...allow(model),
+    usage: { input_tokens: 1250, output_tokens: isReview(model) ? 16 : 24, private: 'NEVER_REFLECT' },
+    provider_private: 'NEVER_REFLECT' }) })
+  const response = await h.runRepair(), result = await response.json()
+  assert.equal(response.status, 200); assert.equal(h.reservations.length, 0)
+  assert.equal(h.v2reservations.length, 1); assert.equal(h.calls.length, 4)
+  for (const value of result.cases) {
+    assert.deepEqual(Object.keys(value), ['case', 'passed', 'generationMs', 'reviewMs', 'totalMs', 'diagnostics'])
+    assert.equal(value.passed, true)
+    assert.deepEqual(Object.keys(value.diagnostics), ['generation', 'review'])
+    assert.equal(value.diagnostics.generation.outcome, 'passed')
+    assert.equal(value.diagnostics.review.outcome, 'review_passed')
+    assert.equal(value.diagnostics.review.policyCode, 'safe')
+    for (const phase of ['generation', 'review']) {
+      const summary = value.diagnostics[phase].completion
+      assert.deepEqual(Object.keys(summary), ['stopReason', 'blockCount', 'textCharacters', 'inputTokens', 'outputTokens'])
+      assert.equal(summary.stopReason, 'end_turn'); assert.equal(summary.blockCount, 1)
+      assert.ok(Number.isInteger(summary.textCharacters)); assert.equal(summary.inputTokens, 1250)
+      assert.equal(summary.outputTokens, phase === 'review' ? 16 : 24)
+    }
+  }
+  assert.doesNotMatch(JSON.stringify(result), /NEVER_REFLECT|welcoming|sha256|messageId|private-rehearsal|system|prompt|binding/)
+  const review = h.calls.find(c => isReview(c.request))
+  assert.match(reviewPayload(review.request).source.messageId, /^private-rehearsal-v2-/)
+  assert.equal((await h.runRepair()).status, 429); assert.equal(h.calls.length, 4)
+  const restarted = harness({ budget, v2budget })
+  assert.equal((await restarted.runRepair()).status, 429); assert.equal(restarted.calls.length, 0)
+  assert.equal((await restarted.run()).status, 429); assert.equal(restarted.calls.length, 0)
+})
+
+test('v2 missing dependency, unused original, malformed actions and expired requests cannot fall back or spend', async () => {
+  const missing = harness({ budget: { spent: true }, changes: { reserveRehearsalV2: undefined } })
+  assert.equal((await missing.runRepair()).status, 503)
+  assert.equal(missing.reads.length, 0); assert.equal(missing.reservations.length, 0); assert.equal(missing.calls.length, 0)
+  const unused = harness()
+  assert.equal((await unused.runRepair()).status, 429)
+  assert.equal(unused.budget.spent, false); assert.equal(unused.v2budget.spent, false); assert.equal(unused.calls.length, 0)
+  for (const body of [{ action: 'rehearsal-v3' }, { action: 'rehearsal-v2', text: 'extra' },
+    { action: 'rehearsal-v2', clock: NOW }, { action: 'rehearsal-v2', model: 'other' },
+    '{"action":"rehearsal","action":"rehearsal-v2"}', '{"action":"rehearsal-v2","action":"rehearsal-v2"}',
+    '{"act\\u0069on":"rehearsal-v2"}', '{"action":"rehearsal-v2"']) {
+    const h = harness({ budget: { spent: true } }), response = await h.endpoint.POST(request(body))
+    assert.equal(response.status, 400); assert.equal(h.reads.length, 0); assert.equal(h.v2reservations.length, 0)
+  }
+  const expired = harness({ budget: { spent: true } }); expired.setTime(END)
+  assert.equal((await expired.runRepair()).status, 503); assert.equal(expired.v2reservations.length, 0)
+})
+
+test('v2 generation rejection diagnostics distinguish fixed guard stages without leaking or rewriting output', async () => {
+  const variants = [
+    [null, 'invalid_completion'],
+    [{ stop_reason: 'PRIVATE_UNKNOWN_REASON', content: [] }, 'stop_reason'],
+    [{ ...completion('valid'), stop_reason: 'max_tokens' }, 'stop_reason'],
+    [{ stop_reason: 'end_turn', content: [{ type: 'tool_use', private: 'NEVER_REFLECT' }] }, 'text_shape'],
+    [{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] }, 'content_shape'],
+    [completion(''), 'empty_text'], [completion('x'.repeat(201)), 'character_limit'],
+    [completion('hello\u0000'), 'control_characters'], [completion('two\nlines'), 'multiline_or_markup'],
+    [completion('<markup>'), 'multiline_or_markup'], [completion('NEVER_REFLECT@example.com'), 'link_or_contact'],
+    [completion('https://private.example.org'), 'link_or_contact'],
+  ]
+  for (const [output, expected] of variants) {
+    const h = harness({ budget: { spent: true }, transport: () => output })
+    const response = await h.runRepair(), result = await response.json()
+    assert.equal(response.status, 200); assert.equal(h.calls.length, 2)
+    for (const value of result.cases) {
+      assert.equal(value.passed, false); assert.equal(value.reviewMs, null)
+      assert.equal(value.diagnostics.generation.outcome, expected)
+      assert.equal(value.diagnostics.review.outcome, 'not_started')
+    }
+    assert.doesNotMatch(JSON.stringify(result), /NEVER_REFLECT|PRIVATE_UNKNOWN_REASON|example\.org|https:|hello|<markup>/)
+    assert.equal((await h.runRepair()).status, 429)
+  }
+  const failed = harness({ budget: { spent: true }, transport: () => { throw Error('SECRET_TRANSPORT_ERROR') } })
+  const result = await (await failed.runRepair()).json()
+  assert.ok(result.cases.every(c => c.diagnostics.generation.outcome === 'generation_failed'))
+  assert.doesNotMatch(JSON.stringify(result), /SECRET_TRANSPORT_ERROR/)
+})
+
+test('v2 review diagnostics expose only safe protocol/policy enums and numeric completion metadata', async () => {
+  for (const [make, expected, policy] of [
+    [model => allow(model, { decision: 'deny', reason: 'unsupported_facts' }), 'review_denied', 'unsupported_facts'],
+    [() => completion('{"decision":"allow","reason":"safe","source_sha256":"SECRET_HASH"}'), 'invalid_completion', null],
+    [() => completion('SECRET_UNPARSEABLE_TEXT'), 'invalid_completion', null],
+    [model => ({ ...allow(model), stop_reason: 'max_tokens' }), 'invalid_completion', null],
+    [() => { throw Error('SECRET_PROVIDER_ERROR') }, 'review_failed', null],
+  ]) {
+    const h = harness({ budget: { spent: true }, transport: model => isReview(model) ? make(model) : allow(model) })
+    const result = await (await h.runRepair()).json()
+    assert.equal(h.calls.length, 4)
+    for (const value of result.cases) {
+      assert.equal(value.passed, false); assert.equal(value.diagnostics.generation.outcome, 'passed')
+      assert.equal(value.diagnostics.review.outcome, expected); assert.equal(value.diagnostics.review.policyCode, policy)
+    }
+    assert.doesNotMatch(JSON.stringify(result), /SECRET_|source_sha256|hash|prompt|welcoming/)
+    assert.equal((await h.runRepair()).status, 429)
+  }
+})
+
+test('diagnostic metadata projection never traverses arbitrary fields and normalizes unknown strings/counts', () => {
+  const source = { stop_reason: 'PRIVATE_STOP_REASON', content: [{ type: 'text', text: 'PRIVATE_TEXT' }],
+    usage: { input_tokens: 20, output_tokens: 4 } }
+  for (const value of [source, source.content[0], source.usage]) {
+    Object.defineProperty(value, 'private', { get() { throw Error('EXTRA_FIELD_READ') } })
+  }
+  const summary = libs.api.summarizeYoutubeRehearsalCompletion(source)
+  assert.equal(summary.stopReason, 'other'); assert.equal(summary.textCharacters, 12)
+  assert.equal(summary.inputTokens, 20); assert.equal(summary.outputTokens, 4)
+  assert.doesNotMatch(JSON.stringify(summary), /PRIVATE_|EXTRA_FIELD/)
+  for (const bad of [NaN, Infinity, -1, 1.5, 1000001, 'SECRET_NUMBER', { secret: 'NEVER' }]) {
+    const output = libs.api.summarizeYoutubeRehearsalCompletion({ ...source, usage: { input_tokens: bad, output_tokens: bad } })
+    assert.equal(output.inputTokens, null); assert.equal(output.outputTokens, null)
+  }
+  for (const reason of ['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'pause_turn', 'refusal']) {
+    assert.equal(libs.api.summarizeYoutubeRehearsalCompletion({ ...source, stop_reason: reason }).stopReason, reason)
+  }
+  assert.equal(libs.api.summarizeYoutubeRehearsalCompletion({ get stop_reason() { throw Error('SECRET_ACCESSOR') } }).stopReason, 'missing')
+})
+
+test('v2 permanently consumes failures, uncertain claims and aborted providers without any automatic v1 retry', async () => {
+  const budget = { spent: true }, v2budget = { spent: false }
+  const uncertain = harness({ budget, v2budget, changes: { reserveRehearsalV2: async () => {
+    v2budget.spent = true; throw Error('SECRET_LOST_RESPONSE')
+  } } })
+  assert.equal((await uncertain.runRepair()).status, 503); assert.equal(uncertain.calls.length, 0)
+  const restarted = harness({ budget, v2budget })
+  assert.equal((await restarted.runRepair()).status, 429); assert.equal(restarted.reservations.length, 0)
+  const h = harness({ budget, transport: () => new Promise(() => {}) }), controller = new AbortController()
+  const work = h.endpoint.POST(request({ action: 'rehearsal-v2' }, { signal: controller.signal }))
+  await tick(); assert.equal(h.calls.length, 2); controller.abort()
+  assert.equal((await work).status, 503); assert.equal(h.calls.every(c => c.options.signal.aborted), true)
+  assert.equal((await h.runRepair()).status, 429); assert.equal(h.reservations.length, 0)
 })

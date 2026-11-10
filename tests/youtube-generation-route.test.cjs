@@ -16,10 +16,8 @@ function harness(options = {}) {
     messages = { create: async (request, opts) => {
       modelCalls.push({ request, opts })
       if (options.providerFails) throw Error('DO_NOT_REFLECT_PROVIDER_OR_KEY')
-      if (request.max_tokens === 512) return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Welcome in. What has been on your playlist lately?' }] }
-      const binding = JSON.parse(request.messages[0].content.split('\n')[1]).binding
-      return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe',
-        source_sha256: binding.sourceSha256, draft_sha256: binding.draftSha256, public_context_sha256: binding.publicContextSha256 }) }] }
+      if (request.max_tokens === 512) return { stop_reason: 'end_turn', content: [{ type: 'text', text: options.generationText ?? 'Welcome in. What has been on your playlist lately?' }] }
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe' }) }] }
     } }
   }
   function load(file) {
@@ -104,4 +102,43 @@ test('rehearsal route rejects duplicate action JSON before fixture spending', as
   const h = harness({ now: Date.parse('2026-11-09T12:00:00Z') })
   const response = await h.route.POST(h.req('{"action":"different","action":"rehearsal"}'))
   assert.equal(response.status, 400); assert.equal(h.fetches.length, 0); assert.equal(h.modelCalls.length, 0)
+})
+
+test('v2 diagnostic rehearsal uses only its separate one-time RPC and exposes bounded metadata, not generated content', async () => {
+  const h = harness({ now: Date.parse('2026-11-09T12:00:00Z') })
+  const response = await h.route.POST(h.req({ action: 'rehearsal-v2' })), result = await response.json()
+  assert.equal(response.status, 200); assert.equal(result.cases.length, 2); assert.ok(result.cases.every(c => c.passed))
+  assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal_v2')
+  assert.equal(h.fetches[1].init.body, '{}'); assert.equal(h.fetches.length, 2); assert.equal(h.modelCalls.length, 4)
+  assert.deepEqual(Object.keys(result), ['cases'])
+  for (const item of result.cases) {
+    assert.equal(item.diagnostics.generation.outcome, 'passed'); assert.equal(item.diagnostics.review.outcome, 'review_passed')
+    assert.equal(item.diagnostics.generation.completion.stopReason, 'end_turn')
+    assert.equal(item.diagnostics.review.policyCode, 'safe')
+    assert.ok(item.diagnostics.generation.completion.textCharacters <= 200)
+  }
+  assert.doesNotMatch(JSON.stringify(result), /Welcome in|synthetic-provider|synthetic-service|messageId|sourceSha256|draftSha256|publicContextProof/)
+  for (const { request } of h.modelCalls.filter(x => x.request.max_tokens === 512)) assert.match(request.system, /Aim for 160 characters or fewer, on one line\./)
+})
+test('v2 oversize diagnostic does not trim, rewrite or retry the rejected generation', async () => {
+  const h = harness({ now: Date.parse('2026-11-09T12:00:00Z'), generationText: 'secret-rehearsal-output-' + 'x'.repeat(201) })
+  const response = await h.route.POST(h.req({ action: 'rehearsal-v2' })), result = await response.json()
+  assert.equal(response.status, 200); assert.equal(h.modelCalls.length, 2)
+  for (const item of result.cases) {
+    assert.equal(item.passed, false); assert.equal(item.diagnostics.generation.outcome, 'character_limit')
+    assert.ok(item.diagnostics.generation.completion.textCharacters > 200); assert.equal(item.diagnostics.review.outcome, 'not_started')
+  }
+  assert.doesNotMatch(JSON.stringify(result), /secret-rehearsal-output|xxxxxxxx/)
+})
+test('denied or unavailable v2 RPC never falls back to original rehearsal or live budget', async () => {
+  for (const mode of ['denied', 'unavailable']) {
+    const h = harness({ now: Date.parse('2026-11-09T12:00:00Z'), fetch: async url => {
+      if (url.pathname === '/rest/v1/my_events_v') return Response.json([{ id: '00e7d9c6-61b9-4af9-827e-b6d13310b762', slug: 'hit-em-release-party', title: 'Hit Em Release Party', status: 'scheduled', starts_at: '2026-11-11T06:00:00Z', ticket_price_cents: 0 }])
+      return mode === 'denied' ? Response.json(false) : Response.json({ message: 'private-database-detail' }, { status: 404 })
+    } })
+    const response = await h.route.POST(h.req({ action: 'rehearsal-v2' }))
+    assert.equal(response.status, mode === 'denied' ? 429 : 503); assert.equal(h.fetches.length, 2)
+    assert.equal(h.fetches[1].url.pathname, '/rest/v1/rpc/cs_reserve_youtube_rehearsal_v2'); assert.equal(h.modelCalls.length, 0)
+    assert.doesNotMatch(await response.text(), /private-database-detail/)
+  }
 })

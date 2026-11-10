@@ -27,9 +27,7 @@ const TOKEN = 'synthetic_test_token_never_a_real_credential_12345'
 const A = 'UCaaaaaaaaaaaaaaaaaaaaaa', B = 'UCbbbbbbbbbbbbbbbbbbbbbb'
 const clone = value => JSON.parse(JSON.stringify(value))
 function reviewCompletion(request, patch = {}) {
-  const binding = JSON.parse(request.messages[0].content.split('\n')[1]).binding
-  return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe',
-    source_sha256: binding.sourceSha256, draft_sha256: binding.draftSha256, public_context_sha256: binding.publicContextSha256, ...patch }) }] }
+  return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ decision: 'allow', reason: 'safe', ...patch }) }] }
 }
 function harness(options = {}, lib = api) {
   let now = T.startsAt + 120000, reads = 0, reservations = 0, checks = 0
@@ -83,6 +81,7 @@ test('no name mention is needed: one durable reservation precedes exactly two bo
   assert.equal(h.counts().reservations, 1); assert.equal(h.calls.length, 2)
   assert.equal(h.calls[0].request.max_tokens, 512); assert.equal(h.calls[1].request.max_tokens, 256)
   assert.deepEqual(h.calls.map(x => x.opts.maxRetries), [0, 0]); assert.deepEqual(h.calls.map(x => x.opts.timeout), [10000, 5000])
+  assert.match(h.calls[0].request.system, /Aim for 160 characters or fewer, on one line\./)
   assert.match(h.calls[0].request.system, /Do not volunteer AI\/bot disclaimers/)
   assert.match(h.calls[0].request.system, /truthfully say you are the virtual AI host/)
   assert.match(h.calls[0].request.system, /Concrete Rose/)
@@ -98,9 +97,9 @@ test('bounded public-room conversation is labeled separately from current guest 
   ]
   assert.equal((await h.handlers.POST(h.request(value))).status, 200)
   const message = h.calls[0].request.messages[0].content, data = JSON.parse(message)
-  assert.equal(data.currentGuest, data.publicHistory[0].speaker)
-  assert.notEqual(data.currentGuest, data.publicHistory[1].speaker)
-  assert.equal(data.publicHistory[2].replyingTo, data.publicHistory[1].speaker)
+  assert.equal(data.currentGuest, data.publicDirectHistory[0].speaker)
+  assert.notEqual(data.currentGuest, data.recentPublicRoom[0].speaker)
+  assert.equal(data.recentPublicRoom[1].replyingTo, data.recentPublicRoom[0].speaker)
   assert.doesNotMatch(message, /UCaaaaaaaa|UCbbbbbbbb|public-a|public-b|public-host/)
 })
 test('malformed shape, private context, wrong target, stale/future/oversize/control input are rejected before reads', async () => {
@@ -164,7 +163,7 @@ test('generation failures burn reservation and expose no errors; invalid outputs
   const h = harness({ complete: async () => { throw Error('provider-secret-detail') } })
   const response = await h.handlers.POST(h.request()); assert.equal(response.status, 503); assert.doesNotMatch(await response.text(), /provider-secret/)
 })
-test('review deny, hash mismatch, malformed completion cannot emit candidate and never retry', async () => {
+test('review deny, legacy hash keys and other malformed completion cannot emit candidate and never retry', async () => {
   for (const patch of [{ decision: 'deny', reason: 'unsupported_facts' }, { source_sha256: 'wrong' }, { extra: 'safe' }]) {
     const h = harness({ complete: async (request, opts, count) => count === 1
       ? { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Welcome to the room.' }] } : reviewCompletion(request, patch) })
@@ -252,4 +251,70 @@ test('public context proof binds exact reviewed static projection and freshness 
   assert.equal(result.publicContextProof.observedAt, h.now()); assert.equal(result.publicContextProof.eventStatus, 'scheduled')
   assert.match(result.publicContextProof.projectionSha256, /^[a-f0-9]{64}$/)
   assert.deepEqual(Object.keys(result.publicContextProof), ['version', 'observedAt', 'expiresAt', 'eventStatus', 'projectionSha256'])
+})
+
+test('admitted current-guest follow-up retains verified public exchange past the 60-second author cooldown', async () => {
+  const h = harness(), value = h.body({ text: 'What was I talking about earlier?' })
+  value.history = [
+    { messageId: 'direct-source', authorChannelId: A, text: 'My favorite music is jazz.', publishedAt: h.now() - 61000 },
+    { messageId: 'direct-host', authorChannelId: T.channelId, sourceMessageId: 'direct-source', text: 'Jazz leaves room for surprises.', publishedAt: h.now() - 60000 },
+    { messageId: 'room-source', authorChannelId: B, text: 'I prefer disco.', publishedAt: h.now() - 5000 },
+  ]
+  assert.equal((await h.handlers.POST(h.request(value))).status, 200)
+  const data = JSON.parse(h.calls[0].request.messages[0].content)
+  assert.equal(data.publicDirectHistory.length, 2); assert.equal(data.recentPublicRoom.length, 1)
+  assert.equal(data.publicDirectHistory[0].text, 'My favorite music is jazz.')
+  assert.equal(data.publicDirectHistory[0].speaker, data.currentGuest)
+  assert.equal(data.publicDirectHistory[1].speaker, 'Laviche')
+  assert.equal(data.publicDirectHistory[1].replyingTo, data.currentGuest)
+  assert.deepEqual(data.publicDirectHistory.map(turn => turn.ageSeconds), [61, 60])
+  assert.notEqual(data.recentPublicRoom[0].speaker, data.currentGuest)
+  assert.match(h.calls[0].request.system, /Never attribute another guest's words to the current guest/)
+  assert.equal(h.counts().reservations, 1); assert.equal(h.calls.length, 2)
+})
+test('ten-minute direct limit is strict while unrelated guest and host-linked room turns stay limited to 60 seconds', async () => {
+  for (const age of [60000, 599999, 600000]) {
+    const h = harness(); h.advance(600000)
+    const body = h.body()
+    body.history = [{ messageId: 'earlier', authorChannelId: A, text: 'My public jazz preference.', publishedAt: h.now() - age }]
+    assert.equal(api.parseYoutubeGenerationRequest(body, h.now()) !== null, age < 600000)
+  }
+  const h = harness(); h.advance(600000)
+  const body = h.body()
+  body.history = [
+    { messageId: 'other-source', authorChannelId: B, text: 'Their old public preference.', publishedAt: h.now() - 61000 },
+    { messageId: 'host-to-other', authorChannelId: T.channelId, sourceMessageId: 'other-source', text: 'That sounds good.', publishedAt: h.now() - 1000 },
+  ]
+  assert.equal((await h.handlers.POST(h.request(body))).status, 400)
+  assert.equal(h.counts().reads, 0)
+  // A host turn with no bound source cannot claim the longer current-guest age.
+  body.history = [{ messageId: 'orphan-host', authorChannelId: T.channelId, sourceMessageId: 'missing-own-source', text: 'Unbound reply', publishedAt: h.now() - 61000 }]
+  assert.equal((await h.handlers.POST(h.request(body))).status, 400)
+})
+test('direct-history ten-minute expiry is checked after reads and reservation without changing source-age or quota limits', async () => {
+  for (const stage of ['read', 'reserve']) {
+    let h
+    const options = stage === 'read'
+      ? { read: async (signal, event) => { h.advance(1000); return event } }
+      : { reserve: async () => { h.advance(1000); return true } }
+    h = harness(options); h.advance(600000)
+    const body = h.body()
+    body.history = [{ messageId: 'direct-boundary', authorChannelId: A, text: 'My older public remark.', publishedAt: h.now() - 599000 }]
+    assert.equal((await h.handlers.POST(h.request(body))).status, 503)
+    assert.equal(h.calls.length, 0); assert.equal(h.counts().reservations, stage === 'read' ? 0 : 1)
+  }
+  assert.equal(api.YOUTUBE_GENERATION_LIMITS.historyTurns, 6)
+  assert.equal(api.YOUTUBE_GENERATION_LIMITS.sourceAgeMs, 30000)
+  assert.equal(api.YOUTUBE_GENERATION_LIMITS.roomAgeMs, 60000)
+})
+
+test('versioned rehearsal dispatch accepts only two exact actions and cannot mutate an action through duplicate keys', async () => {
+  const seen = [], h = harness({ deps: { rehearse: async (req, body) => { seen.push(body.action); return Response.json({ cases: [] }) } } })
+  h.advance(T.startsAt - 1000 - h.now())
+  for (const action of ['rehearsal', 'rehearsal-v2']) assert.equal((await h.handlers.POST(h.request({ action }))).status, 200)
+  assert.deepEqual(seen, ['rehearsal', 'rehearsal-v2'])
+  for (const body of [{ action: 'rehearsal-v3' }, { action: 'rehearsal-v2-v2' }, { action: 'rehearsal-v2', prompt: 'override' },
+    '{"action":"rehearsal","action":"rehearsal-v2"}', '{"action":"rehearsal-v2","action":"rehearsal-v2"}'])
+    assert.equal((await h.handlers.POST(h.request(body))).status, 400)
+  assert.equal(seen.length, 2); assert.equal(h.counts().reservations, 0); assert.equal(h.calls.length, 0)
 })

@@ -1,6 +1,6 @@
 # Dynamic YouTube conversation integration
 
-This is the November 9, 2026 preparation for Laviche's Hit Em premiere chat.
+This is the November 10, 2026 preparation for Laviche's Hit Em premiere chat.
 The separate ASK link was released in PR57. ASK remains a separate conversation;
 this work does not claim that the dynamic YouTube responder is already active.
 
@@ -35,8 +35,10 @@ successful authentication. Missing configuration fails closed. The bearer expire
 at event end in code, including on warm deployments.
 
 Generation and review are bounded, have zero automatic retries, observe aborts,
-and discard late/expired results. Review uses strict two-key JSON decisions, locally computed exact input hashes
-and an original-result check. The model does not need to copy random hashes;
+and discard late/expired results. Review uses one forced, strict native classification
+tool with exactly two verdict fields, locally computed exact input hashes, and an
+original-result check. The tool block is data only: it is never executed, and there
+is no follow-up tool-result request. The model does not need to copy random hashes;
 request-specific promises and immutable local snapshots bind each verdict. The route returns a reviewed candidate with public proof
 metadata, never sender authorization. Model review and syntax checks are defense
 in depth, not proof against every semantic prompt injection or factual error.
@@ -47,9 +49,14 @@ or clocks. The first production batch returned two failed validations without
 recording enough diagnostic detail to identify their exact causes. Its original
 two-fixture budget remains consumed and is not reset. A separately versioned
 `rehearsal-v2` repair batch adds only allowlisted stage/reason/count/timing metadata,
-never generated text, prompts, credentials or review proofs. Both batches are
-permanently capped at two fixed fixtures. Their results cannot become live candidates.
-The v2 diagnostic batch requires its own reviewed migration and release before use.
+never generated text, prompts, credentials or review proofs. The v2 production
+batch safely rejected a 208-character conversation reply and an invalid-format
+review verdict for a 136-character event reply. Its budget also remains consumed.
+The separately reviewed `rehearsal-v3` batch tests the native classification protocol
+and shorter generation target. Each version has its own irreversible two-fixture
+budget; v3 requires v2 to have been consumed and cannot reset or fall back to any
+earlier or live budget. Rehearsal results cannot become live candidates. V3 requires
+its own reviewed migration and release before use.
 
 ## Durable quota
 
@@ -88,10 +95,13 @@ before the event; unauthenticated requests are rejected. The first private test
 made no YouTube posts and consumed no live generation reservations. Its two failed
 cases are why dynamic cutover remains held, despite passing offline tests.
 
-Follow-up changes preserve direct conversational continuity, remove unnecessary
-model hash-copying, aim for 160 characters within the unchanged hard 200-character
-limit, and provide narrowly bounded repair-test diagnostics. Neither protocol
-change is a claim about the unrecorded reason for the original failures.
+PR59 released the first correction at production commit
+`05e30f0ba1fb10d5d457f14403ccb28b2af69bd6`. Its diagnostics exposed the two
+specific v2 failures described above. The next reviewed correction uses native
+classification and aims for one sentence of at most 100 characters within the
+unchanged hard 200-character limit. Direct conversational continuity and narrowly
+bounded diagnostics remain intact. These changes do not claim a precise cause
+for the unrecorded first-batch failures.
 
 1. Complete and independently review the final route, fixture rehearsal, sender,
    endpoint adapter and one-time successor handoff together.

@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
     if (found.error) throw found.error
     const job = found.data
     if (!job || (body.action === 'override' ? !['pending_qa','failed'].includes(job.status) : job.status !== 'pending_qa')) return response({ error: 'This job is no longer eligible for this review.' }, 409)
+    if (!body.mediaSnapshot || body.mediaSnapshot.outputUrl!==job.output_url || body.mediaSnapshot.updatedAt!==job.updated_at) return response({error:'The video changed. Refresh and review the current preview.'},409)
     if (body.action === 'override' && !job.blocker?.includes('canonical accuracy review') && job.status === 'failed') return response({ error: 'Only visual-QA rejections are eligible for owner override.' }, 409)
     if (body.action === 'approve' || body.action === 'override') {
       if (!/^[0-9a-f-]{36}\.mp4$/i.test(job.output_url || '') || (body.action === 'approve' && job.policy_version !== CONTENT_POLICY.version)) return response({ error: 'Current policy and stored video required.' }, 409)
@@ -70,13 +71,15 @@ export async function POST(req: NextRequest) {
       const media = await db.storage.from('cafe-sativa-content').createSignedUrl(job.output_url, 60)
       if (media.error || !media.data) return response({ error: 'Stored video unavailable.' }, 409)
     }
-    const changed = await db.from('cs_content_jobs').update({
+    let change = db.from('cs_content_jobs').update({
       status: body.action !== 'reject' ? 'approved' : 'failed',
       qa_approved_by: body.action !== 'reject' ? user.id : null,
       qa_approved_at: body.action !== 'reject' ? new Date().toISOString() : null,
       blocker: body.action === 'override' ? `Owner visual override by ${user.id}: ${body.reason.trim()}` : body.action === 'approve' ? null : 'Rejected in accuracy review; no automatic paid retry',
       updated_at: new Date().toISOString(),
-    }).eq('id', job.id).eq('status', job.status).select('id,status').maybeSingle()
+    }).eq('id', job.id).eq('status', job.status).eq('updated_at',job.updated_at)
+    change=job.output_url===null?change.is('output_url',null):change.eq('output_url',job.output_url)
+    const changed=await change.select('id,status').maybeSingle()
     if (changed.error) throw changed.error
     if(!changed.data)return response({ error: 'Another review changed this job. Refresh.' }, 409)
     if(body.action==='approve' || body.action==='override') {

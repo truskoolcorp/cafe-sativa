@@ -26,7 +26,7 @@ const EXPLORE_LINKS = [
 const CONNECT_LINKS = [
   { href: 'https://www.instagram.com/cafesativainc/', label: 'Instagram', external: true },
   { href: 'https://www.threads.com/@cafesativainc', label: 'Threads', external: true },
-  { href: 'https://www.facebook.com/profile.php?id=61556233581393', label: 'Facebook', external: true },
+  { href: 'https://www.facebook.com/CafeSativaLLC', label: 'Facebook', external: true },
   { href: 'https://www.tiktok.com/@cafesativa', label: 'TikTok', external: true },
   { href: 'https://www.snapchat.com/add/cafesativainc', label: 'Snapchat', external: true },
   { href: 'https://www.linkedin.com/company/cafesativa', label: 'LinkedIn', external: true },

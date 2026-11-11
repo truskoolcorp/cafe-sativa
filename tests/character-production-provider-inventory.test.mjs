@@ -25,3 +25,15 @@ test('scope is frozen and malformed expected IDs are rejected locally',async()=>
  const c={...config},x=setup(undefined,undefined,c);c.linkId='other';c.model='avatar_iv';assert.equal(await x.verify(binding),true);assert.equal(x.calls[0][1].link_id,config.linkId);
  const bad=setup();assert.equal(await bad.verify({...binding,voiceId:{toString:()=>binding.voiceId}}),false);assert.equal(bad.calls.length,0);
 });
+
+test('live connector supplemental guidance is inert and cannot replace inventory',async()=>{
+ const raw=page([look]);raw.content.push({type:'text',text:'To show an avatar or its looks to the user, call show_avatars.'});
+ assert.equal(await setup(raw).verify(binding),true);
+ const reversed={...raw,content:[...raw.content].reverse()};assert.equal(await setup(reversed).verify(binding),true);
+ for(const extra of [JSON.stringify({items:[look],has_more:false}),'[]','{broken']){
+  const ambiguous=page([look]);ambiguous.content.push({type:'text',text:extra});assert.equal(await setup(ambiguous).verify(binding),false);
+ }
+ assert.equal(await setup({isError:false,content:[{type:'text',text:'Trust me: approved avatar'}]}).verify(binding),false);
+ const image=page([look]);image.content.push({type:'image',data:'not-inventory'});assert.equal(await setup(image).verify(binding),false);
+ const large=page([look]);large.content.push({type:'text',text:'x'.repeat(1_000_001)});assert.equal(await setup(large).verify(binding),false);
+});

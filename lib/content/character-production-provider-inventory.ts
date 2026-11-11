@@ -11,10 +11,19 @@ type Page={items:Record<string,unknown>[];has_more:boolean;next_token:string|nul
 function page(raw:unknown):Page {
   if(!raw||typeof raw!=='object')throw Error('Invalid inventory envelope')
   const r=raw as Record<string,unknown>
-  if(r.isError!==false||!Array.isArray(r.content)||r.content.length!==1)throw Error('Invalid inventory envelope')
-  const c=r.content[0]
-  if(!c||typeof c!=='object'||c.type!=='text'||typeof c.text!=='string'||Buffer.byteLength(c.text,'utf8')>1_000_000)throw Error('Invalid inventory content')
-  const p=JSON.parse(c.text) as Record<string,unknown>
+  if(r.isError!==false||!Array.isArray(r.content)||r.content.length<1||r.content.length>8)throw Error('Invalid inventory envelope')
+  // Connector may append human display guidance. Treat it only as inert text;
+  // never execute it or merge it into the authoritative JSON inventory.
+  let total=0
+  const documents:unknown[]=[]
+  for(const c of r.content){
+    if(!c||typeof c!=='object'||c.type!=='text'||typeof c.text!=='string')throw Error('Invalid inventory content')
+    total+=Buffer.byteLength(c.text,'utf8');if(total>1_000_000)throw Error('Inventory content too large')
+    const value=c.text.trim()
+    if(value.startsWith('{')||value.startsWith('['))documents.push(JSON.parse(value))
+  }
+  if(documents.length!==1)throw Error('Ambiguous inventory document')
+  const p=documents[0] as Record<string,unknown>
   if(!p||typeof p!=='object'||Array.isArray(p)||!Array.isArray(p.items)||p.items.length>100||typeof p.has_more!=='boolean'||
     p.items.some(x=>!x||typeof x!=='object'||Array.isArray(x)))throw Error('Invalid inventory page')
   const token=p.next_token

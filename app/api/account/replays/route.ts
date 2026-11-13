@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { loungeMembershipTier } from '@/lib/lounge-membership'
 
 export const dynamic = 'force-dynamic'
 const noStore = {'Cache-Control':'private, no-store'}
@@ -8,9 +9,9 @@ export async function GET(req:NextRequest) {
   const auth = createClient()
   const {data:{user}} = await auth.auth.getUser()
   if(!user)return NextResponse.json({error:'Sign in required'},{status:401,headers:noStore})
-  const {data:member,error:memberError}=await auth.from('members_v').select('tier,status,is_admin').eq('id',user.id).maybeSingle()
+  const {data:member,error:memberError}=await auth.from('members_v').select('tier,status,is_admin,current_period_end').eq('id',user.id).maybeSingle()
   if(memberError)return NextResponse.json({error:'Membership could not be checked'},{status:503,headers:noStore})
-  const entitled = (member?.tier==='vip' && member.status==='active') || member?.is_admin===true || user.app_metadata?.cafe_sativa_admin===true
+  const entitled = loungeMembershipTier(member)==='vip' || member?.is_admin===true || user.app_metadata?.cafe_sativa_admin===true
   if(!entitled)return NextResponse.json({entitled:false,items:[]},{headers:noStore})
   const db=createAdminClient()
   const now=new Date().toISOString()

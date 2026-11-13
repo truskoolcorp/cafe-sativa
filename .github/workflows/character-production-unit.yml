@@ -1,0 +1,28 @@
+name: Character production disabled-engine regression
+on:
+  pull_request:
+    paths:
+      - 'lib/content/character-production-*.ts'
+      - 'lib/content/character-promo-sources.ts'
+      - 'tests/character-production-*.mjs'
+      - 'docs/proposals/character-production-*.sql'
+      - '.github/workflows/character-production-unit.yml'
+      - 'package.json'
+      - 'package-lock.json'
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/character-production-*.test.mjs
+      - run: node node_modules/typescript/bin/tsc --strict --noEmit --skipLibCheck --allowImportingTsExtensions --target ES2022 --module nodenext --moduleResolution nodenext --typeRoots node_modules/@types lib/content/character-production-*.ts

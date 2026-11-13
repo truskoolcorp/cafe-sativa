@@ -16,5 +16,10 @@
       "path": "/api/admin/library-sync",
       "schedule": "40 6 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "internal-character-production-engine-20261111": false
+    }
+  }
 }

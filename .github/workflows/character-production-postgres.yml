@@ -1,0 +1,47 @@
+name: Character production isolated PostgreSQL
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/character-production-postgres.yml'
+      - 'docs/proposals/character-production-*.sql'
+      - 'lib/content/character-production*.ts'
+      - 'tests/postgres/**'
+      - 'tests/fixtures/character-production-draft-guard.sql'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d character_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_test
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install official PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run isolated serial and concurrent tests
+        run: python3 tests/postgres/validate_concurrency.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-test-evidence
+          path: evidence/postgres-*-validation.log

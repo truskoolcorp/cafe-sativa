@@ -53,3 +53,5 @@ test('queued submission checks monotonic budget and wall rollback before dispatc
   }
  }finally{Date.now=originalNow}
 });
+test('explicit widescreen master is bound to new authorization, legacy portrait cannot be reused',async()=>{const c={...config,aspectRatio:'16:9'},rev=heyGenBindingRevision(c,binding),x=setup(c);assert.notEqual(rev,revision);await assert.rejects(x.p.submit(slot),/mismatch/);assert.equal(x.calls.length,0);await x.p.submit({...slot,providerBindingRevision:rev});assert.equal(x.calls[0][1].aspectRatio,'16:9');assert.equal(heyGenBindingRevision({...config,aspectRatio:'9:16'},binding),revision)})
+test('unsupported output format fails before provider calls',async()=>{const c={...config,aspectRatio:'1:1'};assert.throws(()=>validateHeyGenProductionConfig(c));assert.throws(()=>heyGenBindingRevision(c,binding));const x=setup(c);await assert.rejects(x.p.submit(slot));assert.equal(x.calls.length,0)})

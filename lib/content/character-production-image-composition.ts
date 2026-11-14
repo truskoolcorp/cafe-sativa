@@ -15,7 +15,7 @@ export function createCanonicalImageRuntimeProvider(config:HeyGenConfig,expected
   if(matches.length!==1||pairs.has(b.avatarId+':'+b.voiceId))throw Error('Ambiguous canonical image binding')
   pairs.add(b.avatarId+':'+b.voiceId);selected.push(Object.freeze({...matches[0],audio:Object.freeze({...matches[0].audio}),...(matches[0].approvedScene?{approvedScene:Object.freeze({...matches[0].approvedScene})}:{})}))
  }
- const api=createDirectHeyGenApi(key,fetcher,Math.min(config.timeoutMs,8000))
+ const api=createDirectHeyGenApi(key,fetcher,config.phases?.submitMs??Math.min(config.timeoutMs,8000),config.phases?.statusMs??Math.min(config.timeoutMs,8000))
  return {transport:api.imageTransport(c.linkId,selected,images,audio),codecs:directHeyGenCodecs,
  async verifyBinding(b:ApprovedAvatar){
   const ctrl=new AbortController()

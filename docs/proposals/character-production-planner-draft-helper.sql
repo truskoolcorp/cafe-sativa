@@ -17,5 +17,5 @@ BEGIN
  RETURNING updated_at INTO stamp;
  RETURN stamp;
 END $$;
-REVOKE ALL ON FUNCTION public.character_production_new_blank_draft(uuid,jsonb,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.character_production_new_blank_draft(uuid,jsonb,text,text) FROM PUBLIC, anon, authenticated, service_role, character_production_generator, character_production_output_broker;
 COMMIT;

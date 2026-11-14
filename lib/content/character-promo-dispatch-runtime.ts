@@ -1,4 +1,5 @@
 import 'server-only'
+import {assertNoKnownExternalPromo} from './character-promo-known-external'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { liveGlyphCharacters } from './glyph-live'
@@ -30,13 +31,18 @@ export function personaDispatchHandler() {
    try {const u=new URL(storageOrigin);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/')throw Error('Invalid storage origin')}catch{return {status:'blocked',publicationConfirmed:false,reason:'Approved storage origin unavailable; no submission started.'}}
    return dispatchCharacterPromo(input,{
     auth:auth(),rpc:(name,args)=>database().rpc(name,args),now:Date.now,
-    readCurrent:planId=>readApprovedCharacterPromo(planId,{db:database(),now:Date.now,readGlyph:liveGlyphCharacters,readMetricoolBrands:()=>readPromoMetricoolBrands(connectionDeps())}),
+    readCurrent:async planId=>{
+     const current=await readApprovedCharacterPromo(planId,{db:database(),now:Date.now,readGlyph:liveGlyphCharacters,readMetricoolBrands:()=>readPromoMetricoolBrands(connectionDeps())})
+     assertNoKnownExternalPromo(current.approval.snapshot)
+     return current
+    },
     makeSubmit:ownerPreflight=>async(snapshot,bytes,revalidate)=>{
+     assertNoKnownExternalPromo(snapshot)
      let session:Awaited<ReturnType<typeof openCharacterPromoDispatchSession>>|null=null
      const submit=characterPromoMetricoolSubmit({
       now:Date.now,storageOrigin,
       openSession:async()=>{session=await openCharacterPromoDispatchSession(connectionDeps());return session},
-      preflightExternalWrite:async()=>{await ownerPreflight();if(!session)throw Error('Verified dispatch session unavailable');await session.preflight()},
+      preflightExternalWrite:async()=>{assertNoKnownExternalPromo(snapshot);await ownerPreflight();if(!session)throw Error('Verified dispatch session unavailable');await session.preflight()},
       bucket:{
        download:async path=>{
         if(path!==snapshot.videoPath)throw Error('Unapproved private media path')

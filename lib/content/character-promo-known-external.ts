@@ -1,0 +1,198 @@
+import {externalPromoDeliveryDecision} from './character-promo-external-receipts.ts'
+import type {ExternalPromoReceipt,PromoDeliveryIdentity} from './character-promo-external-receipts.ts'
+/** Immutable negative-only record of verified external scheduling. Not approval or publication proof. Instagram identity is provider-exposed handle, not invented numeric ID. */
+const receipts:readonly ExternalPromoReceipt[]=[
+  {
+    "provider": "metricool",
+    "providerId": "428053231",
+    "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
+    "videoSha256": "ed8153e2ddd80b3099823eec24c22327cccad3eabdc4c0a039d4425b5f3a52e7",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-14T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428053231",
+    "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
+    "videoSha256": "ed8153e2ddd80b3099823eec24c22327cccad3eabdc4c0a039d4425b5f3a52e7",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-14T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428054105",
+    "promoId": "ead1bf18-b531-4070-b74a-d01953c907cf",
+    "videoSha256": "a20bd6a7f813370991031840a105a6b3bbac66d28dddbe13dd6dedf920a4903d",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-14T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428054105",
+    "promoId": "ead1bf18-b531-4070-b74a-d01953c907cf",
+    "videoSha256": "a20bd6a7f813370991031840a105a6b3bbac66d28dddbe13dd6dedf920a4903d",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-14T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428054346",
+    "promoId": "90d5f842-69cc-4a43-ab6f-20e6eee89cf7",
+    "videoSha256": "12017725d1bff3f6c643b4715623de9ca510a05d3ea6952b55d480cf805223d8",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-15T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428054346",
+    "promoId": "90d5f842-69cc-4a43-ab6f-20e6eee89cf7",
+    "videoSha256": "12017725d1bff3f6c643b4715623de9ca510a05d3ea6952b55d480cf805223d8",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-15T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428055181",
+    "promoId": "4c146dda-4e1c-400f-8371-b49c4dc2eed0",
+    "videoSha256": "dceb02ae5576a193a6115bce68c60a5a3328bf3ad9d24978517422eda352b17f",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-15T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428055181",
+    "promoId": "4c146dda-4e1c-400f-8371-b49c4dc2eed0",
+    "videoSha256": "dceb02ae5576a193a6115bce68c60a5a3328bf3ad9d24978517422eda352b17f",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-15T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428055451",
+    "promoId": "3f85873d-7c7b-48c4-8225-fdf9542d486a",
+    "videoSha256": "f502a02a99948121d455aacb883a2eadc83c0306cb0d8d6627fa0d1c48c5fc45",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-16T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428055451",
+    "promoId": "3f85873d-7c7b-48c4-8225-fdf9542d486a",
+    "videoSha256": "f502a02a99948121d455aacb883a2eadc83c0306cb0d8d6627fa0d1c48c5fc45",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-16T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428055945",
+    "promoId": "770796d6-912c-4670-8434-6a2c387637f1",
+    "videoSha256": "b5ed41d82394581fd71e394ba50f4cb2ad81229adfaa1950c945fc2b5e4181f5",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-16T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428055945",
+    "promoId": "770796d6-912c-4670-8434-6a2c387637f1",
+    "videoSha256": "b5ed41d82394581fd71e394ba50f4cb2ad81229adfaa1950c945fc2b5e4181f5",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-16T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428056461",
+    "promoId": "bfa9cb67-0ff9-4de7-89d9-58536497860a",
+    "videoSha256": "620032ee4a6b3684e891c2c85dad5c3458576b7e3503222879cd603c8f98f6b8",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-17T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428056461",
+    "promoId": "bfa9cb67-0ff9-4de7-89d9-58536497860a",
+    "videoSha256": "620032ee4a6b3684e891c2c85dad5c3458576b7e3503222879cd603c8f98f6b8",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-17T10:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428056659",
+    "promoId": "9daefd19-9c00-4234-b98d-93c566afb714",
+    "videoSha256": "a7d997e0c4b536a447bbc85136aba935375cbe4702e842db8356f56c8a820ada",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-17T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428056659",
+    "promoId": "9daefd19-9c00-4234-b98d-93c566afb714",
+    "videoSha256": "a7d997e0c4b536a447bbc85136aba935375cbe4702e842db8356f56c8a820ada",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-17T18:00:00-06:00",
+    "observedAt": "2026-11-14T14:35:00Z",
+    "state": "scheduled"
+  }
+]
+export function assertNoKnownExternalPromo(identity:PromoDeliveryIdentity){if(externalPromoDeliveryDecision(identity,receipts)!=='clear')throw Error('Externally scheduled media requires reconciliation; do not submit again')}

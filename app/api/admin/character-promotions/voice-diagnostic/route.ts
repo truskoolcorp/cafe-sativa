@@ -10,7 +10,8 @@ export async function GET(){
  try{
   // Known canonical ID and requested connector model label; read-only probe
   // reports incompatibility instead of selecting an alternative voice/model.
-  const result=await createElevenLabsInventory(()=>process.env.ELEVENLABS_API_KEY).inspect('5zneNR4v1Uw5AjIZ9Un4','eleven_v4')
-  return Response.json(result,{headers})
+  const api=createElevenLabsInventory(()=>process.env.ELEVENLABS_API_KEY)
+  const [result,subscription]=await Promise.all([api.inspect('5zneNR4v1Uw5AjIZ9Un4','eleven_v4'),api.subscription()])
+  return Response.json({...result,subscription},{headers})
  }catch{return Response.json({error:'Voice inventory unavailable; synthesis remains unverified'},{status:503,headers})}
 }

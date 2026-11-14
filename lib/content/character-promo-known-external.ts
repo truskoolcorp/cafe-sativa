@@ -4,7 +4,7 @@ import type {ExternalPromoReceipt,PromoDeliveryIdentity} from './character-promo
 const receipts:readonly ExternalPromoReceipt[]=[
   {
     "provider": "metricool",
-    "providerId": "428053231",
+    "providerId": "428083317",
     "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
     "videoSha256": "ed8153e2ddd80b3099823eec24c22327cccad3eabdc4c0a039d4425b5f3a52e7",
     "brandId": "7605217",
@@ -16,7 +16,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428053231",
+    "providerId": "428083317",
     "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
     "videoSha256": "ed8153e2ddd80b3099823eec24c22327cccad3eabdc4c0a039d4425b5f3a52e7",
     "brandId": "7605217",
@@ -28,7 +28,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428054105",
+    "providerId": "428083553",
     "promoId": "ead1bf18-b531-4070-b74a-d01953c907cf",
     "videoSha256": "a20bd6a7f813370991031840a105a6b3bbac66d28dddbe13dd6dedf920a4903d",
     "brandId": "7605217",
@@ -40,7 +40,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428054105",
+    "providerId": "428083553",
     "promoId": "ead1bf18-b531-4070-b74a-d01953c907cf",
     "videoSha256": "a20bd6a7f813370991031840a105a6b3bbac66d28dddbe13dd6dedf920a4903d",
     "brandId": "7605217",
@@ -52,7 +52,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428054346",
+    "providerId": "428083601",
     "promoId": "90d5f842-69cc-4a43-ab6f-20e6eee89cf7",
     "videoSha256": "12017725d1bff3f6c643b4715623de9ca510a05d3ea6952b55d480cf805223d8",
     "brandId": "7605217",
@@ -64,7 +64,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428054346",
+    "providerId": "428083601",
     "promoId": "90d5f842-69cc-4a43-ab6f-20e6eee89cf7",
     "videoSha256": "12017725d1bff3f6c643b4715623de9ca510a05d3ea6952b55d480cf805223d8",
     "brandId": "7605217",
@@ -76,7 +76,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428055181",
+    "providerId": "428083932",
     "promoId": "4c146dda-4e1c-400f-8371-b49c4dc2eed0",
     "videoSha256": "dceb02ae5576a193a6115bce68c60a5a3328bf3ad9d24978517422eda352b17f",
     "brandId": "7605217",
@@ -88,7 +88,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428055181",
+    "providerId": "428083932",
     "promoId": "4c146dda-4e1c-400f-8371-b49c4dc2eed0",
     "videoSha256": "dceb02ae5576a193a6115bce68c60a5a3328bf3ad9d24978517422eda352b17f",
     "brandId": "7605217",
@@ -100,7 +100,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428055451",
+    "providerId": "428084028",
     "promoId": "3f85873d-7c7b-48c4-8225-fdf9542d486a",
     "videoSha256": "f502a02a99948121d455aacb883a2eadc83c0306cb0d8d6627fa0d1c48c5fc45",
     "brandId": "7605217",
@@ -112,7 +112,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428055451",
+    "providerId": "428084028",
     "promoId": "3f85873d-7c7b-48c4-8225-fdf9542d486a",
     "videoSha256": "f502a02a99948121d455aacb883a2eadc83c0306cb0d8d6627fa0d1c48c5fc45",
     "brandId": "7605217",
@@ -124,7 +124,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428055945",
+    "providerId": "428084399",
     "promoId": "770796d6-912c-4670-8434-6a2c387637f1",
     "videoSha256": "b5ed41d82394581fd71e394ba50f4cb2ad81229adfaa1950c945fc2b5e4181f5",
     "brandId": "7605217",
@@ -136,7 +136,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428055945",
+    "providerId": "428084399",
     "promoId": "770796d6-912c-4670-8434-6a2c387637f1",
     "videoSha256": "b5ed41d82394581fd71e394ba50f4cb2ad81229adfaa1950c945fc2b5e4181f5",
     "brandId": "7605217",
@@ -148,7 +148,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428056461",
+    "providerId": "428084569",
     "promoId": "bfa9cb67-0ff9-4de7-89d9-58536497860a",
     "videoSha256": "620032ee4a6b3684e891c2c85dad5c3458576b7e3503222879cd603c8f98f6b8",
     "brandId": "7605217",
@@ -160,7 +160,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428056461",
+    "providerId": "428084569",
     "promoId": "bfa9cb67-0ff9-4de7-89d9-58536497860a",
     "videoSha256": "620032ee4a6b3684e891c2c85dad5c3458576b7e3503222879cd603c8f98f6b8",
     "brandId": "7605217",
@@ -172,7 +172,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428056659",
+    "providerId": "428084850",
     "promoId": "9daefd19-9c00-4234-b98d-93c566afb714",
     "videoSha256": "a7d997e0c4b536a447bbc85136aba935375cbe4702e842db8356f56c8a820ada",
     "brandId": "7605217",
@@ -184,7 +184,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428056659",
+    "providerId": "428084850",
     "promoId": "9daefd19-9c00-4234-b98d-93c566afb714",
     "videoSha256": "a7d997e0c4b536a447bbc85136aba935375cbe4702e842db8356f56c8a820ada",
     "brandId": "7605217",

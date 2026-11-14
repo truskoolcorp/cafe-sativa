@@ -13,7 +13,7 @@ export function createCanonicalImageRuntimeProvider(config:HeyGenConfig,expected
  for(const b of c.bindings){
   const matches=proofs.filter(p=>canonicalImageDigest(p)===b.imageBindingSha256&&heyGenBindingRevision(c,imageApprovedAvatar(p))===heyGenBindingRevision(c,b))
   if(matches.length!==1||pairs.has(b.avatarId+':'+b.voiceId))throw Error('Ambiguous canonical image binding')
-  pairs.add(b.avatarId+':'+b.voiceId);selected.push(Object.freeze({...matches[0],audio:Object.freeze({...matches[0].audio})}))
+  pairs.add(b.avatarId+':'+b.voiceId);selected.push(Object.freeze({...matches[0],audio:Object.freeze({...matches[0].audio}),...(matches[0].approvedScene?{approvedScene:Object.freeze({...matches[0].approvedScene})}:{})}))
  }
  const api=createDirectHeyGenApi(key,fetcher,Math.min(config.timeoutMs,8000))
  return {transport:api.imageTransport(c.linkId,selected,images,audio),codecs:directHeyGenCodecs,

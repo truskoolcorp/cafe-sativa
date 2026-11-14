@@ -5,6 +5,7 @@ const vm = require('node:vm')
 const ts = require('typescript')
 function load(path, modules = {}) {
   const context = {exports: {}, require: name => {
+    if(name==='@/lib/content/character-promo-watermark')return load('lib/content/character-promo-watermark.ts')
     assert.ok(name in modules, `Unexpected import: ${name}`)
     return modules[name]
   }}
@@ -22,8 +23,8 @@ const draft = {
   audio_asset_path: null, video_asset_path: `character-promos/keith/promo-1/${sha}.mp4`,
   voice_approved_at: 'approved', video_qa_approved_at: 'approved', publication_approved_at: 'approved',
 }
-const checkNames = ['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety']
-const qa = checkNames.map(check_name => ({promo_id: draft.id, video_sha256: sha, check_name, result: 'pass'}))
+const checkNames = ['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety','third_party_watermark']
+const qa = checkNames.map(check_name => ({promo_id: draft.id, video_sha256: sha, check_name, result: 'pass', evidence:'Full clip reviewed', reviewer_id:'11111111-1111-4111-8111-111111111111',created_at:new Date().toISOString()}))
 const plan = {id: 'plan-1', promo_id: draft.id, network: 'facebook', account_id: 'verified-account', status: 'ready_for_delivery'}
 const status = (d = draft, rows = qa) => audio.characterPromoAudioStatus(d, rows)
 const routes = ['readiness', 'production-packets', 'schedule-preview']
@@ -110,7 +111,7 @@ for (const route of routes) {
     assert.equal(denied.reads,0)
   })
 }
-test('readiness retains all eight exact-hash QA requirements and every delivery/account/script hold', async () => {
+test('readiness retains all nine exact-hash QA requirements and every delivery/account/script hold', async () => {
   for (const name of checkNames) {
     const result = await get('readiness',{rows:qa.filter(q=>q.check_name!==name)})
     assert.equal(result.body.items[0].ready,false)

@@ -24,7 +24,9 @@ function manifest(value:unknown,key:string,digest:string):Manifest {
  m.destinationPath!==`character-promos/${m.characterId}/${m.promoId}/${m.sha}.mp4`)throw Error('Invalid QA manifest')
  return Object.freeze({...m})
 }
-export function createCharacterProductionQaBridge(rpc:ProductionRpc,storage:QaBridgeObjects) {
+export type QaBridgePhase='prepare'|'source_policy'|'destination_policy'|'source_read'|'upload'|'destination_read'|'source_recheck'|'destination_recheck'|'commit'
+export function createCharacterProductionQaBridge(rpc:ProductionRpc,storage:QaBridgeObjects,observe?:(phase:QaBridgePhase)=>void) {
+ const phase=(value:QaBridgePhase)=>{try{observe?.(value)}catch{/* Diagnostics never change authority or control flow. */}}
  async function call(name:string,args:Record<string,unknown>) {
   const result=await rpc.rpc(`character_production_qa_${name}`,args)
   if(result.error)throw Error('QA persistence unconfirmed')
@@ -45,19 +47,22 @@ export function createCharacterProductionQaBridge(rpc:ProductionRpc,storage:QaBr
   /** No caller-chosen target or enrollment. SQL owns the existing draft binding. */
   async ingest(key:string,digest:string) {
    if(typeof key!=='string'||!keyPattern.test(key)||typeof digest!=='string'||!hash.test(digest))throw Error('Invalid QA job')
+   phase('prepare')
    const prepared=await call('prepare',{p_key:key,p_digest:digest})
    if(prepared===null)return {status:'held' as const}
    const m=manifest(prepared,key,digest)
-   await privateBucket(m.sourceBucket);await privateBucket(m.destinationBucket)
+   phase('source_policy');await privateBucket(m.sourceBucket);phase('destination_policy');await privateBucket(m.destinationBucket)
    if(m.state==='committed') {
-    await read(m.destinationBucket,m.destinationPath,m)
+    phase('destination_read');await read(m.destinationBucket,m.destinationPath,m)
     return {status:'ingested' as const}
    }
-   const bytes=await read(m.sourceBucket,m.sourcePath,m)
+   phase('source_read');const bytes=await read(m.sourceBucket,m.sourcePath,m)
    // Never retry upload or trust conflict status. Reconcile only exact readback.
+   phase('upload')
    try {await storage.from(m.destinationBucket).upload(m.destinationPath,bytes,{contentType:'video/mp4',upsert:false})}catch{/* read back or fail closed */}
-   await read(m.destinationBucket,m.destinationPath,m)
-   await privateBucket(m.sourceBucket);await privateBucket(m.destinationBucket)
+   phase('destination_read');await read(m.destinationBucket,m.destinationPath,m)
+   phase('source_recheck');await privateBucket(m.sourceBucket);phase('destination_recheck');await privateBucket(m.destinationBucket)
+   phase('commit')
    const result=await call('commit',{p_key:key,p_digest:digest,p_sha:m.sha,p_bytes:m.bytes,
     p_promo_id:m.promoId,p_expected_updated_at:m.expectedUpdatedAt,
     p_destination_bucket:m.destinationBucket,p_destination_path:m.destinationPath})

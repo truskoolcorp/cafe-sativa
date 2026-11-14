@@ -14,7 +14,7 @@ function fixture(opts={}){
  async download(path,max){reads.push({id,path,max});return {data:opts.badSource&&id===manifest.sourceBucket||opts.badDestination&&id===manifest.destinationBucket?new Uint8Array(16):bytes,error:null}},
  async upload(path,body,config){uploads.push({id,path,body,config});if(opts.throwUpload)throw Error('lost');return {error:opts.conflict?{statusCode:409}:null}}
  }}};
- return {bridge:createCharacterProductionQaBridge(rpc,storage),calls,uploads,reads,buckets};
+ return {bridge:createCharacterProductionQaBridge(rpc,storage,opts.observe),calls,uploads,reads,buckets};
 }
 test('immutable private copy readback commits only exact prepared identity',async()=>{
  const f=fixture();assert.deepEqual(await f.bridge.ingest('job',digest),{status:'ingested'});
@@ -82,4 +82,11 @@ test('SQL queue includes only enrolled exact current unreceipted pending jobs',(
  const pending=sql.split('CREATE FUNCTION public.character_production_qa_pending(')[1].split('REVOKE ALL ON FUNCTION')[0];
  for(const guard of ["jsonb_build_object('key',j.key,'digest',j.digest)",'t.digest=j.digest AND t.enabled=true','a.digest=j.digest AND a.slot=j.slot AND a.enabled=true',"j.state='pending_qa'",'NOT EXISTS','least(coalesce(p_limit,0),5)'])assert.ok(pending.includes(guard),guard);
  assert.doesNotMatch(pending,/INSERT|UPDATE|url|object_path/i);assert.ok(sql.includes('REVOKE ALL ON FUNCTION public.character_production_qa_pending(integer) FROM PUBLIC'));
+});
+
+test('diagnostics expose only phase names and cannot change copy control flow',async()=>{
+ const phases=[];await fixture({observe:p=>phases.push(p)}).bridge.ingest('job',digest);
+ assert.deepEqual(phases,['prepare','source_policy','destination_policy','source_read','upload','destination_read','source_recheck','destination_recheck','commit']);
+ const failed=[];await assert.rejects(fixture({badSource:true,observe:p=>failed.push(p)}).bridge.ingest('job',digest));assert.equal(failed.at(-1),'source_read');
+ assert.equal((await fixture({observe(){throw Error('secret raw detail')}}).bridge.ingest('job',digest)).status,'ingested');
 });

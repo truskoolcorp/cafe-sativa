@@ -1,3 +1,4 @@
+import {safeQaDiagnostic} from './character-production-qa-diagnostics.ts'
 import type {ProductionRpc} from './character-production-store.ts'
 export const originalQaTarget=Object.freeze({
  key:'zaria-gallery-image-canary-20261114',digest:'01931ca6d67b17badbf9c89ee8841ebdba11d73f0390f90ed95c842da887a6f3',
@@ -22,7 +23,7 @@ export function originalQaRpc(rpc:ProductionRpc,signal:AbortSignal):ProductionRp
   return r
  }}
 }
-export function createOriginalQaHandler(d:{authorize():Promise<boolean>;open(signal:AbortSignal):{ingest():Promise<{status:'held'|'ingested'}>;whenSettled():Promise<void>}}){
+export function createOriginalQaHandler(d:{authorize():Promise<boolean>;open(signal:AbortSignal):{ingest():Promise<{status:'held'|'ingested'}>;whenSettled():Promise<void>;diagnostic?():{phase:string;reason?:string}}}){
  let busy=false
  const response=(status:number,body:unknown)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
  return async(req:Request)=>{
@@ -31,12 +32,18 @@ export function createOriginalQaHandler(d:{authorize():Promise<boolean>;open(sig
   if(busy)return response(429,{status:'busy'})
   busy=true;const c=new AbortController(),abort=()=>c.abort();req.signal.addEventListener('abort',abort,{once:true});if(req.signal.aborted)abort()
   let deps:ReturnType<typeof d.open>|undefined,authTimer:ReturnType<typeof setTimeout>|undefined,timer:ReturnType<typeof setTimeout>|undefined
+  const started=performance.now()
+  const held=(reason:'authority_held'|'cancelled'|'operation_unconfirmed')=>{
+   let diagnostic:unknown
+   if(deps?.diagnostic){try{const value=deps.diagnostic();diagnostic=safeQaDiagnostic({phase:value.phase,reason:reason==='cancelled'?reason:(value.reason??reason),elapsedMs:Math.min(60000,Math.max(0,Math.round(performance.now()-started)))})}catch{/* No diagnostic provider errors escape. */}}
+   return response(503,{status:'held',approvalGranted:false,...(diagnostic?{diagnostic}:{})})
+  }
   const auth=Promise.resolve().then(()=>d.authorize())
   const work=(async()=>{
    if(!await auth||c.signal.aborted)return response(401,{status:'unauthorized'})
    deps=d.open(c.signal)
    const result=await deps.ingest()
-   if(c.signal.aborted||result.status!=='ingested')return response(503,{status:'held',approvalGranted:false})
+   if(c.signal.aborted||result.status!=='ingested')return held(c.signal.aborted?'cancelled':'authority_held')
    return response(200,{status:'ingested',promoId:originalQaTarget.promoId,sha256:originalQaTarget.sha,bytes:originalQaTarget.bytes,generated:false,qaApproved:false,publicationApproved:false,deliveryScheduled:false,automaticGenerationVerified:false})
   })()
   // A timed-out auth/transport remains admitted until the original work settles.
@@ -44,8 +51,8 @@ export function createOriginalQaHandler(d:{authorize():Promise<boolean>;open(sig
   try{return await Promise.race([work,new Promise<Response>(resolve=>{
    authTimer=setTimeout(()=>{c.abort();resolve(response(401,{status:'unauthorized'}))},5000)
    void auth.finally(()=>clearTimeout(authTimer)).catch(()=>{})
-   timer=setTimeout(()=>{c.abort();resolve(response(503,{status:'held',approvalGranted:false}))},45000)
-  })])}catch{return response(503,{status:'held',approvalGranted:false})}
+   timer=setTimeout(()=>{c.abort();resolve(held('cancelled'))},45000)
+  })])}catch{return held(c.signal.aborted?'cancelled':'operation_unconfirmed')}
   finally{clearTimeout(authTimer);clearTimeout(timer);c.abort();req.signal.removeEventListener('abort',abort)}
  }
 }

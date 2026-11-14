@@ -11,7 +11,9 @@ export function createOriginalRecoveryHandler(d:{authorize():Promise<boolean>;op
  const reply=(status:number,body:object)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
  return async(req:Request)=>{
   if(req.method!=='POST'||new URL(req.url).search)return reply(405,{error:'Exact recovery POST required'})
-  if(!await d.authorize())return reply(401,{error:'Unauthorized'})
+  if(req.headers.get('origin')!==new URL(req.url).origin)return reply(403,{error:'Same-origin request required'})
+  let admin=false;try{admin=await d.authorize()}catch{return reply(503,{error:'Authentication unavailable'})}
+  if(!admin)return reply(401,{error:'Unauthorized'})
   if(now()<originalRecovery.start||now()>=originalRecovery.end)return reply(409,{error:'Recovery window closed'})
   if(busy)return reply(409,{error:'Recovery busy'})
   if(req.headers.get('content-type')!=='video/mp4'||req.headers.get('content-length')!==String(originalRecovery.bytes)||!req.body)return reply(400,{error:'Exact completed output required'})

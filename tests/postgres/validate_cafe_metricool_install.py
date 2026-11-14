@@ -32,6 +32,21 @@ def suite():
  p=subprocess.run(['psql','-X','-qAt','-v','ON_ERROR_STOP=1'],input=prefix+broken,text=True,capture_output=True,timeout=40)
  m.LOG.append(p.stdout+p.stderr);assert p.returncode and 'injected install abort' in p.stderr
  assert snap()==before,'injected abort restores exact source and privileges'
+ # Unknown default ACL grantees and PUBLIC permissive write policies fail closed.
+ m.run('CREATE ROLE metricool_unexpected NOLOGIN;')
+ defaults=m.run("SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY oid),'[]'::jsonb) FROM pg_default_acl d")
+ for altered in [
+  source.replace('CREATE FUNCTION public.cs_cafe_metricool_is_admin', 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO metricool_unexpected; CREATE FUNCTION public.cs_cafe_metricool_is_admin'),
+  source.replace('SET LOCAL ROLE cafe_metricool_owner;', 'SET LOCAL ROLE cafe_metricool_owner; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO metricool_unexpected;'),
+  source.replace('CREATE SCHEMA cafe_metricool_private;', 'CREATE SCHEMA cafe_metricool_private; ALTER DEFAULT PRIVILEGES IN SCHEMA cafe_metricool_private GRANT SELECT ON TABLES TO metricool_unexpected;'),
+ ]:
+  p=subprocess.run(['psql','-X','-qAt','-v','ON_ERROR_STOP=1'],input=prefix+altered,text=True,capture_output=True,timeout=40)
+  assert p.returncode and ('ACL mismatch' in p.stderr or 'Admin helper must expose' in p.stderr),p.stderr
+  assert snap()==before,'unknown default grant rollback'
+  assert m.run("SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY oid),'[]'::jsonb) FROM pg_default_acl d")==defaults
+ p=subprocess.run(['psql','-X','-qAt','-v','ON_ERROR_STOP=1'],input=prefix+"BEGIN; CREATE POLICY unexpected_public_write ON public.cs_character_promo_drafts FOR UPDATE TO PUBLIC USING(true) WITH CHECK(true); "+source,text=True,capture_output=True,timeout=40)
+ assert p.returncode and 'PUBLIC write policy' in p.stderr,p.stderr
+ assert snap()==before,'PUBLIC policy rollback'
  m.run(prefix+source)
  m.check("NOT pg_has_role('metricool_installer','cafe_metricool_owner','SET')",'installer cannot retain SET')
  m.check("(SELECT count(*)=1 FROM pg_auth_members WHERE roleid='cafe_metricool_owner'::regrole AND member='metricool_installer'::regrole AND grantor='postgres'::regrole AND admin_option AND NOT set_option AND NOT inherit_option)",'only original PG17 admin-only bootstrap')

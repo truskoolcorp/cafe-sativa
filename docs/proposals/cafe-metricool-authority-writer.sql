@@ -66,6 +66,18 @@ BEGIN
    OR parsed->'assessment'->'containsSensitivePersonalData' IS DISTINCT FROM 'false'::jsonb
    OR parsed->'policy'->'revoked' IS DISTINCT FROM 'false'::jsonb
    OR parsed->'policy'->>'scope' IS DISTINCT FROM 'routine-cafe-persona-brand-promotions'
+   OR parsed->'policy'->'version' IS DISTINCT FROM '1'::jsonb
+   OR parsed->'policy'->'paidPromotion' IS DISTINCT FROM 'false'::jsonb
+   OR parsed->'policy'->>'brandId' IS DISTINCT FROM p_snapshot->>'brandId'
+   OR parsed->'policy'->>'userId' IS DISTINCT FROM p_snapshot->>'userId'
+   OR parsed->'policy'->'accounts' IS DISTINCT FROM '[{"network":"facebook","accountId":"105363501666032"},{"network":"instagram","accountId":"cafesativainc"}]'::jsonb
+   OR NOT coalesce((parsed->'policy'->'characterIds') ? (p_snapshot->>'characterId'),false)
+   OR NOT coalesce((parsed->'policy'->>'authorizedAt')::timestamptz=(p_authority->>'authorizedAt')::timestamptz AND (parsed->'policy'->>'validUntil')::timestamptz>stamp AND (p_authority->>'expiresAt')::timestamptz<=(parsed->'policy'->>'validUntil')::timestamptz,false)
+   OR NOT coalesce((parsed->'assessment'->>'assessedAt')::timestamptz<=stamp AND (parsed->'assessment'->>'assessedAt')::timestamptz>=stamp-interval '60 seconds' AND parsed->'assessment'->>'evidenceRef' ~ '^[A-Za-z0-9_.:-]{1,200}$',false)
+   OR NOT coalesce(parsed->'policy'->>'reference' ~ '^[A-Za-z0-9_.:-]{1,200}$',false)
+   OR jsonb_typeof(parsed->'policy'->'ownerMessageIds') IS DISTINCT FROM 'array'
+   OR jsonb_array_length(parsed->'policy'->'ownerMessageIds') NOT BETWEEN 1 AND 20
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(parsed->'policy'->'ownerMessageIds') m WHERE m !~ '^Sentinel_[a-f0-9]{32}$')
    THEN RAISE EXCEPTION 'Policy evidence mismatch'; END IF;
  ELSE
   IF evidence IS NOT NULL THEN RAISE EXCEPTION 'Unbound evidence record'; END IF;

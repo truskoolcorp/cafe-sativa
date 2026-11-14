@@ -2,6 +2,30 @@ import {externalPromoDeliveryDecision} from './character-promo-external-receipts
 import type {ExternalPromoReceipt,PromoDeliveryIdentity} from './character-promo-external-receipts.ts'
 /** Immutable negative-only record of verified external scheduling. Not approval or publication proof. Instagram identity is provider-exposed handle, not invented numeric ID. */
 const receipts:readonly ExternalPromoReceipt[]=[
+{
+  "provider": "metricool",
+  "providerId": "428188100",
+  "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
+  "videoSha256": "7e5ecebd41c4ed492d3b16597ac82014078cb5c74f271bb91dac7caa7a5ad1c7",
+  "brandId": "7605217",
+  "network": "facebook",
+  "accountId": "105363501666032",
+  "scheduledAt": "2026-11-14T11:33:00-06:00",
+  "observedAt": "2026-11-14T17:41:25Z",
+  "state": "published"
+},
+{
+  "provider": "metricool",
+  "providerId": "428188100",
+  "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
+  "videoSha256": "7e5ecebd41c4ed492d3b16597ac82014078cb5c74f271bb91dac7caa7a5ad1c7",
+  "brandId": "7605217",
+  "network": "instagram",
+  "accountId": "cafesativainc",
+  "scheduledAt": "2026-11-14T11:33:00-06:00",
+  "observedAt": "2026-11-14T17:41:25Z",
+  "state": "published"
+},
   {
     "provider": "metricool",
     "providerId": "428083317",

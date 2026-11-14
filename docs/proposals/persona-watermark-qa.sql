@@ -3,6 +3,11 @@
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='30s';
+do $$ begin
+ if to_regprocedure('cs_promo_private.validate_snapshot(uuid,jsonb)') is null
+ or to_regprocedure('cs_promo_private.validate_gate_content(uuid,jsonb)') is null
+ or to_regprocedure('public.cs_record_character_promo_qa_observation(uuid,text,timestamp with time zone,text,text,text,jsonb,uuid)') is null then raise exception 'Existing reviewed promo validators and QA RPC required'; end if;
+end $$;
 alter table public.cs_character_promo_qa_checks drop constraint cs_character_promo_qa_checks_check_name_check;
 alter table public.cs_character_promo_qa_checks add constraint cs_character_promo_qa_checks_check_name_check check(check_name in ('mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety','third_party_watermark'));
 create or replace function cs_promo_private.watermark_valid(p_promo uuid,p_hash text) returns boolean

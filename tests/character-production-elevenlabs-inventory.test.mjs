@@ -1,0 +1,6 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import {createElevenLabsInventory} from '../lib/content/character-production-elevenlabs-inventory.ts'
+test('read-only exact voice/model diagnostic does not silently replace unavailable model',async()=>{const calls=[];const api=createElevenLabsInventory(()=> 'test',async(url,options)=>{calls.push([url,options.method]);return Response.json(url.endsWith('/models')?[{model_id:'eleven_v3',can_do_text_to_speech:true}]:{voice_id:'Bree123',name:'not returned',samples:[{url:'private'}]})});const result=await api.inspect('Bree123','eleven_v4');assert.equal(result.modelAvailable,false);assert.equal(result.voiceFound,true);assert.equal(result.synthesisAuthorized,false);assert(!('samples'in result));assert(calls.every(x=>x[1]==='GET'));assert.equal(calls.length,2)})
+test('wrong identity or provider failure is not a canonical receipt',async()=>{for(const result of [Response.json({voice_id:'wrong'}),new Response('no',{status:401})]){const api=createElevenLabsInventory(()=> 'test',async()=>result.clone());await assert.rejects(api.inspect('Bree123','eleven_v4'))}})
+test('missing key performs no network request',async()=>{let calls=0;const api=createElevenLabsInventory(()=>undefined,async()=>{calls++;throw Error('no')});await assert.rejects(api.inspect('Bree123','eleven_v4'));assert.equal(calls,0)})

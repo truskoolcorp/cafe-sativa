@@ -54,3 +54,55 @@ Official sources checked November14:
 Current list-voices reference is /v3/models/audio/voices (not legacy /v3/voices).
 Read-only first-page inventory is intentionally not a replacement for full
 canonical ownership/model-capability verification.
+
+## Reviewed-code candidate: native inventory and rendered-audio binding
+`createDirectHeyGenRuntimeProvider` now returns a coupled native API transport,
+strict codecs and direct `verifyBinding` callback usable by the existing runtime.
+It compares the exact configured API account username, complete private-look page,
+model support and either complete native voice page or the exact trusted audio
+manifest digest. Incomplete first pages fail closed; no synthetic connector
+`content/items` envelopes or discovery-driven canonical mapping are used.
+
+A rendered-audio manifest binds exact script bytes (SHA256), canonical voice ID,
+ElevenLabs model, synthesis receipt, portrait/canonical revision, avatar, audio
+hash/size/MIME. Its digest is included in the provider binding revision, preserving
+legacy native hashes when absent. Changing the audio or script therefore requires
+new exact authorization, not reinterpretation of an old slot. The coupled factory
+rejects mismatched/duplicate manifests and ambiguous avatar/voice pairs.
+
+The audio transport reads an exact immutable hash-addressed private MP3/WAV through
+an injected trusted backend source, checks hash/length/signature/script/voice, then
+requests a capability for that same path in private `character-production-audio`.
+Only the exact configured Supabase HTTPS origin/path/token is accepted. The HeyGen
+v3 request uses `audio_url` and omits both `script` and `voice_id`, avoiding a native
+voice substitution. Signed URLs are capability secrets and must not be logged.
+
+Remaining real dependencies: separately approved ElevenLabs synthesis and durable
+trusted receipt storage; current canonical model/voice confirmation; private audio
+bucket with insert-only immutable hash paths; bounded backend audio read/sign
+adapter using existing server credentials; sufficient URL validity for asynchronous
+HeyGen retrieval; native read-only account verification; exact quote/budget/slot.
+The source adapter is an internal contract, not a claimed provider token API. No
+synthesis, asset upload, paid video, grants, keys or environment changes occurred.
+Hash/provenance validation is not listening QA or proof of voice authenticity by
+itself; only a trusted synthesis receipt can establish the claimed voice origin.
+
+### Existing ElevenLabs route audit and safe inventory probe
+The existing host TTS route restricts Keith/Laviche and fixes `eleven_turbo_v2_5`;
+the concierge route covers Laviche/Ginger/Ahnika and defaults to that model. Neither
+creates immutable production synthesis provenance and neither is a Bree production
+receipt adapter. Calling either is paid synthesis, not an inventory check.
+
+The new admin-only voice diagnostic performs only official GET `/v1/models` and
+GET `/v1/voices/{voice_id}` using the existing server key accessor. It checks exact
+Bree ID `5zneNR4v1Uw5AjIZ9Un4` and requested label `eleven_v4`; absence is reported,
+not silently mapped to v3/turbo. It returns no samples, audio URLs or key. No live
+probe was run here. References: https://elevenlabs.io/docs/api-reference/models/list
+and https://elevenlabs.io/docs/api-reference/voices/get .
+
+A future synthesis transaction must claim a separate exact script/voice/model cost
+reservation before POST, retain unknown outcomes without retry, capture a verified
+provider receipt and hash actual bounded bytes, store insert-only private audio,
+read back the exact object and atomically persist provenance. The present video
+ledger does not reserve ElevenLabs synthesis cost. Do not reuse its HeyGen quote
+or make paid TTS calls until that separate authorization/persistence exists.

@@ -9,7 +9,7 @@ import type {ProductionRpc,PrivateObjects} from './character-production-store.ts
 import {createGenerationValidator} from './character-production-canon.ts'
 import type {GenerationAuthorization,GenerationValidationSources} from './character-production-canon.ts'
 import {createHeyGenProductionProvider,validateHeyGenProductionConfig,heyGenBindingRevision} from './character-production-provider-heygen.ts'
-import type {HeyGenConfig,HeyGenTransport,HeyGenCodecs} from './character-production-provider-heygen.ts'
+import type {ApprovedAvatar,HeyGenConfig,HeyGenTransport,HeyGenCodecs} from './character-production-provider-heygen.ts'
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 export function createGenerationAuthorizationReader(rpc:ProductionRpc,now:()=>number){
  return async(key:string,id:string,signal:AbortSignal):Promise<GenerationAuthorization|null>=>{
@@ -25,7 +25,7 @@ export function createGenerationAuthorizationReader(rpc:ProductionRpc,now:()=>nu
  }
 }
 export type CharacterProductionRuntimeConfig={engine:EngineConfig;heygen:HeyGenConfig}
-export type CharacterProductionRuntimeDependencies={rpc:ProductionRpc;storage:PrivateObjects;transport:HeyGenTransport;inventoryTransport:HeyGenInventoryTransport;codecs:HeyGenCodecs;readCanon:GenerationValidationSources['readCanon'];normalizeCanon:GenerationValidationSources['normalizeCanon']}
+export type CharacterProductionRuntimeDependencies={rpc:ProductionRpc;storage:PrivateObjects;transport:HeyGenTransport;inventoryTransport?:HeyGenInventoryTransport;verifyBinding?:(binding:ApprovedAvatar)=>Promise<boolean>;codecs:HeyGenCodecs;readCanon:GenerationValidationSources['readCanon'];normalizeCanon:GenerationValidationSources['normalizeCanon']}
 /** No clients, credentials, route or scheduler by default. Current live canonical
  * source and existing upstream normalizer must be explicitly supplied. */
 type CommonDependencies=Omit<CharacterProductionRuntimeDependencies,'storage'>
@@ -46,7 +46,8 @@ function composeRuntime(configuration:CharacterProductionRuntimeConfig|null,open
  if((config.engine.enabled===true)!==(config.heygen.enabled===true)||config.engine.provider!=='heygen'||config.engine.model!==config.heygen.model||config.engine.maxVideoBytes!==config.heygen.maxVideoBytes)throw Error('Runtime provider configuration mismatch')
  return createCharacterProductionEngine(config.engine,()=>{
   validateHeyGenProductionConfig(config.heygen);if(!open)throw Error('Missing dependencies');const d=open()
-  const inventory=createHeyGenBindingVerifier(config.heygen,d.inventoryTransport)
+  if(!d.verifyBinding&&!d.inventoryTransport)throw Error('Verified inventory required')
+  const inventory=d.verifyBinding??createHeyGenBindingVerifier(config.heygen,d.inventoryTransport!)
   const canon=createGenerationValidator({now:config.engine.now,readAuthorization:createGenerationAuthorizationReader(d.rpc,config.engine.now),readCanon:d.readCanon,normalizeCanon:d.normalizeCanon})
   return {store:d.store,provider:createHeyGenProductionProvider(config.heygen,d.transport,d.codecs),validateCurrent:async slot=>{
    const b=config.heygen.bindings.find(b=>b.characterId===slot.characterId)

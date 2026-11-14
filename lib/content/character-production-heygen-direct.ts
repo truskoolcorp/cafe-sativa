@@ -1,3 +1,5 @@
+import {renderedAudioDigest,renderedAudioPath,verifyRenderedAudio} from './character-production-rendered-audio.ts'
+import type {RenderedAudioBinding} from './character-production-rendered-audio.ts'
 import type {HeyGenTransport,HeyGenCodecs} from './character-production-provider-heygen.ts'
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$/.test(v)
 const object=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Array.isArray(v))throw Error('Invalid HeyGen API object');return v as Record<string,unknown>}
@@ -28,6 +30,37 @@ export function createDirectHeyGenApi(key:()=>string|undefined,fetcher:typeof fe
   looks:(signal:AbortSignal)=>call('/v3/avatars/looks?ownership=private&limit=50',signal),
   voices:(signal:AbortSignal)=>call('/v3/models/audio/voices?type=private&limit=50',signal),
   video:(videoId:string,signal:AbortSignal)=>{if(!id(videoId))throw Error('Invalid video ID');return call('/v3/videos/'+encodeURIComponent(videoId),signal)},
+  /** Internal trusted storage contract, NOT a new provider endpoint. Synthesis
+   * receipts must already be persisted/approved. URL is minted only after exact
+   * immutable private object readback; no native HeyGen voice substitution. */
+  audioTransport(accountBinding:string,audio:readonly RenderedAudioBinding[],source:{
+   origin:string;read(path:string,maxBytes:number,signal:AbortSignal):Promise<Uint8Array>;
+   sign(path:string,signal:AbortSignal):Promise<string>;
+  }):HeyGenTransport {
+   if(!id(accountBinding))throw Error('Invalid account binding')
+   const origin=new URL(source.origin)
+   if(origin.protocol!=='https:'||origin.origin!==source.origin||!origin.hostname.endsWith('.supabase.co')||origin.username||origin.password||origin.port)throw Error('Unverified private audio origin')
+   const bindings=audio.map(b=>Object.freeze({...b}));bindings.forEach(renderedAudioDigest)
+   return {
+    async create_video_from_avatar(args,signal){
+     if(signal.aborted||args.link_id!==accountBinding||!['9:16','16:9'].includes(args.aspectRatio)||args.outputFormat!=='mp4'||args.resolution!=='1080p'||!['avatar_v','avatar_iv','avatar_iii','heygen-avatar-6','heygen-avatar-6-turbo'].includes(args.engine.type))throw Error('Audio video binding rejected')
+     const matches=bindings.filter(b=>b.avatarId===args.avatarId&&b.voiceId===args.voiceId)
+     // Multiple scripts for one avatar are resolved by exact script hash through
+     // verification, never by first-match or by a human-readable voice name.
+     const {createHash}=await import('node:crypto')
+     const selected=matches.filter(b=>b.scriptSha256===createHash('sha256').update(args.script).digest('hex'))
+     if(selected.length!==1)throw Error('Ambiguous rendered audio binding')
+     const binding=selected[0],path=renderedAudioPath(binding)
+     const bytes=await source.read(path,binding.audioBytes,signal)
+     if(signal.aborted||!verifyRenderedAudio(binding,args.script,args.voiceId,bytes))throw Error('Rendered audio readback rejected')
+     const url=new URL(await source.sign(path,signal))
+     if(signal.aborted||url.origin!==source.origin||url.pathname!=='/storage/v1/object/sign/character-production-audio/'+path||url.username||url.password||url.hash||!url.searchParams.get('token')||url.search.length>16384||[...url.searchParams.keys()].some(k=>k!=='token'))throw Error('Wrong private audio capability')
+     // V3 accepts audio_url instead of script+voice_id. Never include both modes.
+     return call('/v3/videos',signal,{type:'avatar',avatar_id:binding.avatarId,audio_url:url.href,engine:{type:args.engine.type},aspect_ratio:args.aspectRatio,output_format:'mp4',resolution:'1080p'})
+    },
+    get_video(args,signal){if(args.link_id!==accountBinding||!id(args.videoId))throw Error('Wrong direct account binding');return call('/v3/videos/'+encodeURIComponent(args.videoId),signal)},
+   }
+  },
   /** This writer must only be composed behind existing ledger authorization.
    * Explicit native voice allowlist prevents treating ElevenLabs IDs as native. */
   transport(accountBinding:string,nativeVoiceIds:readonly string[]):HeyGenTransport {

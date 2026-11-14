@@ -22,7 +22,7 @@ export interface HeyGenCodecs {
    * codecs must reject errors/unknown shapes; no default receipt decoder exists. */
   receipt(raw:unknown):{taskId:string}; status(raw:unknown):VideoStatus;
 }
-export type ApprovedAvatar=Readonly<{characterId:string;canonicalRevision:string;portraitSha256:string;voiceId:string;avatarId:string}>
+export type ApprovedAvatar=Readonly<{characterId:string;canonicalRevision:string;portraitSha256:string;voiceId:string;avatarId:string;audioBindingSha256?:string}>
 export type HeyGenConfig=Readonly<{
   enabled?:boolean;aspectRatio?:'9:16'|'16:9';linkId:string;model:AvatarModel;bindings:readonly ApprovedAvatar[];
   mediaOrigins:readonly string[];timeoutMs:number;maxVideoBytes:number;
@@ -97,10 +97,10 @@ export async function fetchVerifiedMedia(value:string,origins:readonly string[],
 }
 /** Persist with trusted authorization, immutable claim, and pending job. */
 export function heyGenBindingRevision(config:Pick<HeyGenConfig,'linkId'|'model'|'aspectRatio'>,binding:ApprovedAvatar):string {
-  if((config.aspectRatio!==undefined&&!['9:16','16:9'].includes(config.aspectRatio))||!id(config.linkId)||!models.has(config.model)||!binding||!id(binding.characterId)||!id(binding.avatarId)||!id(binding.voiceId)||!hash(binding.canonicalRevision)||!hash(binding.portraitSha256))throw Error('Invalid provider binding')
+  if((config.aspectRatio!==undefined&&!['9:16','16:9'].includes(config.aspectRatio))||!id(config.linkId)||!models.has(config.model)||!binding||(binding.audioBindingSha256!==undefined&&!hash(binding.audioBindingSha256))||!id(binding.characterId)||!id(binding.avatarId)||!id(binding.voiceId)||!hash(binding.canonicalRevision)||!hash(binding.portraitSha256))throw Error('Invalid provider binding')
   return createHash('sha256').update(JSON.stringify([
     'heygen-avatar-binding-v1','heygen',config.linkId,config.model,binding.characterId,
-    binding.canonicalRevision,binding.portraitSha256,binding.voiceId,binding.avatarId,config.aspectRatio??'9:16','mp4','1080p',
+    binding.canonicalRevision,binding.portraitSha256,binding.voiceId,binding.avatarId,config.aspectRatio??'9:16','mp4','1080p',...(binding.audioBindingSha256?['rendered-audio-v1',binding.audioBindingSha256]:[]),
   ])).digest('hex')
 }
 /** Pure preclaim configuration check. Never opens a provider connection. */

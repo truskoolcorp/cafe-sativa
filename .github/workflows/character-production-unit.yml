@@ -25,4 +25,6 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node --test tests/character-production-*.test.mjs
-      - run: node node_modules/typescript/bin/tsc --strict --noEmit --skipLibCheck --allowImportingTsExtensions --target ES2022 --module nodenext --moduleResolution nodenext --typeRoots node_modules/@types lib/content/character-production-*.ts
+      # Server composition intentionally uses the existing Next backend and @/
+      # aliases. Keep strict checking, with the actual deployment project config.
+      - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false

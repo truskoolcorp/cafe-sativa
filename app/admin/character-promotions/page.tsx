@@ -57,7 +57,7 @@ export default function CharacterPromotions() {
   <p className="text-sm">Private preview expires after five minutes. Viewing does not approve or publish this video.</p>
   {previewErrors[p.id] && <p role="alert">{previewErrors[p.id]}</p>}
  </div>}
- {['andromeda-zouganelis','aurelio'].includes(p.character_id) && <label className="block my-3">Attach final MP4 (max 90 MB; resets video/publication QA)<input type="file" accept="video/mp4,.mp4" disabled={busy || previewBusy!==null} className="block mt-2" onChange={e=>{const file=e.target.files?.[0];if(file)void upload(p.id,file)}}/></label>}
+ {['andromeda-zouganelis','aurelio','zaria-solenne'].includes(p.character_id) && <label className="block my-3">Attach final MP4 (max 90 MB; resets video/publication QA)<input type="file" accept="video/mp4,.mp4" disabled={busy || previewBusy!==null} className="block mt-2" onChange={e=>{const file=e.target.files?.[0];if(file)void upload(p.id,file)}}/></label>}
  <p>File-matched QA checks: {data.qa.filter((q:any)=>q.promo_id===p.id && p.video_asset_path?.includes(q.video_sha256+'.mp4') && q.result==='pass').length}/3</p>
  {data.qa.some((q:any)=>q.promo_id===p.id && !p.video_asset_path?.includes(q.video_sha256+'.mp4')) && <p className="text-amber-400">Historical QA belongs to an older video; replacement needs fresh review.</p>}
  <p>Voice: {p.voice_approved_at?'Approved':'Pending'} · Video: {p.video_qa_approved_at?'Approved':'Pending'} · Publication: {p.publication_approved_at?'Approved':'Pending'}</p>

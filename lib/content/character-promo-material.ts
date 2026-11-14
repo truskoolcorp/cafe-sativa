@@ -39,6 +39,7 @@ async function readPromoAssetMaterial(promoId:string,db:PromoSourceClient,now:nu
  const watermark=watermarkReadiness(d.id,sha,qa)
  const checks=PROMO_QA.map(name=>({name,observations:qa.filter(q=>q.check_name===name),passed:qa.filter(q=>q.check_name===name).length===1&&qa.find(q=>q.check_name===name)?.result==='pass'}))
  const blockers:string[]=[]
+ if(!watermark.ready)blockers.push(watermark.reason)
  if(d.status!=='script_approved')blockers.push('script_approval_pending')
  if(!p)blockers.push('delivery_plan_not_selected','destination_not_verified_for_delivery','future_schedule_not_authored')
  if(p) {

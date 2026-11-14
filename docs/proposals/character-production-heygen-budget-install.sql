@@ -208,6 +208,11 @@ DO $$ DECLARE new_object record; new_owner oid:='character_production_owner'::re
  END LOOP;
  IF (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='character_production' AND c.relname IN ('heygen_wallet_policy','heygen_wallet_evidence','heygen_slot_evidence') AND c.relkind='r')<>3 THEN RAISE EXCEPTION 'Missing budget table'; END IF;
  FOR new_object IN SELECT p.* FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='character_production' AND p.proname IN ('calendar_period','heygen_spend_allowed','heygen_evidence_immutable') LOOP
+ IF NOT (CASE new_object.proname
+ WHEN 'calendar_period' THEN new_object.proargtypes='25 1184'::oidvector AND new_object.prorettype='text'::regtype AND NOT new_object.prosecdef
+ WHEN 'heygen_spend_allowed' THEN new_object.proargtypes='3802 25 20 25'::oidvector AND new_object.prorettype='boolean'::regtype AND new_object.prosecdef
+ WHEN 'heygen_evidence_immutable' THEN new_object.proargtypes=''::oidvector AND new_object.prorettype='trigger'::regtype AND NOT new_object.prosecdef
+ ELSE false END) THEN RAISE EXCEPTION 'New budget function signature/security mismatch'; END IF;
  IF new_object.proowner<>new_owner OR new_object.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] THEN RAISE EXCEPTION 'New budget function owner/config mismatch'; END IF;
  IF EXISTS(WITH actual AS (SELECT * FROM aclexplode(coalesce(new_object.proacl,acldefault('f',new_owner)))), expected AS (SELECT new_owner grantor,new_owner grantee,'EXECUTE'::text privilege_type,false is_grantable) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New budget function ACL mismatch'; END IF;
  END LOOP;

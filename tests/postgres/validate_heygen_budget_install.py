@@ -14,6 +14,8 @@ def suite():
  sql=base.adapt(source);prefix='SET SESSION AUTHORIZATION provision_installer; '
  before=base.snapshot();db.run(prefix+sql.replace('\nCOMMIT;','\nROLLBACK;'));assert base.snapshot()==before
  for broken,label in [
+  (sql.replace("RETURNS text LANGUAGE sql STABLE STRICT", "RETURNS text LANGUAGE sql SECURITY DEFINER STABLE STRICT"),'signature/security mismatch'),
+  (sql.replace("\nRESET ROLE;", "\nCREATE FUNCTION character_production.calendar_period(text) RETURNS text LANGUAGE sql SET search_path=pg_catalog AS 'SELECT $1';\nRESET ROLE;"),'signature/security mismatch'),
   (sql.replace('\nCOMMIT;',"\nDO $$ BEGIN RAISE EXCEPTION 'injected abort'; END $$; COMMIT;"),'injected abort'),
   (sql.replace(" IF EXISTS(SELECT 1 FROM character_production.heygen_wallet_policy)"," UPDATE character_production.budgets SET reserved_cents=reserved_cents+1;\n IF EXISTS(SELECT 1 FROM character_production.heygen_wallet_policy)"),'Ledger data changed'),
  ]:

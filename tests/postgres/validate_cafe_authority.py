@@ -48,10 +48,15 @@ def suite():
  ('actor',lambda a:a.__setitem__(6,base.uid('not-admin'))),
  ('extra',lambda a:a[1].__setitem__('privateUrl','https://forbidden.invalid'))]:
   a=prepared(name);change(a);fail(a,name)
- a=prepared('standing');record=canonical({'policy':{'scope':'routine-cafe-persona-brand-promotions','revoked':False},'assessment':{'scheduleDigest':a[2],'classification':'routine-cafe-persona-brand-promotion','highImpact':False,'paidPromotion':False,'containsSensitivePersonalData':False}})
- a[9]['reference']='cafe-policy:'+hashlib.sha256(record.encode()).hexdigest();a[9]['evidenceRecord']=record
+ def policy_record(a):
+  return {'policy':{'version':1,'reference':'synthetic-policy','ownerMessageIds':['Sentinel_'+'a'*32],'authorizedAt':a[7],'validUntil':a[8],'brandId':'7605217','userId':'4174093','accounts':[{'network':'facebook','accountId':'105363501666032'},{'network':'instagram','accountId':'cafesativainc'}],'characterIds':[a[1]['characterId']],'scope':'routine-cafe-persona-brand-promotions','revoked':False,'paidPromotion':False},'assessment':{'scheduleDigest':a[2],'assessedAt':a[7],'evidenceRef':'synthetic-scope','classification':'routine-cafe-persona-brand-promotion','highImpact':False,'paidPromotion':False,'containsSensitivePersonalData':False}}
+ def bind_record(a,r):
+  record=canonical(r);a[9]['reference']='cafe-policy:'+hashlib.sha256(record.encode()).hexdigest();a[9]['evidenceRecord']=record;return record
+ a=prepared('standing');record=bind_record(a,policy_record(a))
  assert json.loads(owner('SELECT '+call(a)))['digest']==a[2]
  check('(SELECT evidence_record='+q(record)+' FROM cafe_metricool_private.owner_authority_provenance WHERE plan_id='+q(a[0])+')','recoverable policy stored atomically')
+ for name,change in [('wrong-policy-account',lambda r:r['policy']['accounts'][0].__setitem__('accountId','other')),('wrong-policy-character',lambda r:r['policy'].__setitem__('characterIds',['other'])),('expired-policy',lambda r:r['policy'].__setitem__('validUntil','2000-01-01T00:00:00Z')),('stale-assessment',lambda r:r['assessment'].__setitem__('assessedAt','2000-01-01T00:00:00Z'))]:
+  a=prepared(name);r=policy_record(a);change(r);bind_record(a,r);fail(a,name)
  a=prepared('missing-policy-record');a[9]['reference']='cafe-policy:'+'a'*64;fail(a,'missing policy record')
  a=prepared('wrong-policy-hash');a[9]['reference']='cafe-policy:'+'a'*64;a[9]['evidenceRecord']=record;fail(a,'wrong policy hash')
  a=prepared('watermark');owner('DELETE FROM public.cs_character_promo_qa_checks WHERE promo_id='+q(a[1]['promoId'])+" AND check_name='third_party_watermark'")

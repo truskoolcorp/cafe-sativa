@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'docs/proposals/venue-*.sql'
+      - 'app/api/content/watermark-review/**'
+      - 'app/admin/content/WatermarkReview.tsx'
+      - 'tests/venue-watermark*.cjs'
       - 'tests/sql/venue-watermark*'
       - 'tests/sql/run-venue-watermark-ci.sh'
       - '.github/workflows/venue-watermark-qa.yml'

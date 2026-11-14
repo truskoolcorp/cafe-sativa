@@ -32,15 +32,29 @@ def suite():
  restricted(sql.replace('COMMIT;','ROLLBACK;'))
  db.check("to_regclass('character_production.planning_records') IS NULL",'planner DDL rolls back')
  restricted(sql)
+ policy_read=(db.ROOT/'docs/proposals/character-production-planner-policy-read.sql').read_text()
+ restricted(policy_read.replace('COMMIT;','ROLLBACK;'))
+ db.check("to_regprocedure('public.character_production_planning_policy(uuid)') IS NULL",'policy reader DDL rollback')
+ restricted(policy_read)
  db.run('GRANT EXECUTE ON FUNCTION public.character_production_planned_draft(uuid,jsonb,text,text) TO provision_installer; SET SESSION AUTHORIZATION provision_installer; '+(db.ROOT/'docs/proposals/character-production-planner-draft-helper.sql').read_text()+ ' GRANT EXECUTE ON FUNCTION public.character_production_new_blank_draft(uuid,jsonb,text,text) TO character_production_owner;')
  db.run('REVOKE CREATE ON SCHEMA public FROM character_production_owner; REVOKE ALL ON FUNCTION character_production.calendar_period(text,timestamptz) FROM PUBLIC;')
  db.check("(SELECT NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname='character_production_owner')",'non-superuser function owner')
  for r in ['anon','authenticated','service_role','character_production_generator','character_production_output_broker']:
   db.check('NOT has_function_privilege('+db.quote(r)+','+db.quote(SIG)+",'EXECUTE')",'no runtime execute')
+  db.check('NOT has_function_privilege('+db.quote(r)+",'public.character_production_planning_policy(uuid)','EXECUTE')",'no runtime policy read')
+  read_proc=subprocess.run(db.command(),input='SET SESSION AUTHORIZATION '+r+"; SELECT public.character_production_planning_policy(NULL);",text=True,capture_output=True)
+  assert read_proc.returncode and 'permission denied' in read_proc.stderr,read_proc.stderr
   db.check('NOT has_table_privilege('+db.quote(r)+",'character_production.planning_records','SELECT,INSERT,UPDATE,DELETE')",'no provenance access')
   proc=subprocess.run(db.command(),input='SET SESSION AUTHORIZATION '+r+'; SELECT public.character_production_plan(NULL,NULL,NULL,NULL,NULL,NULL);',text=True,capture_output=True)
   assert proc.returncode and 'permission denied' in proc.stderr,proc.stderr
  db.run("INSERT INTO character_production.budgets(provider,period,cap_cents,reserved_cents,enabled) VALUES('heygen',to_char(now() AT TIME ZONE 'America/Chicago','YYYY-MM'),2000,35,true) ON CONFLICT(provider,period) DO UPDATE SET cap_cents=2000; INSERT INTO character_production.planning_policies VALUES('"+POL+"',1,true,'{\"synthetic\":true}',to_char(now() AT TIME ZONE 'America/Chicago','YYYY-MM'),(date_trunc('month',now() AT TIME ZONE 'America/Chicago')+interval '1 month') AT TIME ZONE 'America/Chicago',ARRAY['synthetic-persona'],ARRAY['synthetic-theme'],31,45,2000,'d61468fdf18c4b478f27857337ddd1ea');")
+ # Missing approval reference returns no policy, never a synthetic authority.
+ reader="public.character_production_planning_policy('"+POL+"'::uuid)"
+ restricted('DO $$ BEGIN IF '+reader+" IS NOT NULL THEN RAISE EXCEPTION 'missing owner reference accepted'; END IF; END $$;")
+ restricted("BEGIN; UPDATE character_production.planning_policies SET revision=2,owner_evidence='{\"evidenceRef\":\"synthetic:ci-approved-reference\",\"privateField\":\"must-not-leak\"}' WHERE id='"+POL+"'; DO $$ DECLARE r jsonb:="+reader+"; BEGIN IF r->'policy'->>'id'<> '"+POL+"' OR r->'policy'->>'revision'<>'2' OR r->'policy'->>'ownerEvidenceRef'<>'synthetic:ci-approved-reference' OR r->'policy'->>'capCents'<>'2000' OR r->'policy'->>'accountId'<>'d61468fdf18c4b478f27857337ddd1ea' OR r->'policy'->'characters'<> '[\"synthetic-persona\"]'::jsonb OR r->'policy'->'themes'<> '[\"synthetic-theme\"]'::jsonb OR (r->>'observedAt')::bigint>extract(epoch FROM clock_timestamp())*1000 OR (r->>'observedAt')::bigint<extract(epoch FROM clock_timestamp()-interval '5 seconds')*1000 OR r::text LIKE '%must-not-leak%' OR (SELECT count(*) FROM jsonb_object_keys(r))<>2 OR (SELECT count(*) FROM jsonb_object_keys(r->'policy'))<>9 THEN RAISE EXCEPTION 'policy projection mismatch'; END IF; END $$; ROLLBACK;")
+ restricted("DO $$ BEGIN IF public.character_production_planning_policy('00000000-0000-4000-8000-000000000000') IS NOT NULL THEN RAISE EXCEPTION 'unknown policy exposed'; END IF; END $$;")
+ for mutation in ["enabled=false", "expires_at=clock_timestamp()-interval '1 second'", "owner_evidence='{\"evidenceRef\":\"   \"}'", "owner_evidence='{\"evidenceRef\":123}'"]:
+  restricted("BEGIN; UPDATE character_production.planning_policies SET revision=2,owner_evidence='{\"evidenceRef\":\"synthetic:approved\"}' WHERE id='"+POL+"'; UPDATE character_production.planning_policies SET revision=3,"+mutation+" WHERE id='"+POL+"'; DO $$ BEGIN IF "+reader+" IS NOT NULL THEN RAISE EXCEPTION 'invalid policy readable'; END IF; END $$; ROLLBACK;")
  s,d,p=fixture()
  for field,value in [('rightsApproved',False),('sourceBound',False),('accountId','wrong'),('slotDigest','f'*64),('observedAt','2000-01-01T00:00:00Z')]:
   bad=copy.deepcopy(p);bad['validation'][field]=value;denied(s,d,bad)
@@ -74,6 +88,7 @@ def suite():
  s2,d2,p2=fixture('same-day-other');p2['draftId']='99999999-9999-4999-8999-999999999998';denied(s2,d2,p2)
  restricted("UPDATE character_production.planning_policies SET enabled=false,revision=2 WHERE id='"+POL+"';")
  denied(s,d,p)
+ restricted('DO $$ BEGIN IF '+reader+" IS NOT NULL THEN RAISE EXCEPTION 'revoked policy exposed'; END IF; END $$;")
  db.check("NOT EXISTS(SELECT 1 FROM character_production.approved_slots WHERE key='planner-race' AND enabled) AND NOT EXISTS(SELECT 1 FROM character_production.schedules WHERE key='planner-race' AND enabled)",'revocation')
  db.finish('planner')
 if __name__=='__main__':suite()

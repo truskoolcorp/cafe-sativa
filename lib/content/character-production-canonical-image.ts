@@ -35,8 +35,7 @@ function capability(origin:string,bucket:string,path:string,value:string){
  * Image mode uses documented default Avatar IV and cannot substitute native IDs. */
 export function canonicalImageTransport(call:(path:string,signal:AbortSignal,body?:unknown)=>Promise<unknown>,account:string,proofs:readonly CanonicalImageBinding[],images:PrivateMediaSource,audio:PrivateMediaSource):HeyGenTransport{
  const frozen=proofs.map(p=>Object.freeze({...p,audio:Object.freeze({...p.audio}),...(p.approvedScene?{approvedScene:Object.freeze({...p.approvedScene})}:{})}));frozen.forEach(canonicalImageDigest)
- return {
- async create_video_from_avatar(args,signal){
+ const prepare:NonNullable<HeyGenTransport['prepare_video_from_avatar']>=async(args,signal)=>{
   if(signal.aborted||args.link_id!==account||args.engine.type!=='avatar_iv'||!['9:16','16:9'].includes(args.aspectRatio)||args.outputFormat!=='mp4'||args.resolution!=='1080p')throw Error('Image production scope rejected')
   const matches=frozen.filter(b=>b.audio.avatarId===args.avatarId&&b.audio.voiceId===args.voiceId&&b.audio.scriptSha256===sha(args.script))
   if(matches.length!==1)throw Error('Ambiguous image proof')
@@ -44,8 +43,15 @@ export function canonicalImageTransport(call:(path:string,signal:AbortSignal,bod
   if(!verifyCanonicalImage(b,await images.read(ip,b.imageBytes,signal))||!verifyRenderedAudio(b.audio,args.script,args.voiceId,await audio.read(ap,b.audio.audioBytes,signal)))throw Error('Canonical media mismatch')
   const image=capability(images.origin,'cafe-sativa-characters',ip,await images.sign(ip,signal)),sound=capability(audio.origin,'character-production-audio',ap,await audio.sign(ap,signal))
   if(signal.aborted)throw Error('Expired image request')
-  return call('/v3/videos',signal,{type:'image',image:{type:'url',url:image},audio_url:sound,aspect_ratio:args.aspectRatio,output_format:'mp4',resolution:'1080p'})
- },get_video(args,signal){if(args.link_id!==account||!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$/.test(args.videoId))throw Error('Video scope rejected');return call('/v3/videos/'+encodeURIComponent(args.videoId),signal)},
+  let used=false
+  const preparedAt=Date.now(),expires=preparedAt+30000,monotonicExpiry=performance.now()+30000
+  return async paidSignal=>{
+   if(used||paidSignal.aborted||Date.now()<preparedAt||Date.now()>=expires||performance.now()>=monotonicExpiry)throw Error('Prepared request expired or consumed')
+   used=true
+   return call('/v3/videos',paidSignal,{type:'image',image:{type:'url',url:image},audio_url:sound,aspect_ratio:args.aspectRatio,output_format:'mp4',resolution:'1080p'})
+  }
+ }
+ return {prepare_video_from_avatar:prepare,async create_video_from_avatar(args,signal){return (await prepare(args,signal))(signal)},get_video(args,signal){if(args.link_id!==account||!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$/.test(args.videoId))throw Error('Video scope rejected');return call('/v3/videos/'+encodeURIComponent(args.videoId),signal)},
  }
 }
 export function imageApprovedAvatar(b:CanonicalImageBinding):ApprovedAvatar{return {characterId:b.characterId,canonicalRevision:b.canonicalRevision,portraitSha256:b.portraitSha256,voiceId:b.audio.voiceId,avatarId:b.audio.avatarId,audioBindingSha256:renderedAudioDigest(b.audio),imageBindingSha256:canonicalImageDigest(b)}}

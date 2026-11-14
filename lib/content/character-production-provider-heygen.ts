@@ -15,6 +15,8 @@ export type VideoStatus = {taskId:string;state:'pending'|'failed'} | {taskId:str
 export interface HeyGenTransport {
   /** Must disable write retries. Abort does not establish provider cancellation. */
   create_video_from_avatar(args:AvatarArguments,signal:AbortSignal):Promise<unknown>;
+  /** Optional read-only preparation. Returned closure is single-use, never retries. */
+  prepare_video_from_avatar?(args:AvatarArguments,signal:AbortSignal):Promise<(signal:AbortSignal)=>Promise<unknown>>;
   get_video(args:Readonly<{link_id:string;videoId:string}>,signal:AbortSignal):Promise<unknown>;
 }
 export interface HeyGenCodecs {
@@ -26,6 +28,7 @@ export type ApprovedAvatar=Readonly<{characterId:string;canonicalRevision:string
 export type HeyGenConfig=Readonly<{
   enabled?:boolean;aspectRatio?:'9:16'|'16:9';linkId:string;model:AvatarModel;bindings:readonly ApprovedAvatar[];
   mediaOrigins:readonly string[];timeoutMs:number;maxVideoBytes:number;
+  phases?:Readonly<{prepareMs:number;submitMs:number;statusMs:number;downloadMs:number;totalMs:number}>;
 }>
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$/.test(v)
 const hash=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)
@@ -109,12 +112,13 @@ export function validateHeyGenProductionConfig(c:HeyGenConfig):void {
   if(!id(c.linkId)||!models.has(c.model)||!Number.isSafeInteger(c.timeoutMs)||c.timeoutMs<1||c.timeoutMs>120000||
     !Number.isSafeInteger(c.maxVideoBytes)||c.maxVideoBytes<12||c.maxVideoBytes>50_000_000||
     !Array.isArray(c.mediaOrigins)||!c.mediaOrigins.length||!Array.isArray(c.bindings)||!c.bindings.length)throw Error('Invalid HeyGen configuration')
+  if(c.phases){const p=c.phases;if(Object.keys(p).sort().join(',')!=='downloadMs,prepareMs,statusMs,submitMs,totalMs'||Object.values(p).some(v=>!Number.isSafeInteger(v)||v<1||v>30000)||p.prepareMs+p.submitMs>p.totalMs||p.statusMs+p.downloadMs>p.totalMs)throw Error('Invalid bounded phase policy')}
   c.mediaOrigins.forEach(origin);const seen=new Set<string>()
   for(const b of c.bindings){heyGenBindingRevision(c,b);if(seen.has(b.characterId))throw Error('Invalid duplicate approved avatar binding');seen.add(b.characterId)}
 }
 export function createHeyGenProductionProvider(config:HeyGenConfig,transport:HeyGenTransport,codecs:HeyGenCodecs):ProductionProvider {
-  const c=Object.freeze({...config,bindings:Object.freeze(config.bindings.map(b=>Object.freeze({...b}))),mediaOrigins:Object.freeze([...config.mediaOrigins])})
-  const create=transport.create_video_from_avatar.bind(transport),get=transport.get_video.bind(transport)
+  const c=Object.freeze({...config,bindings:Object.freeze(config.bindings.map(b=>Object.freeze({...b}))),mediaOrigins:Object.freeze([...config.mediaOrigins]),...(config.phases?{phases:Object.freeze({...config.phases})}:{})})
+  const create=transport.create_video_from_avatar.bind(transport),get=transport.get_video.bind(transport),prepare=transport.prepare_video_from_avatar?.bind(transport)
   const receipt=codecs.receipt.bind(codecs),status=codecs.status.bind(codecs),lastPoll=new Map<string,number>()
   return Object.freeze({name:'heygen',async submit(input:ProductionSlot){
     validateHeyGenProductionConfig(c);const s=Object.freeze({...input}),b=c.bindings.find(x=>x.characterId===s.characterId)
@@ -122,8 +126,18 @@ export function createHeyGenProductionProvider(config:HeyGenConfig,transport:Hey
       !Number.isSafeInteger(s.authorizationExpiresAt)||s.authorizationExpiresAt<=Date.now()||typeof s.script!=='string'||!s.script.trim()||s.script.length>5000)throw Error('Canonical identity or authority mismatch')
     const deadline=Math.min(Date.now()+c.timeoutMs,s.authorizationExpiresAt)
     const args=Object.freeze({link_id:c.linkId,avatarId:b.avatarId,voiceId:b.voiceId,script:s.script,engine:Object.freeze({type:c.model}),aspectRatio:c.aspectRatio??'9:16',outputFormat:'mp4' as const,resolution:'1080p' as const})
-    const result=receipt(await bounded(deadline,signal=>create(args,signal)))
-    if(Date.now()>=deadline||!result||!id(result.taskId))throw Error('Invalid or late HeyGen receipt')
+    let finalDeadline=deadline
+    let raw:unknown
+    if(c.phases){
+      if(!prepare)throw Error('Explicit prepared transport required')
+      const started=Date.now(),monotonicStart=performance.now(),totalDeadline=Math.min(started+c.phases.totalMs,s.authorizationExpiresAt)
+      const prepared=await bounded(Math.min(Date.now()+c.phases.prepareMs,totalDeadline),signal=>prepare(args,signal))
+      if(typeof prepared!=='function'||Date.now()<started||Date.now()>=totalDeadline||performance.now()-monotonicStart>=c.phases.totalMs)throw Error('Preparation did not complete')
+      finalDeadline=Math.min(Date.now()+c.phases.submitMs,totalDeadline,Date.now()+c.phases.totalMs-(performance.now()-monotonicStart))
+      raw=await bounded(finalDeadline,signal=>prepared(signal))
+    }else raw=await bounded(deadline,signal=>create(args,signal))
+    const result=receipt(raw)
+    if(Date.now()>=finalDeadline||!result||!id(result.taskId))throw Error('Invalid or late HeyGen receipt')
     return {taskId:result.taskId}
   },async collect(taskId:string,providerBindingRevision:string):Promise<Collection>{
     validateHeyGenProductionConfig(c)
@@ -132,12 +146,12 @@ export function createHeyGenProductionProvider(config:HeyGenConfig,transport:Hey
     const now=Date.now(),monotonic=performance.now(),previous=lastPoll.get(taskId)
     if(previous!==undefined&&monotonic-previous<30000)return {state:'pending'}
     lastPoll.set(taskId,monotonic)
-    const deadline=now+c.timeoutMs
-    const result=status(await bounded(deadline,signal=>get(Object.freeze({link_id:c.linkId,videoId:taskId}),signal)))
-    if(Date.now()>=deadline||!result||result.taskId!==taskId)throw Error('Mismatched or late HeyGen status')
+    const deadline=now+(c.phases?.totalMs??c.timeoutMs)
+    const result=status(await bounded(c.phases?Math.min(Date.now()+c.phases.statusMs,deadline):deadline,signal=>get(Object.freeze({link_id:c.linkId,videoId:taskId}),signal)))
+    if(Date.now()<now||Date.now()>=deadline||performance.now()-monotonic>=(c.phases?.totalMs??c.timeoutMs)||!result||result.taskId!==taskId)throw Error('Mismatched or late HeyGen status')
     if(result.state==='pending'||result.state==='failed')return {state:result.state}
     if(result.state!=='completed'||typeof result.mediaUrl!=='string')throw Error('Invalid HeyGen status')
-    return {state:'completed',mime:'video/mp4',bytes:await fetchVerifiedMedia(result.mediaUrl,c.mediaOrigins,c.maxVideoBytes,deadline)}
+    return {state:'completed',mime:'video/mp4',bytes:await fetchVerifiedMedia(result.mediaUrl,c.mediaOrigins,c.maxVideoBytes,c.phases?Math.min(Date.now()+c.phases.downloadMs,deadline,Date.now()+c.phases.totalMs-(performance.now()-monotonic)):deadline)}
   }})
 }
 /** Only observed completed get_video shape; not a guessed creation receipt. */

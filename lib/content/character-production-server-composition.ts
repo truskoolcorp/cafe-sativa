@@ -1,4 +1,5 @@
 import 'server-only'
+import type {ProductionTimeBudget} from './character-production-time-budget'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {liveGlyphCharacters} from './glyph-live'
 import {normalizePromoCanon} from './character-promo-sources'
@@ -22,11 +23,16 @@ export type InternalProductionManifest={
  images:readonly CanonicalImageBinding[];
  exactScope?:ExactProductionScope;
 }
-export function openInternalProduction(manifest:InternalProductionManifest,signal:AbortSignal):InternalProductionDependencies&{whenSettled():Promise<void>}{
+export function openInternalProduction(manifest:InternalProductionManifest,signal:AbortSignal,budget?:ProductionTimeBudget):InternalProductionDependencies&{whenSettled():Promise<void>}{
  if(signal.aborted)throw Error('Cancelled production tick')
  const network=createProductionFetch(signal)
  const phases=manifest.configuration.heygen.phases
- const providerNetwork=createProductionProviderFetch(signal,fetch,phases?Math.max(phases.submitMs,phases.statusMs):8000)
+ const providerNetwork=createProductionProviderFetch(signal,fetch,phases?Math.max(phases.submitMs,phases.statusMs):8000,()=>{
+  // Check at actual network dispatch, after all validation/preparation work.
+  // Reserve one complete submit ceiling, both backend evidence/submitted writes and margin.
+  if(!budget)throw Error('Paid dispatch requires live tick budget')
+  budget.requireRemaining((phases?.submitMs??8000)+8000+8000+1000)
+ })
  const db=createAdminClient(network.fetch)
  const origin=process.env.NEXT_PUBLIC_SUPABASE_URL
  if(!origin)throw Error('Existing storage unavailable')

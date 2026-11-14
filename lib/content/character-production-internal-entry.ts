@@ -11,8 +11,8 @@ export const processInternalCharacters=createInternalCharacterWorker({
  enabled:()=>process.env.CS_CHARACTER_INTERNAL_WORKER_ENABLED==='true'&&canaryWindowOpen(),
  authorize:cronAuthorized,
  configuration:manifest.configuration,
- open:signal=>{
+ open:(signal,budget)=>{
   if(!canaryWindowOpen())throw Error('Reviewed canary window closed')
-  return openInternalProduction(manifest,signal)
+  return openInternalProduction(manifest,signal,budget)
  },
 })

@@ -1,3 +1,5 @@
+import {createProductionTimeBudget} from './character-production-time-budget.ts'
+import type {ProductionTimeBudget} from './character-production-time-budget.ts'
 import {createBrokeredCharacterProductionRuntime} from './character-production-runtime.ts'
 import type {CharacterProductionRuntimeConfig,CharacterProductionRuntimeDependencies} from './character-production-runtime.ts'
 import {createPrivateOutputBroker} from './character-production-scoped.ts'
@@ -12,7 +14,7 @@ export type InternalProductionDependencies=Omit<CharacterProductionRuntimeDepend
 export function createInternalCharacterWorker(d:{
  enabled():boolean;authorize(header:string|null):boolean;
  configuration:CharacterProductionRuntimeConfig|null;
- open(signal:AbortSignal):InternalProductionDependencies & {whenSettled?():Promise<void>};
+ open(signal:AbortSignal,budget:ProductionTimeBudget):InternalProductionDependencies & {whenSettled?():Promise<void>};
  timeoutMs?:number;
 }){
  const timeoutMs=d.timeoutMs??45000
@@ -33,7 +35,7 @@ export function createInternalCharacterWorker(d:{
   let settle:(()=>Promise<void>)|undefined
   const task=(async()=>{
    if(controller.signal.aborted)throw Error('Cancelled tick')
-   const dependencies=d.open(controller.signal),{rpc,storage}=dependencies
+   const dependencies=d.open(controller.signal,createProductionTimeBudget(controller.signal,timeoutMs)),{rpc,storage}=dependencies
    settle=dependencies.whenSettled
    const broker=createPrivateOutputBroker({rpc,storage:createPrivateOutputStorage(storage,8000),authorize:async job=>{
     try{const result=await rpc.rpc('character_production_broker_authorized',{p_job:job});return !result.error&&result.data===true}catch{return false}

@@ -2,18 +2,28 @@ import {createHash} from 'node:crypto'
 import {renderedAudioDigest,renderedAudioPath,verifyRenderedAudio} from './character-production-rendered-audio.ts'
 import type {RenderedAudioBinding} from './character-production-rendered-audio.ts'
 import type {HeyGenTransport,ApprovedAvatar} from './character-production-provider-heygen.ts'
-export type CanonicalImageBinding=Readonly<{characterId:string;canonicalRevision:string;portraitSha256:string;imageBytes:number;mime:'image/png'|'image/jpeg';audio:RenderedAudioBinding}>
+/** Optional reviewed scene derivative. Identity portrait is never overwritten by
+ * a room composite. approvalReference is a trusted deployment proof reference,
+ * not client input or a claim that an arbitrary uploaded image was approved. */
+export type ApprovedSceneImage=Readonly<{imageSha256:string;approvalReference:string}>
+export type CanonicalImageBinding=Readonly<{characterId:string;canonicalRevision:string;portraitSha256:string;imageBytes:number;mime:'image/png'|'image/jpeg';audio:RenderedAudioBinding;approvedScene?:ApprovedSceneImage}>
+export const productionImageSha256=(b:CanonicalImageBinding)=>b.approvedScene?.imageSha256??b.portraitSha256
 export type PrivateMediaSource={origin:string;read(path:string,maxBytes:number,signal:AbortSignal):Promise<Uint8Array>;sign(path:string,signal:AbortSignal):Promise<string>}
 const sha=(v:string|Uint8Array)=>createHash('sha256').update(v).digest('hex')
 export function canonicalImageDigest(b:CanonicalImageBinding){
  const a=b.audio;renderedAudioDigest(a)
  if(b.characterId!==a.characterId||b.canonicalRevision!==a.canonicalRevision||b.portraitSha256!==a.portraitSha256||!Number.isSafeInteger(b.imageBytes)||b.imageBytes<12||b.imageBytes>10*1024*1024||!['image/png','image/jpeg'].includes(b.mime))throw Error('Canonical image proof rejected')
+ if(b.approvedScene){
+  const scene=b.approvedScene
+  if(!/^[a-f0-9]{64}$/.test(scene.imageSha256)||typeof scene.approvalReference!=='string'||!scene.approvalReference.trim()||scene.approvalReference.length>500||/[\r\n\0]/.test(scene.approvalReference))throw Error('Reviewed scene proof required')
+  return sha(JSON.stringify(['canonical-scene-image-v2',b.characterId,b.canonicalRevision,b.portraitSha256,scene.imageSha256,scene.approvalReference,b.imageBytes,b.mime,renderedAudioDigest(a)]))
+ }
  return sha(JSON.stringify(['canonical-image-v1',b.characterId,b.canonicalRevision,b.portraitSha256,b.imageBytes,b.mime,renderedAudioDigest(a)]))
 }
-export function canonicalImagePath(b:CanonicalImageBinding){canonicalImageDigest(b);return 'production-inputs/'+b.portraitSha256+(b.mime==='image/png'?'.png':'.jpg')}
+export function canonicalImagePath(b:CanonicalImageBinding){canonicalImageDigest(b);return 'production-inputs/'+productionImageSha256(b)+(b.mime==='image/png'?'.png':'.jpg')}
 export function verifyCanonicalImage(b:CanonicalImageBinding,bytes:Uint8Array){
  canonicalImageDigest(b)
- return bytes.length===b.imageBytes&&sha(bytes)===b.portraitSha256&&(b.mime==='image/png'?Buffer.from(bytes.subarray(0,8)).equals(Buffer.from([137,80,78,71,13,10,26,10])):bytes[0]===255&&bytes[1]===216&&bytes[2]===255)
+ return bytes.length===b.imageBytes&&sha(bytes)===productionImageSha256(b)&&(b.mime==='image/png'?Buffer.from(bytes.subarray(0,8)).equals(Buffer.from([137,80,78,71,13,10,26,10])):bytes[0]===255&&bytes[1]===216&&bytes[2]===255)
 }
 function capability(origin:string,bucket:string,path:string,value:string){
  const u=new URL(value),o=new URL(origin)
@@ -24,7 +34,7 @@ function capability(origin:string,bucket:string,path:string,value:string){
  * Wire schema is CreateVideoFromImage: nested image union, no engine field.
  * Image mode uses documented default Avatar IV and cannot substitute native IDs. */
 export function canonicalImageTransport(call:(path:string,signal:AbortSignal,body?:unknown)=>Promise<unknown>,account:string,proofs:readonly CanonicalImageBinding[],images:PrivateMediaSource,audio:PrivateMediaSource):HeyGenTransport{
- const frozen=proofs.map(p=>Object.freeze({...p,audio:Object.freeze({...p.audio})}));frozen.forEach(canonicalImageDigest)
+ const frozen=proofs.map(p=>Object.freeze({...p,audio:Object.freeze({...p.audio}),...(p.approvedScene?{approvedScene:Object.freeze({...p.approvedScene})}:{})}));frozen.forEach(canonicalImageDigest)
  return {
  async create_video_from_avatar(args,signal){
   if(signal.aborted||args.link_id!==account||args.engine.type!=='avatar_iv'||!['9:16','16:9'].includes(args.aspectRatio)||args.outputFormat!=='mp4'||args.resolution!=='1080p')throw Error('Image production scope rejected')

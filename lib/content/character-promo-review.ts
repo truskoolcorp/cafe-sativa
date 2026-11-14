@@ -1,3 +1,4 @@
+import {watermarkReadiness} from './character-promo-watermark'
 import type { PromoReviewSources } from './character-promo-sources'
 import { createHash } from 'node:crypto'
 import { characterPromoAudioStatus } from './character-promo-audio'
@@ -46,6 +47,7 @@ export function buildCharacterPromoReview(s:PromoReviewSources,state:PromoGateSt
   const videoSha256=hash(s.videoBytes)
   check(s.videoBytes.length>=16 && s.videoBytes.length<=35*1024*1024 && Buffer.from(s.videoBytes).toString('ascii',4,8)==='ftyp','media_integrity_invalid')
   check(d.video_asset_path===`character-promos/${d.character_id}/${d.id}/${videoSha256}.mp4`,'current_media_hash_mismatch')
+  check(watermarkReadiness(d.id,videoSha256,s.qa).ready,'watermark_review_required_or_marked')
   const checks=PROMO_QA.map(name=>{
     const rows=s.qa.filter(q=>q.promo_id===d.id && q.video_sha256===videoSha256 && q.check_name===name)
     const pass=rows.length===1 && rows[0].result==='pass'

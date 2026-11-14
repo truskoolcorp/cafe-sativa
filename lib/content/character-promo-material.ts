@@ -1,3 +1,4 @@
+import {watermarkReadiness} from './character-promo-watermark'
 import { normalizePromoDatabaseTime } from './character-promo-time'
 import { createHash } from 'node:crypto'
 import type { PromoSourceClient } from './character-promo-sources'
@@ -31,10 +32,11 @@ async function readPromoAssetMaterial(promoId:string,db:PromoSourceClient,now:nu
  const sha=typeof d.video_asset_path==='string'?d.video_asset_path.match(/\/([a-f0-9]{64})\.mp4$/)?.[1]:null
  if(!sha||d.video_asset_path!==`character-promos/${d.character_id}/${d.id}/${sha}.mp4`)throw new PromoMaterialError('media_unfinalized','Candidate does not have a finalized exact-hash private MP4')
  const video=await readVerifiedPromoBytes(db,d.id,sha)
- const qaResult=await read(()=>db.from('cs_character_promo_qa_checks').select('id,promo_id,video_sha256,check_name,result,evidence,reviewer_id,created_at').eq('promo_id',d.id).eq('video_sha256',sha).limit(9),'qa_read_failed')
- if(qaResult.error||!Array.isArray(qaResult.data)||qaResult.data.length>8)throw new PromoMaterialError('qa_unavailable','Candidate QA observations unavailable or ambiguous')
+ const qaResult=await read(()=>db.from('cs_character_promo_qa_checks').select('id,promo_id,video_sha256,check_name,result,evidence,reviewer_id,created_at').eq('promo_id',d.id).eq('video_sha256',sha).limit(10),'qa_read_failed')
+ if(qaResult.error||!Array.isArray(qaResult.data)||qaResult.data.length>9)throw new PromoMaterialError('qa_unavailable','Candidate QA observations unavailable or ambiguous')
  const qa=qaResult.data
  if(qa.some(q=>q.promo_id!==d.id||q.video_sha256!==sha))throw new PromoMaterialError('qa_identity_invalid','Candidate QA does not match this exact media')
+ const watermark=watermarkReadiness(d.id,sha,qa)
  const checks=PROMO_QA.map(name=>({name,observations:qa.filter(q=>q.check_name===name),passed:qa.filter(q=>q.check_name===name).length===1&&qa.find(q=>q.check_name===name)?.result==='pass'}))
  const blockers:string[]=[]
  if(d.status!=='script_approved')blockers.push('script_approval_pending')
@@ -52,7 +54,7 @@ async function readPromoAssetMaterial(promoId:string,db:PromoSourceClient,now:nu
  const currentPlan=await read(()=>db.from('cs_character_promo_delivery_plans').select('id,promo_id,character_id,network,account_id,caption,scheduled_at,status').eq('id',p.id).maybeSingle(),'plan_read_failed')
  if(currentPlan.error||JSON.stringify(currentPlan.data)!==JSON.stringify(p))throw new PromoMaterialError('candidate_changed','Candidate plan changed during review; reload')
  }
- return {kind:'candidate_material' as const,approvalGranted:false as const,plan:p?{id:p.id,network:p.network,accountId:p.account_id,caption:typeof p.caption==='string'?p.caption:null,scheduledAt:canonicalDate(p.scheduled_at),status:p.status}:null,draft:{id:d.id,characterId:d.character_id,title:d.title,script:d.spoken_script,visualBrief:d.visual_brief,targetDurationSeconds:d.duration_seconds,status:d.status,revision:canonicalDate(d.updated_at)},video:{sha256:sha,bytes:video.bytes.length,previewPath:`/api/admin/programming/character-promos/review-media?promoId=${d.id}&sha256=${sha}`},checks,blockers,canonicalVerification:'not_asserted_by_candidate_material' as const}
+ return {kind:'candidate_material' as const,approvalGranted:false as const,plan:p?{id:p.id,network:p.network,accountId:p.account_id,caption:typeof p.caption==='string'?p.caption:null,scheduledAt:canonicalDate(p.scheduled_at),status:p.status}:null,draft:{id:d.id,characterId:d.character_id,title:d.title,script:d.spoken_script,visualBrief:d.visual_brief,targetDurationSeconds:d.duration_seconds,status:d.status,revision:canonicalDate(d.updated_at)},video:{sha256:sha,bytes:video.bytes.length,previewPath:`/api/admin/programming/character-promos/review-media?promoId=${d.id}&sha256=${sha}`},checks,blockers,watermarkReadiness:watermark,canonicalVerification:'not_asserted_by_candidate_material' as const}
 }
 /** Authenticated caller required. No signed URL, upload, provider call or historical fallback. */
 export async function readVerifiedPromoBytes(db:PromoSourceClient,promoId:string,sha:string) {

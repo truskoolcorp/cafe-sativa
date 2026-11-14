@@ -2,7 +2,7 @@ import 'server-only'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {liveGlyphCharacters} from './glyph-live'
 import {normalizePromoCanon} from './character-promo-sources'
-import {createProductionFetch} from './character-production-bounded-fetch'
+import {createProductionFetch,createProductionProviderFetch} from './character-production-bounded-fetch'
 import {createPrivateRenderedAudioSource} from './character-production-private-audio'
 import {createCanonicalImageRuntimeProvider} from './character-production-image-composition'
 import {createPrivateCanonicalImageSource} from './character-production-private-image'
@@ -24,13 +24,15 @@ export type InternalProductionManifest={
 export function openInternalProduction(manifest:InternalProductionManifest,signal:AbortSignal):InternalProductionDependencies&{whenSettled():Promise<void>}{
  if(signal.aborted)throw Error('Cancelled production tick')
  const network=createProductionFetch(signal)
+ const phases=manifest.configuration.heygen.phases
+ const providerNetwork=createProductionProviderFetch(signal,fetch,phases?Math.max(phases.submitMs,phases.statusMs):8000)
  const db=createAdminClient(network.fetch)
  const origin=process.env.NEXT_PUBLIC_SUPABASE_URL
  if(!origin)throw Error('Existing storage unavailable')
  const audio=createPrivateRenderedAudioSource(db.storage,origin,manifest.images.map(p=>p.audio))
  const images=createPrivateCanonicalImageSource(db.storage,origin,manifest.images)
  const provider=createCanonicalImageRuntimeProvider(manifest.configuration.heygen,manifest.expectedHeyGenUsername,
-  ()=>process.env.HEYGEN_API_KEY,manifest.images,images,audio,network.fetch)
+  ()=>process.env.HEYGEN_API_KEY,manifest.images,images,audio,providerNetwork.fetch)
  const rpc={rpc:(name:string,args:Record<string,unknown>)=>{
    const allowed=['claim','submitted','unknown','pending','failed','output_status','output','due','authorization','broker_authorized'].map(n=>'character_production_'+n)
    if(signal.aborted||!allowed.includes(name))throw Error('Production RPC scope rejected')
@@ -47,6 +49,6 @@ export function openInternalProduction(manifest:InternalProductionManifest,signa
    try{return await liveGlyphCharacters(c.signal)}finally{c.abort();signal.removeEventListener('abort',abort);innerSignal.removeEventListener('abort',abort)}
   },
   normalizeCanon:normalizePromoCanon,
-  async whenSettled(){await Promise.all([network.whenSettled(),audio.whenSettled(),images.whenSettled()])},
+  async whenSettled(){await Promise.all([network.whenSettled(),providerNetwork.whenSettled(),audio.whenSettled(),images.whenSettled()])},
  }
 }

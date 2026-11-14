@@ -1,3 +1,4 @@
+import {cafeHeyGenPeriod} from './character-production-heygen-budget.ts'
 import {productionSlotDigest} from './character-production-engine.ts'
 import type {ProductionSlot,createCharacterProductionEngine} from './character-production-engine.ts'
 import type {ProductionRpc} from './character-production-store.ts'
@@ -60,7 +61,7 @@ export function createCharacterProductionCoordinator(config:CoordinatorConfig,op
    for(const row of ordered){
     const now=current()
     if(now>=deadline)return {status:'bounded' as const,...summary}
-    if(now<row.scheduledAt||now>=row.notAfter||row.slot.period!==new Date(now).toISOString().slice(0,7)){summary.skipped++;continue}
+    if(now<row.scheduledAt||now>=row.notAfter||row.slot.period!==(row.slot.provider==='heygen'?cafeHeyGenPeriod(now):new Date(now).toISOString().slice(0,7))){summary.skipped++;continue}
     if(attempts>=c.maxSubmissions)return {status:'bounded' as const,...summary}
     attempts++
     // Engine rechecks live authorization/canon and atomically reserves this exact

@@ -8,6 +8,7 @@ const cursor=(v?:string)=>{if(v===undefined)return '';if(!v||v.length>2048)throw
 const object=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Array.isArray(v))throw Error('Invalid HeyGen API object');return v as Record<string,unknown>}
 function data(raw:unknown){const r=object(raw);if(r.error!==undefined&&r.error!==null)throw Error('HeyGen API error');return object(r.data)}
 export const directHeyGenCodecs:HeyGenCodecs={
+ observedReceipt(raw){const d=data(raw);if(!id(d.video_id)||!['waiting','pending','processing'].includes(String(d.status)))throw Error('Unverified HeyGen success identity');return {taskId:d.video_id}},
  receipt(raw){const d=data(raw);if(!id(d.video_id)||!['waiting','pending','processing'].includes(String(d.status))||d.output_format!==undefined&&d.output_format!=='mp4'||d.resolution!==undefined&&d.resolution!==null&&d.resolution!=='1080p'||d.resolution_note)throw Error('Unverified HeyGen creation receipt');return {taskId:d.video_id}},
  status(raw){const d=data(raw);if(!id(d.id))throw Error('Invalid video identity');if(d.status==='pending'||d.status==='processing')return {taskId:d.id,state:'pending'};if(d.status==='failed')return {taskId:d.id,state:'failed'};if(d.status!=='completed'||typeof d.video_url!=='string'||!d.video_url.startsWith('https://')||d.error_code||d.error_message||d.failure_code||d.failure_message)throw Error('Invalid completed video');return {taskId:d.id,state:'completed',mediaUrl:d.video_url}},
 }

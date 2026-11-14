@@ -9,6 +9,7 @@ import type {Pending,Collected,ProductionStore} from './character-production-eng
 export interface RestrictedSession {query(sql:string,values:readonly unknown[]):Promise<{rows:ReadonlyArray<{value:unknown}>}>}
 const generator={
  authorization:['p_key','p_authorization_id'],claim:['p_slot','p_digest'],
+ observe_receipt:['p_key','p_token','p_digest','p_task'],
  submitted:['p_key','p_token','p_digest','p_task'],unknown:['p_key','p_token','p_digest'],
  pending:['p_provider','p_model','p_limit'],failed:['p_job'],due:['p_provider','p_model','p_limit'],
 } as const

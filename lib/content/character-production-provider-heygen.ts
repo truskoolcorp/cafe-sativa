@@ -22,6 +22,8 @@ export interface HeyGenTransport {
 export interface HeyGenCodecs {
   /** Creation and pending result envelopes are unverified. Trusted deployment
    * codecs must reject errors/unknown shapes; no default receipt decoder exists. */
+  /** Narrow success identity, before output qualification. Never decodes errors. */
+  observedReceipt?(raw:unknown):{taskId:string};
   receipt(raw:unknown):{taskId:string}; status(raw:unknown):VideoStatus;
 }
 export type ApprovedAvatar=Readonly<{characterId:string;canonicalRevision:string;portraitSha256:string;voiceId:string;avatarId:string;audioBindingSha256?:string;imageBindingSha256?:string}>
@@ -119,8 +121,9 @@ export function validateHeyGenProductionConfig(c:HeyGenConfig):void {
 export function createHeyGenProductionProvider(config:HeyGenConfig,transport:HeyGenTransport,codecs:HeyGenCodecs):ProductionProvider {
   const c=Object.freeze({...config,bindings:Object.freeze(config.bindings.map(b=>Object.freeze({...b}))),mediaOrigins:Object.freeze([...config.mediaOrigins]),...(config.phases?{phases:Object.freeze({...config.phases})}:{})})
   const create=transport.create_video_from_avatar.bind(transport),get=transport.get_video.bind(transport),prepare=transport.prepare_video_from_avatar?.bind(transport)
-  const receipt=codecs.receipt.bind(codecs),status=codecs.status.bind(codecs),lastPoll=new Map<string,number>()
-  return Object.freeze({name:'heygen',async submit(input:ProductionSlot){
+  const observedReceipt=codecs.observedReceipt?.bind(codecs),receipt=codecs.receipt.bind(codecs),status=codecs.status.bind(codecs),lastPoll=new Map<string,number>()
+  return Object.freeze({name:'heygen',supportsReceiptCapture:typeof observedReceipt==='function',async submit(input:ProductionSlot,observe?:(taskId:string)=>Promise<void>){
+    if(observe&&!observedReceipt)throw Error('Receipt evidence codec unavailable')
     validateHeyGenProductionConfig(c);const s=Object.freeze({...input}),b=c.bindings.find(x=>x.characterId===s.characterId)
     if(!b||s.providerBindingRevision!==heyGenBindingRevision(c,b)||s.provider!=='heygen'||s.model!==c.model||b.canonicalRevision!==s.canonicalRevision||b.portraitSha256!==s.portraitSha256||b.voiceId!==s.voiceId||
       !Number.isSafeInteger(s.authorizationExpiresAt)||s.authorizationExpiresAt<=Date.now()||typeof s.script!=='string'||!s.script.trim()||s.script.length>5000)throw Error('Canonical identity or authority mismatch')
@@ -136,8 +139,10 @@ export function createHeyGenProductionProvider(config:HeyGenConfig,transport:Hey
       finalDeadline=Math.min(Date.now()+c.phases.submitMs,totalDeadline,Date.now()+c.phases.totalMs-(performance.now()-monotonicStart))
       raw=await bounded(finalDeadline,signal=>prepared(signal))
     }else raw=await bounded(deadline,signal=>create(args,signal))
+    let observedId:string|undefined
+    if(observe){const evidence=observedReceipt!(raw);if(!evidence||!id(evidence.taskId))throw Error('Invalid observed identity');observedId=evidence.taskId;await observe(evidence.taskId)}
     const result=receipt(raw)
-    if(Date.now()>=finalDeadline||!result||!id(result.taskId))throw Error('Invalid or late HeyGen receipt')
+    if(Date.now()>=finalDeadline||!result||!id(result.taskId)||(observedId!==undefined&&result.taskId!==observedId))throw Error('Invalid or late HeyGen receipt')
     return {taskId:result.taskId}
   },async collect(taskId:string,providerBindingRevision:string):Promise<Collection>{
     validateHeyGenProductionConfig(c)

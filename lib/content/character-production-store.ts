@@ -38,6 +38,10 @@ export function createPostgresProductionStore(rpc: ProductionRpc, storage: Priva
    if(!record(result)||!isId(result.token)||result.digest!==digest)throw Error('Invalid claim receipt')
    return {token:result.token,digest}
   },
+  async observeReceipt(key,token,digest,taskId){
+   if(![key,token].every(isId)||!isHash(digest)||(taskId!==null&&!isId(taskId)))throw Error('Invalid evidence identity')
+   return await call('observe_receipt',{p_key:key,p_token:token,p_digest:digest,p_task:taskId})===true
+  },
   async markSubmitted(key,token,digest,taskId){
    if(![key,token,taskId].every(isId)||!isHash(digest))throw Error('Invalid receipt')
    return await call('submitted',{p_key:key,p_token:token,p_digest:digest,p_task:taskId})===true

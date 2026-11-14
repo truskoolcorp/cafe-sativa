@@ -7,6 +7,7 @@ on:
       - 'docs/proposals/character-production-*.sql'
       - 'lib/content/character-production*.ts'
       - 'tests/postgres/**'
+      - 'scripts/prepare-character-provisioning.mjs'
       - 'tests/fixtures/character-production-draft-guard.sql'
 permissions:
   contents: read
@@ -44,6 +45,11 @@ jobs:
         run: python3 tests/postgres/validate_queue.py
       - name: Validate output broker authority
         run: python3 tests/postgres/validate_broker.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate inert non-superuser provisioning
+        run: python3 tests/postgres/validate_provisioning.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

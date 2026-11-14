@@ -45,8 +45,8 @@ test('real bounded provider network and direct API honor independent POST/GET bo
  const {createDirectHeyGenApi}=await import('../lib/content/character-production-heygen-direct.ts')
  const tick=new AbortController();let calls=0
  const fake=async(_url,init)=>{calls++;await delay(25);if(init.signal.aborted)throw Error('aborted');return Response.json({data:{id:'existing',status:'pending'}})}
- const network=createProductionProviderFetch(tick.signal,fake,100)
- const api=createDirectHeyGenApi(()=> 'synthetic',network.fetch,5,80)
+ const network=createProductionProviderFetch(tick.signal,fake,1000)
+ const api=createDirectHeyGenApi(()=> 'synthetic',network.fetch,5,800)
  assert.equal((await api.video('existing',new AbortController().signal)).data.id,'existing')
  assert.throws(()=>createProductionFetch(tick.signal,fake,10001))
  await assert.rejects(network.fetch('https://unverified.example.com/'));assert.equal(calls,1)

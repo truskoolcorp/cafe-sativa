@@ -1,0 +1,50 @@
+name: Inert recurring QA installer PostgreSQL
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/qa-recurring-install-postgres.yml'
+      - 'docs/proposals/character-production-qa-*.sql'
+      - 'scripts/prepare-qa-recurring-install.py'
+      - 'tests/postgres/validate_qa_install.py'
+      - 'tests/postgres/validate_qa_recurring_install.py'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d character_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_test
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install official PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Validate inert QA installer with non-superuser and rollback
+        run: python3 tests/postgres/validate_qa_recurring_install.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-recurring-install-postgres-evidence
+          path: evidence/postgres-*-validation.log

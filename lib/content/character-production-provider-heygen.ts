@@ -40,12 +40,21 @@ function origin(value:string) {
   if(u.protocol!=='https:'||u.username||u.password||u.port||isIP(u.hostname)||u.hostname.includes(':')||u.pathname!=='/'||u.search||u.hash||u.origin!==value) throw Error('Invalid verified media origin')
   return u.origin
 }
-/** Conservatively supports only public IPv4, including all resolved answers. */
+/** Conservatively supports only public IPv4, including every returned A record. */
 export function isPublicMediaIPv4(address:string) {
   if(isIP(address)!==4)return false
   const [a,b]=address.split('.').map(Number)
   return !(a===0||a===10||a===127||a>=224||(a===100&&b>=64&&b<=127)||(a===169&&b===254)||
     (a===172&&b>=16&&b<=31)||(a===192&&[0,2,168].includes(b))||(a===198&&[18,19,51].includes(b))||(a===203&&b===0))
+}
+/** Resolve only the address family this downloader can validate and pin. No
+ * IPv6/hostname fallback; mixed private/public A answers remain rejected. */
+export async function resolvePublicMediaIPv4(hostname:string,signal:AbortSignal,resolver:(host:string,options:{all:true;verbatim:true;family:4})=>Promise<{address:string;family:number}[]>=lookup):Promise<string> {
+  if(signal.aborted)throw Error('Media deadline exceeded')
+  const addresses=await resolver(hostname,{all:true,verbatim:true,family:4})
+  if(signal.aborted)throw Error('Media deadline exceeded')
+  if(!addresses.length||addresses.some(a=>a.family!==4||!isPublicMediaIPv4(a.address)))throw Error('Nonpublic media address')
+  return addresses[0].address
 }
 async function bounded<T>(deadline:number,action:(signal:AbortSignal)=>Promise<T>):Promise<T> {
   const started=Date.now(),remaining=deadline-started,monotonic=performance.now()+remaining
@@ -69,10 +78,7 @@ export async function fetchVerifiedMedia(value:string,origins:readonly string[],
   const allowed=origins.map(origin),u=new URL(value)
   if(u.protocol!=='https:'||u.username||u.password||u.hash||!allowed.includes(u.origin))throw Error('Untrusted media location')
   return bounded(deadline,async signal=>{
-    const addresses=await lookup(u.hostname,{all:true,verbatim:true})
-    if(signal.aborted)throw Error('Media deadline exceeded')
-    if(!addresses.length||addresses.some(a=>!isPublicMediaIPv4(a.address)))throw Error('Nonpublic media address')
-    const address=addresses[0].address
+    const address=await resolvePublicMediaIPv4(u.hostname,signal)
     return new Promise<Uint8Array>((resolve,reject)=>{
       const req=request(u,{method:'GET',signal,headers:{Accept:'video/mp4'},lookup:(_host,options,cb)=>{
         if(typeof options==='object'&&'all'in options&&options.all){

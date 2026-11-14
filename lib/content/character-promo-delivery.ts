@@ -1,9 +1,10 @@
+import {watermarkReadiness} from './character-promo-watermark'
 import { createHash } from 'node:crypto'
 import { characterPromoAudioStatus } from './character-promo-audio'
 
 // LOCAL PROPOSAL ONLY: dormant database/provider adapters exist; no runtime caller or route.
 export const CHARACTER_PROMO_DELIVERY_ENABLED = false
-export const PROMO_QA = ['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety'] as const
+export const PROMO_QA = ['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety','third_party_watermark'] as const
 const ACCOUNTS = { facebook: '146219355471397', threads: 'truskoolcorp' } as const
 export type PromoNetwork = keyof typeof ACCOUNTS
 export type PromoDraft = {
@@ -64,6 +65,7 @@ export function prepareCharacterPromo(s: PromoSources, now = Date.now()): PromoS
   const videoSha256=sha(s.videoBytes)
   demand(d.video_asset_path===`character-promos/${d.character_id}/${d.id}/${videoSha256}.mp4`, 'Canonical media path or actual bytes changed')
   demand(s.videoBytes.byteLength>=16 && s.videoBytes.byteLength<=35*1024*1024 && Buffer.from(s.videoBytes).toString('ascii',4,8)==='ftyp', 'Invalid MP4 bytes')
+  demand(watermarkReadiness(d.id,videoSha256,s.qa).ready,'Explicit watermark review required or known marked bytes rejected')
   for(const check of PROMO_QA) {
     const rows=s.qa.filter(q=>q.promo_id===d.id && q.video_sha256===videoSha256 && q.check_name===check)
     demand(rows.length===1 && rows[0].result==='pass', `Current-video QA required: ${check}`)

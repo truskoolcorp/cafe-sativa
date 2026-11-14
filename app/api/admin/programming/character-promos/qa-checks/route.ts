@@ -3,7 +3,7 @@ import {isContentAdmin} from '@/lib/content/auth'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {personaReviewRuntimeEnabled,personaReviewHandlers} from '@/lib/content/character-promo-runtime'
 export const dynamic='force-dynamic'
-const TYPES=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety'] as const
+const TYPES=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety','third_party_watermark'] as const
 const respond=(v:unknown,status=200)=>NextResponse.json(v,{status,headers:{'Cache-Control':'private, no-store'}})
 export async function GET(req:NextRequest){
  if(!await isContentAdmin())return respond({error:'Unauthorized'},401)

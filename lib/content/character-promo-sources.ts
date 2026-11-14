@@ -85,9 +85,9 @@ async function records(db:PromoSourceClient,planId:string) {
   const path=textField(draft,'video_asset_path','media_missing')
   const match=path.match(/^character-promos\/keith\/([a-f0-9-]{36})\/([a-f0-9]{64})\.mp4$/)
   need(match && match[1]===draft.id,'media_path_invalid','Finalized private media path must match this exact promotion and SHA-256')
-  const qa=await readStep(()=>db.from('cs_character_promo_qa_checks').select(QA).eq('promo_id',plan.promo_id as string).eq('video_sha256',match[2]).limit(9),'qa_read_failed','Current-video QA read failed')
+  const qa=await readStep(()=>db.from('cs_character_promo_qa_checks').select(QA).eq('promo_id',plan.promo_id as string).eq('video_sha256',match[2]).limit(10),'qa_read_failed','Current-video QA read failed')
   need(!qa.error && Array.isArray(qa.data),'qa_unavailable','Current-video QA observations unavailable')
-  need(qa.data.length<=8,'qa_ambiguous','Too many current-video QA observations')
+  need(qa.data.length<=9,'qa_ambiguous','Too many current-video QA observations')
   for(const row of qa.data)need(row.promo_id===draft.id && row.video_sha256===match[2] && UUID.test(row.id) && (PROMO_QA as readonly string[]).includes(row.check_name) && ['pass','fail','needs_review'].includes(row.result) && typeof row.evidence==='string' && (row.reviewer_id===null || UUID.test(row.reviewer_id)) && date(row.created_at),'qa_invalid','Incomplete or foreign QA observation')
   // Preserve exact DB facts for consistency checks; normalize timestamp spelling only for engine snapshots.
   return {raw:{draft,plan,qa:[...qa.data].sort((a,b)=>String(a.id).localeCompare(String(b.id)))},hash:match[2],path}

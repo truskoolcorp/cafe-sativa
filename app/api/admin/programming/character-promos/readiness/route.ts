@@ -1,3 +1,4 @@
+import {watermarkReadiness} from '@/lib/content/character-promo-watermark'
 import {characterPromoAudioStatus} from '@/lib/content/character-promo-audio'
 import {NextResponse} from 'next/server'
 import {isContentAdmin} from '@/lib/content/auth'
@@ -10,16 +11,17 @@ export async function GET(){
  const [drafts,plans,qa]=await Promise.all([
   db.from('cs_character_promo_drafts').select('id,character_id,promo_key,title,status,intended_channel,actual_social_account,audio_asset_path,video_asset_path,voice_approved_at,video_qa_approved_at,publication_approved_at,linked_event_id').order('created_at',{ascending:false}).limit(100),
   db.from('cs_character_promo_delivery_plans').select('promo_id,network,account_id,status,scheduled_at,provider_receipt').limit(100),
-  db.from('cs_character_promo_qa_checks').select('promo_id,video_sha256,check_name,result').limit(1000)
+  db.from('cs_character_promo_qa_checks').select('promo_id,video_sha256,check_name,result,evidence,reviewer_id,created_at').limit(1000)
  ])
  if(drafts.error||plans.error||qa.error)return NextResponse.json({error:'Promotion readiness sources unavailable'},{status:503,headers})
  const work=(drafts.data||[]).map(d=>{
   const targets=(plans.data||[]).filter(p=>p.promo_id===d.id)
   const blockers:string[]=[]
-  const expectedChecks=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety']
+  const expectedChecks=['mp4_integrity','canonical_likeness','canonical_speech','lip_sync','visual_text','rights','duration','brand_safety','third_party_watermark']
   const audio=characterPromoAudioStatus(d,qa.data||[])
   const sha=audio.videoSha256
   const observations=(qa.data||[]).filter(q=>q.promo_id===d.id&&q.video_sha256===sha)
+  if(!sha||!watermarkReadiness(d.id,sha,observations).ready)blockers.push('Third-party watermark review missing, uncertain or failed; ecosystem marks require explicit evidence')
   const seen=observations.filter(q=>q.result==='pass')
   const pendingChecks=expectedChecks.filter(name=>!seen.some(q=>q.check_name===name))
   if(!sha||pendingChecks.length)blockers.push('Complete passing QA observations for this exact video hash are missing')

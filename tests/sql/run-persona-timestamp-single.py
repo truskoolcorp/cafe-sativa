@@ -31,6 +31,9 @@ def sql(label,content):
 if HOSTED:
     for i,file in enumerate(['tests/sql/persona-ledger-fixture.sql','supabase/migrations/20261020154000_character_canon_spoken_promos.sql','supabase/migrations/20261020173000_character_promo_qa_checks.sql','supabase/migrations/20261021103000_decouple_promo_script_approval_from_audio.sql','docs/proposals/persona-delivery-ledger.sql','tests/sql/persona-gates-seed.sql','docs/proposals/persona-approval-gates.sql','docs/proposals/persona-owner-revocation.sql']):
         sql('install-'+str(i),(ROOT/file).read_text())
+sql('watermark-rpc',(ROOT/'docs/proposals/persona-qa-observation.sql').read_text().replace('create function public.cs_record_character_promo_qa_observation','create or replace function public.cs_record_character_promo_qa_observation'))
+sql('watermark-schema',(ROOT/'docs/proposals/persona-watermark-qa.sql').read_text())
+sql('watermark-synthetic-evidence',"INSERT INTO public.cs_character_promo_qa_checks(promo_id,video_sha256,check_name,result,evidence,reviewer_id) VALUES('00000000-0000-0000-0000-000000000010',repeat('a',64),'third_party_watermark','pass','Complete synthetic clip reviewed','00000000-0000-0000-0000-000000000001');")
 plan='00000000-0000-0000-0000-000000000020'; actor='00000000-0000-0000-0000-000000000001'
 sha=hashlib.sha256(b'0000ftypisom0000000000000000000').hexdigest()
 sql('prepare',f"""update public.cs_character_promo_drafts set video_asset_path=replace(video_asset_path,repeat('a',64),'{sha}'),voice_approved_at=null,video_qa_approved_at=null,publication_approved_at=null;

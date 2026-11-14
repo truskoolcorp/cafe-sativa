@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/cafe-metricool-postgres.yml'
       - 'docs/proposals/cafe-metricool-store.sql'
+      - 'docs/proposals/cafe-metricool-install.sql'
+      - 'scripts/prepare-cafe-metricool-install.py'
+      - 'tests/postgres/validate_cafe_metricool_install.py'
       - 'tests/postgres/validate_cafe_metricool.py'
       - 'lib/content/character-promo-cafe-store.ts'
 permissions:
@@ -39,8 +42,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Validate isolated authority, concurrent reservations and receipts
         run: python3 tests/postgres/validate_cafe_metricool.py
+      - name: Validate non-superuser production-like RLS installer
+        run: python3 tests/postgres/validate_cafe_metricool_install.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: cafe-metricool-postgres-evidence
-          path: evidence/postgres-cafe-metricool-validation.log
+          path: evidence/postgres-cafe-metricool*-validation.log

@@ -24,7 +24,7 @@ export function createOriginalRecoveryHandler(d:{authorize():Promise<boolean>;op
    try{for(;;){const p=await reader.read();if(c.signal.aborted)throw Error('Cancelled');if(p.done)break;size+=p.value.length;if(size>originalRecovery.bytes||chunks.length>=4096)throw Error('Invalid body');chunks.push(Uint8Array.from(p.value))}}finally{c.signal.removeEventListener('abort',cancel);await reader.cancel().catch(()=>{})}
    const bytes=Buffer.concat(chunks)
    if(size!==originalRecovery.bytes||hash(bytes)!==originalRecovery.sha||bytes.toString('ascii',4,8)!=='ftyp')return reply(400,{error:'Exact completed output required'})
-   const authorized=async()=>{if(c.signal.aborted||now()<originalRecovery.start||now()>=originalRecovery.end||!await d.authorize())throw Error('Recovery authority unavailable')}
+   const authorized=async()=>{if(!await d.authorize()||c.signal.aborted||now()<originalRecovery.start||now()>=originalRecovery.end)throw Error('Recovery authority unavailable')}
    await authorized();access=d.open(c.signal)
    const row=await access.read();if(!valid(row))throw Error('Original reservation unavailable')
    const job=Object.freeze({...row.job}),path=job.digest+'/'+originalRecovery.sha+'.mp4'

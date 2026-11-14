@@ -40,6 +40,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Run isolated serial and concurrent tests
         run: python3 tests/postgres/validate_concurrency.py
+      - name: Validate read-only exact-slot queue
+        run: python3 tests/postgres/validate_queue.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

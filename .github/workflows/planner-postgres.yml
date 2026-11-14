@@ -9,6 +9,7 @@ on:
       - 'tests/postgres/validate_planner.py'
       - 'tests/postgres/validate_qa_install.py'
       - 'tests/postgres/validate_qa_recurring_install.py'
+      - 'tests/postgres/validate_qa_recurring.py'
 permissions:
   contents: read
 jobs:

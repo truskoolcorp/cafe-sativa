@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const allowed: Record<string,string> = {
+  'ead1bf18-b531-4070-b74a-d01953c907cf':'ahnika-merlot',
   '5094636c-be48-4ac3-ae7b-80acfb729c13':'zaria-solenne',
   '3f85873d-7c7b-48c4-8225-fdf9542d486a':'andromeda-zouganelis',
   '4c146dda-4e1c-400f-8371-b49c4dc2eed0':'aurelio',
@@ -18,6 +19,8 @@ export async function POST(req:NextRequest) {
     const body=await req.json()
     const {promoId,sha256,size,stage}=body
     if(typeof promoId!=='string'||!allowed[promoId]||typeof sha256!=='string'||!/^[0-9a-f]{64}$/.test(sha256)||!Number.isInteger(size)||size<1024||size>90*1024*1024||!['init','complete'].includes(stage))return json({error:'Invalid media request'},400)
+    // Exact existing clean provider export only; this repair is not a general Ahnika upload grant.
+    if(promoId==='ead1bf18-b531-4070-b74a-d01953c907cf'&&(sha256!=='5907971bbcfa87654aeb6c0be53acf3e1546f2f8e64e95be3fb97e0f54afe43f'||size!==5229836))return json({error:'Unapproved Ahnika replacement'},400)
     const db=createAdminClient()
     const found=await db.from('cs_character_promo_drafts').select('id,character_id,video_asset_path,evidence').eq('id',promoId).single()
     if(found.error||!found.data||found.data.character_id!==allowed[promoId])return json({error:'Character assignment changed'},409)

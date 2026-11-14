@@ -20,7 +20,7 @@ const dated=(v:string|null,now:number)=>!!v&&Number.isFinite(Date.parse(v))&&Dat
 const fresh=(v:string,now:number)=>dated(v,now)&&now-Date.parse(v)<=60000
 export type CafeOwnerAuthority={
  /** Opaque reference to verified owner-authored permission, never secret/URL. */
- reference:string; scheduleDigest:string; authorizedAt:string; expiresAt:string; revoked:boolean
+ reference:string; evidenceRecord?:string; scheduleDigest:string; authorizedAt:string; expiresAt:string; revoked:boolean
 }
 export type CafeApprovalCandidate={schedule:CafeSchedule;sources:PromoSources;sourceState:unknown;verifiedCollaborators:readonly CafeCollaborator[]}
 /** Same content-only digest used to prepare a candidate; no approval is inferred. */

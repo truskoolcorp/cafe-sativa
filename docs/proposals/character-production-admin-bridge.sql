@@ -6,6 +6,6 @@ RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalo
  SELECT EXISTS(SELECT 1 FROM auth.users u
  WHERE u.id=p_actor AND u.raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb)
 $$;
-REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC, anon, authenticated, service_role, character_production_generator, character_production_output_broker;
 GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO character_production_owner;
 COMMIT;

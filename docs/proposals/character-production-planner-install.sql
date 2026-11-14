@@ -14,6 +14,7 @@ DO $$ BEGIN
 END $$;
 LOCK TABLE public.cs_character_promo_drafts,public.cs_character_promo_delivery_plans,public.cs_character_promo_qa_checks IN SHARE MODE;
 CREATE TEMP TABLE pi_source ON COMMIT DROP AS SELECT 'drafts' name,to_jsonb(x) row FROM public.cs_character_promo_drafts x UNION ALL SELECT 'plans',to_jsonb(x) FROM public.cs_character_promo_delivery_plans x UNION ALL SELECT 'qa',to_jsonb(x) FROM public.cs_character_promo_qa_checks x;
+CREATE TEMP TABLE pi_defaults ON COMMIT DROP AS SELECT * FROM pg_default_acl;
 CREATE TEMP TABLE pi_members ON COMMIT DROP AS SELECT * FROM pg_auth_members;
 CREATE TEMP TABLE pi_ns ON COMMIT DROP AS SELECT oid,nspacl,nspowner FROM pg_namespace WHERE nspname IN ('public','character_production');
 CREATE TEMP TABLE pi_objects ON COMMIT DROP AS SELECT oid,relacl,relowner,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace IN ('public'::regnamespace,'character_production'::regnamespace);
@@ -192,7 +193,7 @@ BEGIN
  RETURNING updated_at INTO stamp;
  RETURN stamp;
 END $$;
-REVOKE ALL ON FUNCTION public.character_production_new_blank_draft(uuid,jsonb,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.character_production_new_blank_draft(uuid,jsonb,text,text) FROM PUBLIC, anon, authenticated, service_role, character_production_generator, character_production_output_broker;
 GRANT EXECUTE ON FUNCTION public.character_production_new_blank_draft(uuid,jsonb,text,text) TO character_production_owner;
 SET LOCAL ROLE character_production_owner;
 DO $$ DECLARE t record; BEGIN
@@ -207,6 +208,7 @@ RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM character_production_owner;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
 DO $$ DECLARE new_function_row record; new_table_row record; own oid:='character_production_owner'::regrole; expected_owner oid; extra oid; BEGIN
+ IF EXISTS((SELECT * FROM pg_default_acl EXCEPT SELECT * FROM pi_defaults) UNION ALL (SELECT * FROM pi_defaults EXCEPT SELECT * FROM pg_default_acl)) THEN RAISE EXCEPTION 'Default ACL changed'; END IF;
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM pi_members) UNION ALL (SELECT * FROM pi_members EXCEPT SELECT * FROM pg_auth_members)) THEN RAISE EXCEPTION 'Membership changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_ns b LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspacl IS DISTINCT FROM b.nspacl OR n.nspowner IS DISTINCT FROM b.nspowner) THEN RAISE EXCEPTION 'Schema authority changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_objects b LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM b.relowner OR c.relacl IS DISTINCT FROM b.relacl OR c.relrowsecurity IS DISTINCT FROM b.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM b.relforcerowsecurity) OR EXISTS(SELECT 1 FROM pi_cols b LEFT JOIN pg_attribute a USING(attrelid,attnum) WHERE a.attrelid IS NULL OR a.attacl IS DISTINCT FROM b.attacl) THEN RAISE EXCEPTION 'Existing object authority changed'; END IF;

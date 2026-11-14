@@ -5,7 +5,7 @@ import hashlib
 R=Path(__file__).resolve().parents[1]
 s=(R/'docs/proposals/character-production-admin-bridge.sql').read_text()
 # Pinned reviewed body filled below.
-PIN='756a531a4749fea7d2923aca416fbee9b6a0ddd2c2dcc718bf5f7fe6f98e1e3f'
+PIN='81c5d9bdb640f18e5a8cc2c40f61508b315c269c31a36277b1ef60925229c95c'
 assert hashlib.sha256(s.encode()).hexdigest()==PIN
 body=s.split('\nBEGIN;',1)[1].rsplit('\nCOMMIT;',1)[0]
 pre=r'''-- OFFLINE only. No activation, identity change or new auth/table privileges.
@@ -22,6 +22,7 @@ END $$;
 CREATE TEMP TABLE ai_ns ON COMMIT DROP AS SELECT oid,nspacl,nspowner FROM pg_namespace WHERE nspname IN ('auth','public','character_production');
 CREATE TEMP TABLE ai_class ON COMMIT DROP AS SELECT oid,relowner,relacl,relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid IN ('auth.users'::regclass,'public.cs_character_promo_drafts'::regclass);
 CREATE TEMP TABLE ai_cols ON COMMIT DROP AS SELECT attrelid,attnum,attacl FROM pg_attribute WHERE attrelid IN (SELECT oid FROM ai_class);
+CREATE TEMP TABLE ai_defaults ON COMMIT DROP AS SELECT * FROM pg_default_acl;
 CREATE TEMP TABLE ai_members ON COMMIT DROP AS SELECT * FROM pg_auth_members;
 CREATE TEMP TABLE ai_policies ON COMMIT DROP AS SELECT oid,to_jsonb(p) data FROM pg_policy p;
 CREATE TEMP TABLE ai_funcs ON COMMIT DROP AS SELECT oid,proowner,proacl,pg_get_functiondef(oid) def FROM pg_proc WHERE pronamespace IN ('auth'::regnamespace,'public'::regnamespace) AND prokind='f';
@@ -29,6 +30,7 @@ CREATE TEMP TABLE ai_funcs ON COMMIT DROP AS SELECT oid,proowner,proacl,pg_get_f
 post=r'''
 DO $$ DECLARE bridge record; own oid:=current_user::regrole; target oid:='character_production_owner'::regrole; BEGIN
  IF EXISTS(SELECT 1 FROM ai_ns b LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspacl IS DISTINCT FROM b.nspacl OR n.nspowner IS DISTINCT FROM b.nspowner) OR EXISTS(SELECT 1 FROM ai_class b LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM b.relowner OR c.relacl IS DISTINCT FROM b.relacl OR c.relrowsecurity IS DISTINCT FROM b.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM b.relforcerowsecurity) OR EXISTS(SELECT 1 FROM ai_cols b LEFT JOIN pg_attribute a USING(attrelid,attnum) WHERE a.attrelid IS NULL OR a.attacl IS DISTINCT FROM b.attacl) THEN RAISE EXCEPTION 'Existing identity/source authority changed'; END IF;
+ IF EXISTS((SELECT * FROM pg_default_acl EXCEPT SELECT * FROM ai_defaults) UNION ALL (SELECT * FROM ai_defaults EXCEPT SELECT * FROM pg_default_acl)) THEN RAISE EXCEPTION 'Default ACL changed'; END IF;
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM ai_members) UNION ALL (SELECT * FROM ai_members EXCEPT SELECT * FROM pg_auth_members)) THEN RAISE EXCEPTION 'Membership changed'; END IF;
  IF EXISTS(SELECT 1 FROM ai_policies b LEFT JOIN pg_policy p USING(oid) WHERE p.oid IS NULL OR to_jsonb(p) IS DISTINCT FROM b.data) OR (SELECT count(*) FROM pg_policy)<>(SELECT count(*) FROM ai_policies) THEN RAISE EXCEPTION 'Policies changed'; END IF;
  IF EXISTS(SELECT 1 FROM ai_funcs b LEFT JOIN pg_proc p USING(oid) WHERE p.oid IS NULL OR p.proowner IS DISTINCT FROM b.proowner OR p.proacl IS DISTINCT FROM b.proacl OR pg_get_functiondef(p.oid) IS DISTINCT FROM b.def) THEN RAISE EXCEPTION 'Existing function changed'; END IF;

@@ -12,6 +12,7 @@ END $$;
 CREATE TEMP TABLE ai_ns ON COMMIT DROP AS SELECT oid,nspacl,nspowner FROM pg_namespace WHERE nspname IN ('auth','public','character_production');
 CREATE TEMP TABLE ai_class ON COMMIT DROP AS SELECT oid,relowner,relacl,relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid IN ('auth.users'::regclass,'public.cs_character_promo_drafts'::regclass);
 CREATE TEMP TABLE ai_cols ON COMMIT DROP AS SELECT attrelid,attnum,attacl FROM pg_attribute WHERE attrelid IN (SELECT oid FROM ai_class);
+CREATE TEMP TABLE ai_defaults ON COMMIT DROP AS SELECT * FROM pg_default_acl;
 CREATE TEMP TABLE ai_members ON COMMIT DROP AS SELECT * FROM pg_auth_members;
 CREATE TEMP TABLE ai_policies ON COMMIT DROP AS SELECT oid,to_jsonb(p) data FROM pg_policy p;
 CREATE TEMP TABLE ai_funcs ON COMMIT DROP AS SELECT oid,proowner,proacl,pg_get_functiondef(oid) def FROM pg_proc WHERE pronamespace IN ('auth'::regnamespace,'public'::regnamespace) AND prokind='f';
@@ -21,10 +22,11 @@ RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalo
  SELECT EXISTS(SELECT 1 FROM auth.users u
  WHERE u.id=p_actor AND u.raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb)
 $$;
-REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC, anon, authenticated, service_role, character_production_generator, character_production_output_broker;
 GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO character_production_owner;
 DO $$ DECLARE bridge record; own oid:=current_user::regrole; target oid:='character_production_owner'::regrole; BEGIN
  IF EXISTS(SELECT 1 FROM ai_ns b LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspacl IS DISTINCT FROM b.nspacl OR n.nspowner IS DISTINCT FROM b.nspowner) OR EXISTS(SELECT 1 FROM ai_class b LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM b.relowner OR c.relacl IS DISTINCT FROM b.relacl OR c.relrowsecurity IS DISTINCT FROM b.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM b.relforcerowsecurity) OR EXISTS(SELECT 1 FROM ai_cols b LEFT JOIN pg_attribute a USING(attrelid,attnum) WHERE a.attrelid IS NULL OR a.attacl IS DISTINCT FROM b.attacl) THEN RAISE EXCEPTION 'Existing identity/source authority changed'; END IF;
+ IF EXISTS((SELECT * FROM pg_default_acl EXCEPT SELECT * FROM ai_defaults) UNION ALL (SELECT * FROM ai_defaults EXCEPT SELECT * FROM pg_default_acl)) THEN RAISE EXCEPTION 'Default ACL changed'; END IF;
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM ai_members) UNION ALL (SELECT * FROM ai_members EXCEPT SELECT * FROM pg_auth_members)) THEN RAISE EXCEPTION 'Membership changed'; END IF;
  IF EXISTS(SELECT 1 FROM ai_policies b LEFT JOIN pg_policy p USING(oid) WHERE p.oid IS NULL OR to_jsonb(p) IS DISTINCT FROM b.data) OR (SELECT count(*) FROM pg_policy)<>(SELECT count(*) FROM ai_policies) THEN RAISE EXCEPTION 'Policies changed'; END IF;
  IF EXISTS(SELECT 1 FROM ai_funcs b LEFT JOIN pg_proc p USING(oid) WHERE p.oid IS NULL OR p.proowner IS DISTINCT FROM b.proowner OR p.proacl IS DISTINCT FROM b.proacl OR pg_get_functiondef(p.oid) IS DISTINCT FROM b.def) THEN RAISE EXCEPTION 'Existing function changed'; END IF;

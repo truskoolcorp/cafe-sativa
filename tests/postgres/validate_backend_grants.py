@@ -24,7 +24,7 @@ def suite():
  db.check("(SELECT count(*)=10 FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'character_production_%' AND has_function_privilege('service_role',oid,'EXECUTE'))",'exact ten grants applied')
  db.check("EXISTS(SELECT 1 FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member='provision_installer'::regrole AND grantor='postgres'::regrole AND admin_option AND NOT inherit_option AND NOT set_option) AND NOT pg_has_role('provision_installer','character_production_owner','SET')",'original grantor/admin edge preserved')
  for sql in ['SELECT * FROM character_production.jobs','SET LOCAL ROLE character_production_owner']:
-  db.run("DO $$ BEGIN SET LOCAL ROLE service_role; BEGIN "+sql+"; RAISE EXCEPTION 'unexpected permission'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; RESET ROLE; END $$;")
+  db.run("SET SESSION AUTHORIZATION service_role; DO $$ BEGIN BEGIN "+sql+"; RAISE EXCEPTION 'unexpected permission'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;")
  db.run("SET ROLE service_role; SELECT public.character_production_pending('heygen','avatar_v',1); RESET ROLE;")
  p=subprocess.run(db.command(),input=prefix+source,text=True,capture_output=True)
  assert p.returncode!=0 and 'Unexpected preexisting backend function access' in p.stderr

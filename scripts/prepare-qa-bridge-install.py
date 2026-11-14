@@ -12,7 +12,7 @@ BEGIN;
 SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='45s';
 DO $$ BEGIN
  IF current_setting('server_version_num')::int NOT BETWEEN 170000 AND 179999 OR current_user<>session_user OR current_user<>'postgres' THEN RAISE EXCEPTION 'Expected direct reviewed PG17 installer'; END IF;
- IF to_regclass('character_production.qa_targets') IS NOT NULL OR to_regclass('character_production.qa_ingestion_receipts') IS NOT NULL OR to_regprocedure('public.character_production_qa_prepare(text,text)') IS NOT NULL THEN RAISE EXCEPTION 'Existing QA bridge requires reconciliation'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='character_production' AND c.relname IN ('qa_targets','qa_ingestion_receipts')) OR to_regprocedure('public.character_production_qa_prepare(text,text)') IS NOT NULL THEN RAISE EXCEPTION 'Existing QA bridge requires reconciliation'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') OR has_schema_privilege('character_production_owner','public','CREATE') THEN RAISE EXCEPTION 'Unexpected owner privilege baseline'; END IF;
  IF (SELECT count(*) FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor<>current_user::regrole AND admin_option AND NOT inherit_option AND NOT set_option)<>1 OR EXISTS(SELECT 1 FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor=current_user::regrole) THEN RAISE EXCEPTION 'Missing original bootstrap owner context'; END IF;
  IF NOT EXISTS(SELECT 1 FROM pg_class WHERE oid='public.cs_character_promo_drafts'::regclass AND relowner=current_user::regrole AND relrowsecurity AND NOT relforcerowsecurity) OR EXISTS(SELECT 1 FROM pg_policy WHERE polrelid='public.cs_character_promo_drafts'::regclass) THEN RAISE EXCEPTION 'Expected source owner/RLS/zero-policy baseline'; END IF;
@@ -41,12 +41,20 @@ DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM character_production.qa_targets) OR EXISTS(SELECT 1 FROM character_production.qa_ingestion_receipts) THEN RAISE EXCEPTION 'Bridge must install empty'; END IF;
  IF EXISTS(WITH actual AS (SELECT 'jobs' name,to_jsonb(x) row FROM character_production.jobs x UNION ALL SELECT 'budgets',to_jsonb(x) FROM character_production.budgets x UNION ALL SELECT 'slots',to_jsonb(x) FROM character_production.approved_slots x UNION ALL SELECT 'schedules',to_jsonb(x) FROM character_production.schedules x) (SELECT * FROM actual EXCEPT SELECT * FROM qi_rows) UNION ALL (SELECT * FROM qi_rows EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'Ledger data changed'; END IF;
 END $$;
+-- CREATE POLICY must resolve private relation names as the original table owner.
+-- Give that bootstrap session schema-name resolution only, never table access.
+CREATE TEMP TABLE qi_namespace_grant(granted boolean NOT NULL) ON COMMIT DROP;
+INSERT INTO qi_namespace_grant VALUES(NOT has_schema_privilege(session_user,'character_production','USAGE'));
+DO $$ BEGIN IF (SELECT granted FROM qi_namespace_grant) THEN GRANT USAGE ON SCHEMA character_production TO postgres; END IF; END $$;
 RESET ROLE;
 -- Target-scoped read and row lock; only exact rendered destination may be written.
 CREATE POLICY character_production_qa_read ON public.cs_character_promo_drafts FOR SELECT TO character_production_owner USING(EXISTS(SELECT 1 FROM character_production.qa_targets t WHERE t.promo_id=id AND t.enabled));
 CREATE POLICY character_production_qa_write ON public.cs_character_promo_drafts FOR UPDATE TO character_production_owner
  USING(EXISTS(SELECT 1 FROM character_production.qa_targets t WHERE t.promo_id=id AND t.enabled))
  WITH CHECK(status IN ('draft','revision_requested') AND audio_asset_path IS NULL AND voice_approved_at IS NULL AND video_qa_approved_at IS NULL AND publication_approved_at IS NULL AND EXISTS(SELECT 1 FROM character_production.qa_targets t JOIN character_production.jobs j ON j.key=t.job_key AND j.digest=t.digest WHERE t.promo_id=id AND t.enabled AND j.state='pending_qa' AND character_id=j.slot->>'characterId' AND spoken_script=j.slot->>'script' AND video_asset_path='character-promos/'||character_id||'/'||id::text||'/'||j.sha||'.mp4' AND updated_at>=t.expected_updated_at));
+SET LOCAL ROLE character_production_owner;
+DO $$ BEGIN IF (SELECT granted FROM qi_namespace_grant) THEN REVOKE USAGE ON SCHEMA character_production FROM postgres; END IF; END $$;
+RESET ROLE;
 REVOKE REFERENCES(id) ON public.cs_character_promo_drafts FROM character_production_owner;
 REVOKE CREATE ON SCHEMA public FROM character_production_owner;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
@@ -62,7 +70,7 @@ DO $$ DECLARE r text; f record; BEGIN
  IF (SELECT count(*) FROM qi_acl_after WHERE grantee='character_production_owner'::regrole)<>3 OR EXISTS(SELECT 1 FROM qi_acl_after WHERE grantee='character_production_owner'::regrole AND NOT (grantor=current_user::regrole AND NOT is_grantable AND ((kind='table' AND privilege_type='SELECT') OR (kind='column' AND privilege_type='UPDATE' AND attnum IN (SELECT attnum FROM pg_attribute WHERE attrelid='public.cs_character_promo_drafts'::regclass AND attname IN ('video_asset_path','updated_at')))) )) THEN RAISE EXCEPTION 'Expected exact source read and two-column update rights'; END IF;
  IF (SELECT count(*) FROM pg_policy WHERE polrelid='public.cs_character_promo_drafts'::regclass)<>2 OR EXISTS(SELECT 1 FROM pg_policy WHERE polrelid='public.cs_character_promo_drafts'::regclass AND NOT (polroles=ARRAY['character_production_owner'::regrole::oid] AND polpermissive AND ((polname='character_production_qa_read' AND polcmd='r') OR (polname='character_production_qa_write' AND polcmd='w')))) THEN RAISE EXCEPTION 'Unexpected source policies'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') OR has_schema_privilege('character_production_owner','public','CREATE') THEN RAISE EXCEPTION 'Temporary owner authority leaked'; END IF;
- FOR f IN SELECT oid,pronamespace,proname FROM pg_proc WHERE oid IN ('character_production.qa_manifest(text,text)'::regprocedure,'public.character_production_qa_prepare(text,text)'::regprocedure,'public.character_production_qa_commit(text,text,text,bigint,uuid,timestamptz,text,text)'::regprocedure,'public.character_production_qa_pending(integer)'::regprocedure) LOOP
+ FOR f IN SELECT oid,pronamespace,proname FROM pg_proc WHERE oid IN ((SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='character_production' AND p.proname='qa_manifest' AND oidvectortypes(p.proargtypes)='text, text'),'public.character_production_qa_prepare(text,text)'::regprocedure,'public.character_production_qa_commit(text,text,text,bigint,uuid,timestamptz,text,text)'::regprocedure,'public.character_production_qa_pending(integer)'::regprocedure) LOOP
  IF EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=f.oid AND (a.grantor<>'character_production_owner'::regrole OR a.is_grantable OR a.privilege_type<>'EXECUTE' OR a.grantee NOT IN ('character_production_owner'::regrole,CASE WHEN f.pronamespace='public'::regnamespace THEN 'service_role'::regrole ELSE 'character_production_owner'::regrole END))) THEN RAISE EXCEPTION 'Unexpected bridge ACL'; END IF;
  IF (SELECT proowner FROM pg_proc WHERE oid=f.oid)<>'character_production_owner'::regrole THEN RAISE EXCEPTION 'Wrong bridge function owner'; END IF;
  FOREACH r IN ARRAY ARRAY['anon','authenticated','character_production_generator','character_production_output_broker'] LOOP IF has_function_privilege(r,f.oid,'EXECUTE') THEN RAISE EXCEPTION 'Unexpected bridge execution'; END IF; END LOOP;

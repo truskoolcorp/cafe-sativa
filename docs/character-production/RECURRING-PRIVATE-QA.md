@@ -32,3 +32,11 @@ only prebound draft rows for validation/locking, exact target enrollment, and th
 already-reviewed immutable media-path update. Existing original-job recovery,
 paid expiry, balances and publication plans must remain unchanged. A successful
 mock copy is not evidence that recurring production is operational.
+
+Queue fairness limitation: a draft with an existing dispatch attempt may still look
+blank but be frozen by a legacy or Café delivery guard. The trusted planner must
+create fresh never-dispatched drafts, not reuse historical drafts. The proposal
+does not grant access to private delivery ledgers. Before operational activation,
+add a reviewed minimal eligibility check or durable held-item cursor/backoff so
+an unexpected frozen entry cannot repeatedly starve later candidates. Existing
+freeze guards must remain fail-closed; do not bypass them to force a copy.

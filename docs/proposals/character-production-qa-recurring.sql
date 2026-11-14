@@ -92,7 +92,7 @@ RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
  AND NOT EXISTS(SELECT 1 FROM character_production.qa_ingestion_receipts r WHERE r.job_key=j.key)
  AND NOT EXISTS(SELECT 1 FROM character_production.qa_targets t WHERE t.job_key=j.key AND
  (t.enabled IS DISTINCT FROM true OR t.digest IS DISTINCT FROM b.digest OR t.promo_id IS DISTINCT FROM b.promo_id OR t.expected_updated_at IS DISTINCT FROM b.expected_updated_at))
- ORDER BY j.created_at,j.key LIMIT greatest(0,least(coalesce(p_limit,0),5)) x
+ ORDER BY j.created_at,j.key LIMIT greatest(0,least(coalesce(p_limit,0),5))) x
 $$;
 REVOKE ALL ON FUNCTION public.character_production_qa_materialize(text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.character_production_qa_ready_slots(integer) FROM PUBLIC;

@@ -32,7 +32,7 @@ function page(raw:unknown):Page {
 }
 /** Config and expected binding are snapshots; account/model/IDs are never inferred
  * from names or provider suggestions. Both resources must be exact private IDs. */
-export function createHeyGenBindingVerifier(config:Pick<HeyGenConfig,'linkId'|'model'>,transport:HeyGenInventoryTransport,budgetMs=8000):(binding:ApprovedAvatar)=>Promise<boolean> {
+export function createHeyGenBindingVerifier(config:Pick<HeyGenConfig,'linkId'|'model'|'aspectRatio'>,transport:HeyGenInventoryTransport,budgetMs=8000):(binding:ApprovedAvatar)=>Promise<boolean> {
   const c=Object.freeze({...config}),looks=transport.list_avatar_looks.bind(transport),voices=transport.list_voices.bind(transport)
   return async input=>{
     const binding=Object.freeze({...input})

@@ -193,6 +193,30 @@ const receipts:readonly ExternalPromoReceipt[]=[
     "scheduledAt": "2026-11-17T18:00:00-06:00",
     "observedAt": "2026-11-14T14:35:00Z",
     "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428080195",
+    "promoId": "5094636c-be48-4ac3-ae7b-80acfb729c13",
+    "videoSha256": "dc3317c20da4378aa290e7c4dc40ceac617a0267bc11db0444b153399edfb951",
+    "brandId": "7605217",
+    "network": "facebook",
+    "accountId": "105363501666032",
+    "scheduledAt": "2026-11-18T10:00:00-06:00",
+    "observedAt": "2026-11-14T15:13:00Z",
+    "state": "scheduled"
+  },
+  {
+    "provider": "metricool",
+    "providerId": "428080195",
+    "promoId": "5094636c-be48-4ac3-ae7b-80acfb729c13",
+    "videoSha256": "dc3317c20da4378aa290e7c4dc40ceac617a0267bc11db0444b153399edfb951",
+    "brandId": "7605217",
+    "network": "instagram",
+    "accountId": "cafesativainc",
+    "scheduledAt": "2026-11-18T10:00:00-06:00",
+    "observedAt": "2026-11-14T15:13:00Z",
+    "state": "scheduled"
   }
 ]
 export function assertNoKnownExternalPromo(identity:PromoDeliveryIdentity){if(externalPromoDeliveryDecision(identity,receipts)!=='clear')throw Error('Externally scheduled media requires reconciliation; do not submit again')}

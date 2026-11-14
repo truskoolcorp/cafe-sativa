@@ -9,7 +9,7 @@ import type { ProductionProvider, ProductionSlot, Collection } from './character
 export type AvatarModel = 'avatar_v' | 'avatar_iv' | 'avatar_iii' | 'heygen-avatar-6' | 'heygen-avatar-6-turbo'
 export type AvatarArguments = Readonly<{
   link_id: string; avatarId: string; voiceId: string; script: string;
-  engine: Readonly<{type: AvatarModel}>; aspectRatio: '9:16'; outputFormat: 'mp4'; resolution: '1080p';
+  engine: Readonly<{type: AvatarModel}>; aspectRatio: '9:16'|'16:9'; outputFormat: 'mp4'; resolution: '1080p';
 }>
 export type VideoStatus = {taskId:string;state:'pending'|'failed'} | {taskId:string;state:'completed';mediaUrl:string}
 export interface HeyGenTransport {
@@ -24,7 +24,7 @@ export interface HeyGenCodecs {
 }
 export type ApprovedAvatar=Readonly<{characterId:string;canonicalRevision:string;portraitSha256:string;voiceId:string;avatarId:string}>
 export type HeyGenConfig=Readonly<{
-  enabled?:boolean;linkId:string;model:AvatarModel;bindings:readonly ApprovedAvatar[];
+  enabled?:boolean;aspectRatio?:'9:16'|'16:9';linkId:string;model:AvatarModel;bindings:readonly ApprovedAvatar[];
   mediaOrigins:readonly string[];timeoutMs:number;maxVideoBytes:number;
 }>
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$/.test(v)
@@ -96,11 +96,11 @@ export async function fetchVerifiedMedia(value:string,origins:readonly string[],
   })
 }
 /** Persist with trusted authorization, immutable claim, and pending job. */
-export function heyGenBindingRevision(config:Pick<HeyGenConfig,'linkId'|'model'>,binding:ApprovedAvatar):string {
-  if(!id(config.linkId)||!models.has(config.model)||!binding||!id(binding.characterId)||!id(binding.avatarId)||!id(binding.voiceId)||!hash(binding.canonicalRevision)||!hash(binding.portraitSha256))throw Error('Invalid provider binding')
+export function heyGenBindingRevision(config:Pick<HeyGenConfig,'linkId'|'model'|'aspectRatio'>,binding:ApprovedAvatar):string {
+  if((config.aspectRatio!==undefined&&!['9:16','16:9'].includes(config.aspectRatio))||!id(config.linkId)||!models.has(config.model)||!binding||!id(binding.characterId)||!id(binding.avatarId)||!id(binding.voiceId)||!hash(binding.canonicalRevision)||!hash(binding.portraitSha256))throw Error('Invalid provider binding')
   return createHash('sha256').update(JSON.stringify([
     'heygen-avatar-binding-v1','heygen',config.linkId,config.model,binding.characterId,
-    binding.canonicalRevision,binding.portraitSha256,binding.voiceId,binding.avatarId,'9:16','mp4','1080p',
+    binding.canonicalRevision,binding.portraitSha256,binding.voiceId,binding.avatarId,config.aspectRatio??'9:16','mp4','1080p',
   ])).digest('hex')
 }
 /** Pure preclaim configuration check. Never opens a provider connection. */
@@ -121,7 +121,7 @@ export function createHeyGenProductionProvider(config:HeyGenConfig,transport:Hey
     if(!b||s.providerBindingRevision!==heyGenBindingRevision(c,b)||s.provider!=='heygen'||s.model!==c.model||b.canonicalRevision!==s.canonicalRevision||b.portraitSha256!==s.portraitSha256||b.voiceId!==s.voiceId||
       !Number.isSafeInteger(s.authorizationExpiresAt)||s.authorizationExpiresAt<=Date.now()||typeof s.script!=='string'||!s.script.trim()||s.script.length>5000)throw Error('Canonical identity or authority mismatch')
     const deadline=Math.min(Date.now()+c.timeoutMs,s.authorizationExpiresAt)
-    const args=Object.freeze({link_id:c.linkId,avatarId:b.avatarId,voiceId:b.voiceId,script:s.script,engine:Object.freeze({type:c.model}),aspectRatio:'9:16' as const,outputFormat:'mp4' as const,resolution:'1080p' as const})
+    const args=Object.freeze({link_id:c.linkId,avatarId:b.avatarId,voiceId:b.voiceId,script:s.script,engine:Object.freeze({type:c.model}),aspectRatio:c.aspectRatio??'9:16',outputFormat:'mp4' as const,resolution:'1080p' as const})
     const result=receipt(await bounded(deadline,signal=>create(args,signal)))
     if(Date.now()>=deadline||!result||!id(result.taskId))throw Error('Invalid or late HeyGen receipt')
     return {taskId:result.taskId}

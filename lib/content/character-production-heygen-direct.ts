@@ -2,6 +2,7 @@ import {renderedAudioDigest,renderedAudioPath,verifyRenderedAudio} from './chara
 import type {RenderedAudioBinding} from './character-production-rendered-audio.ts'
 import type {HeyGenTransport,HeyGenCodecs} from './character-production-provider-heygen.ts'
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$/.test(v)
+const cursor=(v?:string)=>{if(v===undefined)return '';if(!v||v.length>2048)throw Error('Invalid inventory cursor');return '&token='+encodeURIComponent(v)}
 const object=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Array.isArray(v))throw Error('Invalid HeyGen API object');return v as Record<string,unknown>}
 function data(raw:unknown){const r=object(raw);if(r.error!==undefined&&r.error!==null)throw Error('HeyGen API error');return object(r.data)}
 export const directHeyGenCodecs:HeyGenCodecs={
@@ -27,8 +28,8 @@ export function createDirectHeyGenApi(key:()=>string|undefined,fetcher:typeof fe
  return {
   /** Inventory only; current API lists use data arrays, NOT connector items. */
   account:(signal:AbortSignal)=>call('/v3/users/me',signal),
-  looks:(signal:AbortSignal)=>call('/v3/avatars/looks?ownership=private&limit=50',signal),
-  voices:(signal:AbortSignal)=>call('/v3/models/audio/voices?type=private&limit=50',signal),
+  looks:(signal:AbortSignal,token?:string)=>call('/v3/avatars/looks?ownership=private&limit=50'+cursor(token),signal),
+  voices:(signal:AbortSignal,token?:string)=>call('/v3/models/audio/voices?type=private&limit=50'+cursor(token),signal),
   video:(videoId:string,signal:AbortSignal)=>{if(!id(videoId))throw Error('Invalid video ID');return call('/v3/videos/'+encodeURIComponent(videoId),signal)},
   /** Internal trusted storage contract, NOT a new provider endpoint. Synthesis
    * receipts must already be persisted/approved. URL is minted only after exact

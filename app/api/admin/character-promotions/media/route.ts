@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const allowed: Record<string,string> = {
+  '573fb8db-a215-491f-8efc-0f48153f2d85':'laviche-fea',
   'ead1bf18-b531-4070-b74a-d01953c907cf':'ahnika-merlot',
   '5094636c-be48-4ac3-ae7b-80acfb729c13':'zaria-solenne',
   '3f85873d-7c7b-48c4-8225-fdf9542d486a':'andromeda-zouganelis',
@@ -21,6 +22,7 @@ export async function POST(req:NextRequest) {
     if(typeof promoId!=='string'||!allowed[promoId]||typeof sha256!=='string'||!/^[0-9a-f]{64}$/.test(sha256)||!Number.isInteger(size)||size<1024||size>90*1024*1024||!['init','complete'].includes(stage))return json({error:'Invalid media request'},400)
     // Exact existing clean provider export only; this repair is not a general Ahnika upload grant.
     if(promoId==='ead1bf18-b531-4070-b74a-d01953c907cf'&&(sha256!=='5907971bbcfa87654aeb6c0be53acf3e1546f2f8e64e95be3fb97e0f54afe43f'||size!==5229836))return json({error:'Unapproved Ahnika replacement'},400)
+    if(promoId==='573fb8db-a215-491f-8efc-0f48153f2d85'&&(sha256!=='7e5ecebd41c4ed492d3b16597ac82014078cb5c74f271bb91dac7caa7a5ad1c7'||size!==16597646))return json({error:'Unapproved Laviche replacement'},400)
     const db=createAdminClient()
     const found=await db.from('cs_character_promo_drafts').select('id,character_id,video_asset_path,evidence').eq('id',promoId).single()
     if(found.error||!found.data||found.data.character_id!==allowed[promoId])return json({error:'Character assignment changed'},409)

@@ -49,7 +49,7 @@ GRANT EXECUTE ON FUNCTION public.character_production_submitted(text,text,text,t
 GRANT EXECUTE ON FUNCTION public.character_production_unknown(text,text,text) TO service_role;
 RESET ROLE;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
-DO $$ DECLARE r text; p record; BEGIN
+DO $$ DECLARE r text; checked_function record; BEGIN
  IF (SELECT count(*) FROM pg_temp.backend_expected_functions)<>10 OR EXISTS(SELECT 1 FROM pg_temp.backend_expected_functions e WHERE NOT has_function_privilege('service_role',e.oid,'EXECUTE')) THEN RAISE EXCEPTION 'Exact ten RPC grants missing'; END IF;
  IF EXISTS(
  (SELECT * FROM pg_temp.backend_members_before EXCEPT SELECT roleid,member,grantor,admin_option,inherit_option,set_option FROM pg_auth_members)
@@ -66,8 +66,8 @@ DO $$ DECLARE r text; p record; BEGIN
  ) THEN RAISE EXCEPTION 'Unexpected function ACL delta'; END IF;
  IF pg_has_role('postgres','character_production_owner','SET') THEN RAISE EXCEPTION 'Temporary SET not removed'; END IF;
  FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP
- FOR p IN SELECT oid FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'character_production_%' LOOP
- IF has_function_privilege(r,p.oid,'EXECUTE') THEN RAISE EXCEPTION 'Public API execution leak'; END IF;
+ FOR checked_function IN SELECT oid FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'character_production_%' LOOP
+ IF has_function_privilege(r,checked_function.oid,'EXECUTE') THEN RAISE EXCEPTION 'Public API execution leak'; END IF;
  END LOOP; END LOOP;
  IF has_schema_privilege('service_role','character_production','USAGE') OR EXISTS(SELECT 1 FROM pg_class WHERE relnamespace='character_production'::regnamespace AND relkind='r' AND has_table_privilege('service_role',oid,'SELECT,INSERT,UPDATE,DELETE')) THEN RAISE EXCEPTION 'Unexpected direct ledger privilege'; END IF;
 END $$;

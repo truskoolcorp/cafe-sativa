@@ -6,7 +6,7 @@ import validate_qa_install as qa
 import validate_qa_recurring_install as recurring
 
 def auth_snapshot():
- return db.run("SELECT jsonb_build_object('ns',(SELECT jsonb_build_array(nspowner,nspacl::text) FROM pg_namespace WHERE nspname='auth'),'table',(SELECT jsonb_build_array(relowner,relacl::text,relrowsecurity,relforcerowsecurity) FROM pg_class WHERE oid='auth.users'::regclass),'columns',(SELECT jsonb_agg(jsonb_build_array(attnum,attacl::text) ORDER BY attnum) FROM pg_attribute WHERE attrelid='auth.users'::regclass),'rows',(SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM auth.users u))")
+ return db.run("SELECT jsonb_build_object('defaults',(SELECT jsonb_agg(to_jsonb(d) ORDER BY oid) FROM pg_default_acl d),'ns',(SELECT jsonb_build_array(nspowner,nspacl::text) FROM pg_namespace WHERE nspname='auth'),'table',(SELECT jsonb_build_array(relowner,relacl::text,relrowsecurity,relforcerowsecurity) FROM pg_class WHERE oid='auth.users'::regclass),'columns',(SELECT jsonb_agg(jsonb_build_array(attnum,attacl::text) ORDER BY attnum) FROM pg_attribute WHERE attrelid='auth.users'::regclass),'rows',(SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM auth.users u))")
 
 def suite():
  recurring.suite()
@@ -27,6 +27,7 @@ def suite():
  # Only the identities/data are synthetic, never the permission predicate.
  db.check("to_regnamespace('auth') IS NULL",'fresh auth fixture required')
  db.run("CREATE ROLE auth_planner_test_owner NOLOGIN NOSUPERUSER; CREATE SCHEMA auth AUTHORIZATION auth_planner_test_owner; SET ROLE auth_planner_test_owner; CREATE TABLE auth.users(id uuid PRIMARY KEY,raw_app_meta_data jsonb,raw_user_meta_data jsonb); RESET ROLE; GRANT USAGE ON SCHEMA auth TO provision_installer; GRANT SELECT(id,raw_app_meta_data) ON auth.users TO provision_installer; INSERT INTO auth.users VALUES('88888888-8888-4888-8888-888888888888','{\"cafe_sativa_admin\":true}','{}'),('88888888-8888-4888-8888-888888888889','{}','{\"cafe_sativa_admin\":true}');")
+ db.run('ALTER DEFAULT PRIVILEGES FOR ROLE provision_installer IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated,service_role,character_production_generator,character_production_output_broker; ALTER DEFAULT PRIVILEGES FOR ROLE provision_installer IN SCHEMA public GRANT USAGE ON SEQUENCES TO anon;')
  auth_before=auth_snapshot()
  admin=(db.ROOT/'docs/proposals/character-production-admin-bridge-install.sql').read_text()
  assert admin==subprocess.check_output(['python3','scripts/prepare-planner-admin-install.py'],cwd=db.ROOT,text=True)

@@ -11,7 +11,7 @@ function matches(d:Metadata,b:typeof productionBuckets[number]){return d?.id===b
  * An unknown create response is held, never automatically retried. */
 export async function provisionCharacterStorage(storage:BucketProvisioningStorage,create=false){
  const observed=[]
- for(const b of productionBuckets){const r=await deadline(storage.getBucket(b.id));if(r.error){if(Number(r.error.status??r.error.statusCode)!==404)throw Error('Storage inspection failed');observed.push({id:b.id,status:'missing'})}else observed.push({id:b.id,status:matches(r.data as Metadata,b)?'verified_private':'conflict'})}
+ for(const b of productionBuckets){const r=await deadline(storage.getBucket(b.id));if(r.error){if(!(Number(r.error.status??r.error.statusCode)===404||(Number(r.error.status)===400&&['404','NoSuchBucket'].includes(String(r.error.statusCode)))))throw Error('Storage inspection failed');observed.push({id:b.id,status:'missing'})}else observed.push({id:b.id,status:matches(r.data as Metadata,b)?'verified_private':'conflict'})}
  if(!create||observed.some(b=>b.status==='conflict'))return {ready:observed.every(b=>b.status==='verified_private'),buckets:observed,changed:false}
  const created:string[]=[]
  for(const b of productionBuckets){if(observed.find(x=>x.id===b.id)?.status!=='missing')continue

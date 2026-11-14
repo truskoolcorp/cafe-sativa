@@ -47,7 +47,8 @@ def suite():
  submitted=int(db.run("SELECT 'public.character_production_submitted(text,text,text,text)'::regprocedure::oid"))
  for x in old['base']['functions']:
   assert funcs[x[0]][:3]==x[:3]
-  if x[0]!=submitted:assert funcs[x[0]]==x
+  if str(x[0])!=str(submitted):assert funcs[x[0]]==x
+ assert sum(str(x[0])==str(submitted) for x in old['base']['functions'])==1,'exact submitted function identity found'
  db.check("NOT pg_has_role('provision_installer','character_production_owner','SET') AND NOT has_schema_privilege('character_production_owner','public','CREATE')",'temporary owner restored')
  db.check("(SELECT count(*)=11 FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'character_production_%' AND has_function_privilege('service_role',oid,'EXECUTE'))",'only eleventh backend RPC added')
  for role in ['anon','authenticated','character_production_generator','character_production_output_broker']:

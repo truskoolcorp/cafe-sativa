@@ -13,8 +13,8 @@ export const directHeyGenCodecs:HeyGenCodecs={
 }
 /** Fixed-host HTTP client. Existing backend env accessor supplied by caller;
  * never logs key/body/raw error. Native fetch does not retry. No arbitrary URL. */
-export function createDirectHeyGenApi(key:()=>string|undefined,fetcher:typeof fetch=fetch,timeoutMs=8000){
- if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>30000)throw Error('Invalid API deadline')
+export function createDirectHeyGenApi(key:()=>string|undefined,fetcher:typeof fetch=fetch,timeoutMs=8000,readTimeoutMs=timeoutMs){
+ if([timeoutMs,readTimeoutMs].some(ms=>!Number.isSafeInteger(ms)||ms<1||ms>30000))throw Error('Invalid API deadline')
  async function call(path:string,signal:AbortSignal,body?:unknown){
   const secret=key();if(!secret||secret.length>4096||/[\r\n]/.test(secret))throw Error('HeyGen API key unavailable')
   const c=new AbortController(),abort=()=>c.abort();signal.addEventListener('abort',abort,{once:true});if(signal.aborted)c.abort()
@@ -25,7 +25,7 @@ export function createDirectHeyGenApi(key:()=>string|undefined,fetcher:typeof fe
    if(r.status!==200||!r.headers.get('content-type')?.toLowerCase().includes('application/json')||!r.body)throw Error('HeyGen API request unavailable')
    const reader=r.body.getReader();const chunks:Uint8Array[]=[];let size=0
    try{while(true){const p=await reader.read();if(c.signal.aborted)throw Error('HeyGen response expired');if(p.done)break;size+=p.value.length;if(size>1_000_000||chunks.length>=4096)throw Error('HeyGen response exceeds bound');chunks.push(p.value)}return JSON.parse(Buffer.concat(chunks).toString('utf8'))}finally{void reader.cancel().catch(()=>{})}
-  })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{c.abort();reject(Error('HeyGen request unconfirmed'))},timeoutMs)})])}finally{clearTimeout(timer);c.abort();signal.removeEventListener('abort',abort)}
+  })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{c.abort();reject(Error('HeyGen request unconfirmed'))},body?timeoutMs:readTimeoutMs)})])}finally{clearTimeout(timer);c.abort();signal.removeEventListener('abort',abort)}
  }
  return {
   imageTransport:(account:string,proofs:readonly CanonicalImageBinding[],images:PrivateMediaSource,audio:PrivateMediaSource)=>canonicalImageTransport(call,account,proofs,images,audio),

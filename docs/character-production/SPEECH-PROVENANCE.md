@@ -39,3 +39,10 @@ Official contracts: https://elevenlabs.io/docs/api-reference/text-to-speech/conv
 and https://github.com/elevenlabs/skills/blob/main/text-to-speech/SKILL.md (response
 request-id and x-character-count guidance). Character-cost headers are not used as
 permission to exceed the preauthorized conservative monetary reservation.
+
+Storage capability is preflighted before claiming cost and again immediately before
+POST. Each exact authorization includes maxAudioBytes; provider streaming, engine,
+SQL manifest attestation and live bucket limit must agree. A planned8MiB bucket
+therefore requires an authorized≤8MiB speech cap rather than silently accepting32MiB.
+A later storage outage remains possible after preflight and is a reconciliation
+hold, never automatic regeneration.

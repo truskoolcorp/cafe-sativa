@@ -11,7 +11,7 @@ def suite():
  db.check("to_regclass('character_production.speech_jobs') IS NULL",'speech rollback')
  db.run('SET ROLE character_production_owner; '+source+' RESET ROLE; REVOKE CREATE ON SCHEMA public FROM character_production_owner;')
  period=time.strftime('%Y-%m',time.gmtime())
- slot=dict(key='one',authorizationId='approval',accountBinding='speech-account',characterId='synthetic',avatarId='avatar',voiceId='voice',voiceModel='eleven_v4',canonicalRevision='a'*64,portraitSha256='b'*64,script='Exact script',period=period,expiresAt=int(time.time()*1000)+600000,quoteCents=10,periodCapCents=20,maxCharacters=100)
+ slot=dict(key='one',authorizationId='approval',accountBinding='speech-account',characterId='synthetic',avatarId='avatar',voiceId='voice',voiceModel='eleven_v4',canonicalRevision='a'*64,portraitSha256='b'*64,script='Exact script',period=period,expiresAt=int(time.time()*1000)+600000,quoteCents=10,periodCapCents=20,maxCharacters=100,maxAudioBytes=1024)
  def encoded(x):return db.quote(json.dumps(x,separators=(',',':')))+'::jsonb'
  db.run("INSERT INTO character_production.speech_budgets(account,period,cap_cents,enabled) VALUES('speech-account',"+db.quote(period)+",20,true);")
  for key in ['one','two','three']:

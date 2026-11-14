@@ -35,9 +35,10 @@ BEGIN
  IF p_slot IS NULL OR p_digest IS NULL OR p_digest !~ '^[a-f0-9]{64}$' OR jsonb_typeof(p_slot)<>'object' OR p_slot->>'key' IS NULL THEN RETURN NULL; END IF;
  SELECT * INTO a FROM character_production.speech_authorizations WHERE key=p_slot->>'key' FOR UPDATE;
  IF NOT FOUND OR NOT a.enabled OR a.slot<>p_slot OR a.digest<>p_digest THEN RETURN NULL; END IF;
- IF EXISTS(SELECT 1 FROM unnest(ARRAY['key','authorizationId','accountBinding','characterId','avatarId','voiceId','voiceModel','canonicalRevision','portraitSha256','script','period','expiresAt','quoteCents','periodCapCents','maxCharacters']) k WHERE p_slot->>k IS NULL) THEN RETURN NULL; END IF;
+ IF EXISTS(SELECT 1 FROM unnest(ARRAY['key','authorizationId','accountBinding','characterId','avatarId','voiceId','voiceModel','canonicalRevision','portraitSha256','script','period','expiresAt','quoteCents','periodCapCents','maxCharacters','maxAudioBytes']) k WHERE p_slot->>k IS NULL) THEN RETURN NULL; END IF;
  IF p_slot->>'period'<>to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM') OR (p_slot->>'expiresAt')::bigint<=extract(epoch FROM clock_timestamp())*1000
  OR length(btrim(p_slot->>'script'))<1 OR length(p_slot->>'script')>5000 OR length(p_slot->>'script')>(p_slot->>'maxCharacters')::integer
+ OR (p_slot->>'maxAudioBytes')::bigint NOT BETWEEN 12 AND 33554432
  OR p_slot->>'voiceModel' !~ '^eleven_[a-z0-9_]+$' THEN RETURN NULL; END IF;
  cost:=(p_slot->>'quoteCents')::bigint;
  SELECT * INTO b FROM character_production.speech_budgets WHERE account=p_slot->>'accountBinding' AND period=p_slot->>'period' FOR UPDATE;
@@ -69,7 +70,7 @@ BEGIN
  OR p_manifest->>'characterId' IS DISTINCT FROM j.slot->>'characterId' OR p_manifest->>'avatarId' IS DISTINCT FROM j.slot->>'avatarId' OR p_manifest->>'voiceId' IS DISTINCT FROM j.slot->>'voiceId' OR p_manifest->>'voiceModel' IS DISTINCT FROM j.slot->>'voiceModel'
  OR p_manifest->>'canonicalRevision' IS DISTINCT FROM j.slot->>'canonicalRevision' OR p_manifest->>'portraitSha256' IS DISTINCT FROM j.slot->>'portraitSha256'
  OR p_manifest->>'scriptSha256' IS DISTINCT FROM encode(sha256(convert_to(j.slot->>'script','UTF8')),'hex')
- OR coalesce(p_manifest->>'audioSha256','') !~ '^[a-f0-9]{64}$' OR p_manifest->>'audioBytes' IS NULL OR (p_manifest->>'audioBytes')::bigint NOT BETWEEN 12 AND 33554432
+ OR coalesce(p_manifest->>'audioSha256','') !~ '^[a-f0-9]{64}$' OR p_manifest->>'audioBytes' IS NULL OR (p_manifest->>'audioBytes')::bigint NOT BETWEEN 12 AND (j.slot->>'maxAudioBytes')::bigint
  OR coalesce(p_manifest->>'synthesisReceiptId','') !~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$' THEN RETURN false; END IF;
  IF j.state='rendered' THEN RETURN j.manifest=p_manifest AND j.manifest_digest=p_manifest_digest; END IF;
  UPDATE character_production.speech_jobs SET state='rendered',request_id=p_manifest->>'synthesisReceiptId',manifest=p_manifest,manifest_digest=p_manifest_digest WHERE key=p_key;

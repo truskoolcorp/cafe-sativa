@@ -22,3 +22,18 @@ test('overlap returns busy while first tick awaits',async()=>{let release;const 
 test('deadline and backwards clock prevent subsequent submission',async()=>{for(const after of [now-1,now+5000]){let t=now;const x=setup();x.deps.engine.collect=async()=>{t=after;return {status:'collected',checked:0,pendingQa:0,held:0}};const c=createCharacterProductionCoordinator({...config,now:()=>t},()=>x.deps);assert.equal((await c.tick()).submitted,0)}})
 test('queue validates bounded fresh DB receipt and takes immutable copies',async()=>{let input={observedAt:now,rows:[row()]};const rpc={async rpc(name,args){assert.equal(name,'character_production_due');assert.equal(args.p_limit,2);return {data:input,error:null}}};const q=createProductionQueue(rpc,()=>now);const rows=await q.due('test','test',2);input.rows[0].slot.script='changed';assert.equal(rows[0].slot.script,'Synthetic only');for(const data of [{observedAt:now-1,rows:[]},{observedAt:now+1,rows:[]},{observedAt:now,rows:[row(),row('b'),row('c')]},{observedAt:now,rows:[{...row(),digest:'x'}]}]){input=data;await assert.rejects(q.due('test','test',2))}})
 test('real engine durable claim prevents provider retry after unknown write across ticks',async()=>{let claimed=false,writes=0;const engine=createCharacterProductionEngine({...config,characters:['synthetic'],maxVideoBytes:1024},(()=>({validateCurrent:async()=>true,provider:{name:'test',async submit(){writes++;throw Error('unknown write')},async collect(){throw Error('not expected')}},store:{async claim(s,digest){if(claimed)return null;claimed=true;return {token:'token',digest}},async markSubmitted(){return true},async markUnknown(){},async pending(){return []},async markFailed(){},async savePrivate(){return true}}})));const c=createCharacterProductionCoordinator(config,()=>({engine,queue:{async due(){return [row()]}}}));assert.equal((await c.tick()).status,'held');assert.equal((await c.tick()).status,'held');assert.equal(writes,1)})
+
+test('HeyGen coordinator uses Dallas month at winter/summer boundaries, other providers remain UTC',async()=>{
+ for(const [iso,dallas] of [['2026-12-01T05:59:59.999Z','2026-11'],['2026-12-01T06:00:00.000Z','2026-12'],['2026-07-01T04:59:59.999Z','2026-06'],['2026-07-01T05:00:00.000Z','2026-07']]){
+  const t=Date.parse(iso)
+  for(const provider of ['heygen','test']){
+   const expected=provider==='heygen'?dallas:iso.slice(0,7)
+   for(const period of [expected,'2025-01']){
+    const s={...slot,provider,period,authorizationExpiresAt:t+60000},r={slot:s,digest:productionSlotDigest(s),scheduledAt:t-1000,notAfter:t+60000};let writes=0
+    const engine={async collect(){return {status:'collected',checked:0,pendingQa:0,held:0}},async produce(){writes++;return {status:'submitted'}}}
+    const c=createCharacterProductionCoordinator({...config,provider,now:()=>t},()=>({engine,queue:{async due(){return [r]}}}))
+    const result=await c.tick();assert.equal(writes,period===expected?1:0);assert.equal(result.skipped,period===expected?0:1)
+   }
+  }
+ }
+})

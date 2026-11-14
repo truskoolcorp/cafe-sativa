@@ -1,3 +1,4 @@
+import {emptyQaBody} from './character-production-empty-body.ts'
 import {safeQaDiagnostic} from './character-production-qa-diagnostics.ts'
 import type {ProductionRpc} from './character-production-store.ts'
 export const originalQaTarget=Object.freeze({
@@ -27,11 +28,12 @@ export function createOriginalQaHandler(d:{authorize():Promise<boolean>;open(sig
  let busy=false
  const response=(status:number,body:unknown)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
  return async(req:Request)=>{
-  if(req.method!=='POST'||new URL(req.url).search||req.body!==null)return response(405,{status:'unsupported'})
+  if(req.method!=='POST'||new URL(req.url).search)return response(405,{status:'unsupported'})
   if(req.headers.get('origin')!==new URL(req.url).origin)return response(403,{status:'forbidden'})
   if(busy)return response(429,{status:'busy'})
   busy=true;const c=new AbortController(),abort=()=>c.abort();req.signal.addEventListener('abort',abort,{once:true});if(req.signal.aborted)abort()
   let deps:ReturnType<typeof d.open>|undefined,authTimer:ReturnType<typeof setTimeout>|undefined,timer:ReturnType<typeof setTimeout>|undefined
+  let body:ReturnType<typeof emptyQaBody>|undefined
   const started=performance.now()
   const held=(reason:'authority_held'|'cancelled'|'operation_unconfirmed')=>{
    let diagnostic:unknown
@@ -41,13 +43,17 @@ export function createOriginalQaHandler(d:{authorize():Promise<boolean>;open(sig
   const auth=Promise.resolve().then(()=>d.authorize())
   const work=(async()=>{
    if(!await auth||c.signal.aborted)return response(401,{status:'unauthorized'})
+   body=emptyQaBody(req,c.signal)
+   const bodyState=await body.check()
+   if(bodyState!=='empty')return response(bodyState==='nonempty'?400:408,{status:bodyState==='nonempty'?'unsupported_body':'body_unconfirmed'})
+   if(c.signal.aborted)return response(408,{status:'body_unconfirmed'})
    deps=d.open(c.signal)
    const result=await deps.ingest()
    if(c.signal.aborted||result.status!=='ingested')return held(c.signal.aborted?'cancelled':'authority_held')
    return response(200,{status:'ingested',promoId:originalQaTarget.promoId,sha256:originalQaTarget.sha,bytes:originalQaTarget.bytes,generated:false,qaApproved:false,publicationApproved:false,deliveryScheduled:false,automaticGenerationVerified:false})
   })()
   // A timed-out auth/transport remains admitted until the original work settles.
-  void work.finally(async()=>{try{await deps?.whenSettled()}finally{busy=false}}).catch(()=>{})
+  void work.finally(async()=>{try{await body?.whenSettled();await deps?.whenSettled()}finally{busy=false}}).catch(()=>{})
   try{return await Promise.race([work,new Promise<Response>(resolve=>{
    authTimer=setTimeout(()=>{c.abort();resolve(response(401,{status:'unauthorized'}))},5000)
    void auth.finally(()=>clearTimeout(authTimer)).catch(()=>{})

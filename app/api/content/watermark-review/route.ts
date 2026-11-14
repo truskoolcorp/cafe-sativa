@@ -1,7 +1,7 @@
 import { NextRequest,NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { inspectVenueBytes } from '@/lib/content/venue-watermark'
+import { inspectVenueBytes, acquireVenueResponse, venueByteStream } from '@/lib/content/venue-watermark'
 export const dynamic='force-dynamic'
 export const maxDuration=30
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'private, no-store'}})
@@ -24,4 +24,23 @@ export async function POST(req:NextRequest){
   if(saved.error||!saved.data)return reply({error:'Review not saved; refresh before retry'},409)
   return reply({saved:true,sha256:actual.sha256,publicationApproved:false})
  }catch{return reply({error:'Review unavailable; no publication authorized'},503)}
+}
+
+// Authenticated exact-byte preview. Does not record a review or sign a mutable URL.
+export async function GET(req:NextRequest){
+ let release:(()=>void)|null=null, handed=false
+ try{
+  const {data:{user},error}=await createClient().auth.getUser()
+  if(error||!user||user.app_metadata?.cafe_sativa_admin!==true)return reply({error:'Unauthorized'},401)
+  const id=req.nextUrl.searchParams.get('jobId')||''
+  if(!/^[0-9a-f-]{36}$/i.test(id))return reply({error:'Invalid job'},400)
+  release=acquireVenueResponse();if(!release)return reply({error:'Busy'},503)
+  const db=createAdminClient(),found=await db.from('cs_content_jobs').select('id,output_url,updated_at').eq('id',id).maybeSingle()
+  if(found.error||!found.data)return reply({error:'Job unavailable'},409)
+  const actual=await inspectVenueBytes(db,found.data)
+  const prior=await db.from('cs_venue_media_watermark_reviews').select('reviewed_at').eq('job_id',id).eq('object_path',found.data.output_url).eq('sha256',actual.sha256).maybeSingle()
+  if(prior.error)return reply({error:'Evidence unavailable'},503)
+  handed=true
+  return new NextResponse(venueByteStream(actual.bytes,release),{headers:{'Content-Type':'video/mp4','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Media-Sha256':actual.sha256,'X-Media-Path':found.data.output_url,'X-Review-At':prior.data?.reviewed_at||''}})
+ }catch{return reply({error:'Preview unavailable'},503)}finally{if(!handed)release?.()}
 }

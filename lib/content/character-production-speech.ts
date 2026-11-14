@@ -21,7 +21,7 @@ export function createSpeechProduction(config:{enabled:boolean;now():number},ope
    const digest=speechSlotDigest(s),claim=await d.rpc.rpc('character_production_speech_claim',{p_slot:s,p_digest:digest})
    if(claim.error||!claim.data||typeof claim.data!=='object'||!('token'in claim.data)||!id(claim.data.token)||!('digest'in claim.data)||claim.data.digest!==digest)return {status:'held' as const}
    token=claim.data.token
-   if(config.now()>=s.expiresAt||!await d.storage.preflight(s.maxAudioBytes)||!await d.validateCurrent(s))throw Error('Authority changed')
+   if(config.now()>=s.expiresAt||!await d.storage.preflight(s.maxAudioBytes)||!await d.validateCurrent(s)||config.now()>=s.expiresAt)throw Error('Authority changed')
    const receipt=await d.provider.synthesize(s)
    if(!id(receipt.requestId)||!(receipt.bytes instanceof Uint8Array)||receipt.bytes.length<12||receipt.bytes.length>s.maxAudioBytes)throw Error('Unconfirmed speech receipt')
    const bytes=Uint8Array.from(receipt.bytes),manifest:RenderedAudioBinding={characterId:s.characterId,avatarId:s.avatarId,voiceId:s.voiceId,voiceModel:s.voiceModel,canonicalRevision:s.canonicalRevision,portraitSha256:s.portraitSha256,scriptSha256:hash(s.script),audioSha256:hash(bytes),audioBytes:bytes.length,mime:'audio/mpeg',provider:'elevenlabs',synthesisReceiptId:receipt.requestId}

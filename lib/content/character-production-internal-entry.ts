@@ -2,21 +2,17 @@ import 'server-only'
 import {cronAuthorized} from './auth'
 import {createInternalCharacterWorker} from './character-production-internal-worker'
 import {openInternalProduction} from './character-production-server-composition'
-import type {InternalProductionManifest} from './character-production-server-composition'
+import {reviewedCanaryManifest,canaryWindowOpen} from './character-production-canary-manifest'
 
-// Intentionally empty until exact input receipts and finite DB authorization are
-// reviewed together. No enable flag or incoming request can replace this manifest.
-function reviewedManifest():InternalProductionManifest|null{return null}
-const manifest=reviewedManifest()
-/** Intentionally unconfigured. Do not infer canonical IDs, substitute voices or
- * turn environment flags into spending authorization. Existing CRON_SECRET stays
- * in the existing platform cron path; there is no new upload endpoint or secret. */
+// One finite reviewed private canary; existing flag defaults off and exact durable
+// SQL authorization is separately required. No request can supply a manifest.
+const manifest=reviewedCanaryManifest()
 export const processInternalCharacters=createInternalCharacterWorker({
- enabled:()=>process.env.CS_CHARACTER_INTERNAL_WORKER_ENABLED==='true',
+ enabled:()=>process.env.CS_CHARACTER_INTERNAL_WORKER_ENABLED==='true'&&canaryWindowOpen(),
  authorize:cronAuthorized,
- configuration:manifest?.configuration??null,
+ configuration:manifest.configuration,
  open:signal=>{
-  if(!manifest)throw Error('Reviewed provider, canonical and private storage bindings required')
+  if(!canaryWindowOpen())throw Error('Reviewed canary window closed')
   return openInternalProduction(manifest,signal)
  },
 })

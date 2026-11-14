@@ -56,6 +56,8 @@ jobs:
         run: python3 tests/postgres/validate_backend_grants.py
       - name: Validate one-shot owner context and privilege restoration
         run: python3 tests/postgres/validate_canary_owner.py
+      - name: Validate original-task reconciliation without reclaims
+        run: python3 tests/postgres/validate_original_reconcile.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

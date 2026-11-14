@@ -14,7 +14,7 @@ export function createPrivateCanonicalImageSource(sdk:PrivateImageStorage,origin
  const u=new URL(origin)
  if(u.origin!==origin||u.protocol!=='https:'||u.username||u.password||u.port||!u.hostname.endsWith('.supabase.co')||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>10000)throw Error('Invalid private image configuration')
  const proofs=new Map<string,CanonicalImageBinding>(),pending=new Set<Promise<unknown>>()
- for(const input of receipts){canonicalImageDigest(input);const b=Object.freeze({...input}),path=canonicalImagePath(b);const previous=proofs.get(path);if(previous&&(previous.imageBytes!==b.imageBytes||previous.mime!==b.mime))throw Error('Conflicting image object proof');proofs.set(path,b)}
+ for(const input of receipts){canonicalImageDigest(input);const b=Object.freeze({...input,...(input.approvedScene?{approvedScene:Object.freeze({...input.approvedScene})}:{})}),path=canonicalImagePath(b);const previous=proofs.get(path);if(previous&&(previous.imageBytes!==b.imageBytes||previous.mime!==b.mime))throw Error('Conflicting image object proof');proofs.set(path,b)}
  async function bounded<T>(signal:AbortSignal,action:(signal:AbortSignal)=>Promise<T>){
   const controller=new AbortController(),abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort()
   let timer:ReturnType<typeof setTimeout>|undefined

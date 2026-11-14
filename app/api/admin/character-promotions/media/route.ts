@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const allowed: Record<string,string> = {
+  '5094636c-be48-4ac3-ae7b-80acfb729c13':'zaria-solenne',
   '3f85873d-7c7b-48c4-8225-fdf9542d486a':'andromeda-zouganelis',
   '4c146dda-4e1c-400f-8371-b49c4dc2eed0':'aurelio',
 }

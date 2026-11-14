@@ -1,9 +1,9 @@
 # Dormant unattended planner authority: implementation review
 
 Offline proposal, not production installation or activation. No real enrollment,
-credential, grant or candidate manifest has been created. PostgreSQL17 CI must
-pass before readiness; only Node tests, Python compilation and focused TypeScript
-have been run locally.
+credential, grant or candidate manifest has been created. The prior PR131 PostgreSQL17 fixture passed CI (run 43654086941, job
+132628670145, reported by the parent). The additional cases below require a new
+CI run; locally only Node tests, Python compilation and focused TypeScript run.
 
 ## Existing authentication primitives
 
@@ -91,10 +91,13 @@ The genuine installer-chain disposable PG17 fixture now covers:
 - binding disable/delete downstream revocation and concurrent revoke/write;
 - no successful write after revocation commit.
 
-These PostgreSQL assertions have not run locally. First remote CI run and
-independent security review remain required. Further explicit policy-revision,
-expired-enrollment, retarget downstream-state and installer rollback assertions
-should be added before production installation.
+The original PostgreSQL assertions passed remote PR131 CI, not local execution.
+Additional fixture cases now cover explicit expired enrollment, policy revision
+rejection/revocation, binding retarget downstream-state rollback and deterministic
+interleaving in both directions. They wait for a sleeping leader and an observed
+Lock-waiting follower, then verify planner-before-revoke and
+revoke-before-planner outcomes. Those new cases still need remote CI. An exact
+production installer with owner/ACL/rollback proof remains separate work.
 
 ## Still missing for activation
 
@@ -103,3 +106,12 @@ current authenticated admin tied to exact approved manifest and candidates;
 complete independent fixture results; internal cron handler/flag and deployment
 review. No enrollment or candidate is fabricated here. Generation, QA, watermark
 checks and social delivery remain separate capabilities, not activated by planning.
+
+## Admin-removal limitation
+Removing the enrolled actor’s admin metadata stops new context/planning calls;
+it does NOT disable already queued approved slots, schedules or QA bindings.
+The fixture explicitly asserts this distinction. Operational revocation requires
+disabling the enrollment or changing/removing its singleton binding, whose
+triggers revoke the queued downstream eligibility. Neither path cancels work
+already submitted to a provider. Do not describe admin removal alone as an
+operational kill switch.

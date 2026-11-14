@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto'
 import {readBoundedPublicChatJson} from './public-chat-readiness-resources'
 import {GLYPH_CHARACTER_SNAPSHOT} from './glyph-characters'
 const SOURCE='https://studio.truskool.net/api/studios/cafe-sativa-canon'
-const allowed=new Set<string>(GLYPH_CHARACTER_SNAPSHOT.characters.map(c=>c.id))
+const allowed=new Set<string>([...GLYPH_CHARACTER_SNAPSHOT.characters.map(c=>c.id),'zaria-solenne'])
 export async function readGlyph(path='', signal?: AbortSignal) {
  const secret=process.env.GLYPH_CANON_READ_TOKEN
  if(!secret)throw Error('GLYPH live connection not configured')

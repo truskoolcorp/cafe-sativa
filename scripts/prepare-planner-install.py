@@ -59,7 +59,7 @@ END $$;
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM character_production_owner;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
-DO $$ DECLARE f record; t record; own oid:='character_production_owner'::regrole; expected_owner oid; extra oid; BEGIN
+DO $$ DECLARE new_function_row record; new_table_row record; own oid:='character_production_owner'::regrole; expected_owner oid; extra oid; BEGIN
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM pi_members) UNION ALL (SELECT * FROM pi_members EXCEPT SELECT * FROM pg_auth_members)) THEN RAISE EXCEPTION 'Membership changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_ns b LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspacl IS DISTINCT FROM b.nspacl OR n.nspowner IS DISTINCT FROM b.nspowner) THEN RAISE EXCEPTION 'Schema authority changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_objects b LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM b.relowner OR c.relacl IS DISTINCT FROM b.relacl OR c.relrowsecurity IS DISTINCT FROM b.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM b.relforcerowsecurity) OR EXISTS(SELECT 1 FROM pi_cols b LEFT JOIN pg_attribute a USING(attrelid,attnum) WHERE a.attrelid IS NULL OR a.attacl IS DISTINCT FROM b.attacl) THEN RAISE EXCEPTION 'Existing object authority changed'; END IF;
@@ -67,23 +67,23 @@ DO $$ DECLARE f record; t record; own oid:='character_production_owner'::regrole
  IF EXISTS(SELECT 1 FROM pi_policies b LEFT JOIN pg_policy p USING(oid) WHERE p.oid IS NULL OR to_jsonb(p) IS DISTINCT FROM b.data) OR (SELECT count(*) FROM pg_policy)<>(SELECT count(*) FROM pi_policies) THEN RAISE EXCEPTION 'Policies changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_triggers b LEFT JOIN pg_trigger t USING(oid) WHERE t.oid IS NULL OR to_jsonb(t) IS DISTINCT FROM b.data) THEN RAISE EXCEPTION 'Existing triggers changed'; END IF;
  IF EXISTS(WITH actual AS (SELECT 'drafts' name,to_jsonb(x) row FROM public.cs_character_promo_drafts x UNION ALL SELECT 'plans',to_jsonb(x) FROM public.cs_character_promo_delivery_plans x UNION ALL SELECT 'qa',to_jsonb(x) FROM public.cs_character_promo_qa_checks x) (SELECT * FROM actual EXCEPT ALL SELECT * FROM pi_source) UNION ALL (SELECT * FROM pi_source EXCEPT ALL SELECT * FROM actual)) THEN RAISE EXCEPTION 'Source rows changed'; END IF;
- FOR t IN SELECT * FROM pg_class WHERE relnamespace='character_production'::regnamespace AND relname IN ('planning_policies','planning_records') LOOP
- IF t.relkind<>'r' OR t.relowner<>own OR NOT t.relrowsecurity OR t.relforcerowsecurity OR EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=t.oid AND attacl IS NOT NULL) THEN RAISE EXCEPTION 'Planner table identity mismatch'; END IF;
- IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(t.relacl,acldefault('r',own)))), e AS (SELECT * FROM aclexplode(acldefault('r',own))) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Planner table ACL mismatch'; END IF;
+ FOR new_table_row IN SELECT * FROM pg_class WHERE relnamespace='character_production'::regnamespace AND relname IN ('planning_policies','planning_records') LOOP
+ IF new_table_row.relkind<>'r' OR new_table_row.relowner<>own OR NOT new_table_row.relrowsecurity OR new_table_row.relforcerowsecurity OR EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=new_table_row.oid AND attacl IS NOT NULL) THEN RAISE EXCEPTION 'Planner table identity mismatch'; END IF;
+ IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(new_table_row.relacl,acldefault('r',own)))), e AS (SELECT * FROM aclexplode(acldefault('r',own))) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Planner table ACL mismatch'; END IF;
  END LOOP;
  IF (SELECT count(*) FROM pg_class WHERE relnamespace='character_production'::regnamespace AND relname IN ('planning_policies','planning_records') AND relkind='r')<>2 THEN RAISE EXCEPTION 'Missing planner tables'; END IF;
- FOR f IN SELECT p.* FROM pg_proc p WHERE NOT EXISTS(SELECT 1 FROM pi_functions b WHERE b.oid=p.oid) AND p.pronamespace IN ('public'::regnamespace,'character_production'::regnamespace) LOOP
- expected_owner:=CASE WHEN f.proname='character_production_new_blank_draft' THEN current_user::regrole::oid ELSE own END;
- extra:=CASE WHEN f.proname='character_production_new_blank_draft' THEN own WHEN f.proname='character_production_planned_draft' THEN current_user::regrole::oid ELSE NULL END;
- IF NOT (CASE f.proname
- WHEN 'planning_record_immutable' THEN f.pronamespace='character_production'::regnamespace AND f.proargtypes=''::oidvector AND f.prorettype='trigger'::regtype AND NOT f.prosecdef
- WHEN 'planning_policy_revoke' THEN f.pronamespace='character_production'::regnamespace AND f.proargtypes=''::oidvector AND f.prorettype='trigger'::regtype AND f.prosecdef
- WHEN 'character_production_planned_draft' THEN f.pronamespace='public'::regnamespace AND f.proargtypes='2950 3802 25 25'::oidvector AND f.prorettype='boolean'::regtype AND f.prosecdef
- WHEN 'character_production_new_blank_draft' THEN f.pronamespace='public'::regnamespace AND f.proargtypes='2950 3802 25 25'::oidvector AND f.prorettype='timestamptz'::regtype AND f.prosecdef
- WHEN 'character_production_plan' THEN f.pronamespace='public'::regnamespace AND f.proargtypes='3802 25 3802 2950 20 2950'::oidvector AND f.prorettype='jsonb'::regtype AND f.prosecdef
- WHEN 'character_production_planning_policy' THEN f.pronamespace='public'::regnamespace AND f.proargtypes='2950'::oidvector AND f.prorettype='jsonb'::regtype AND f.prosecdef
- ELSE false END) OR f.proowner<>expected_owner OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] THEN RAISE EXCEPTION 'Planner function identity mismatch'; END IF;
- IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))), e AS (SELECT expected_owner grantor,expected_owner grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT expected_owner,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Planner function ACL mismatch'; END IF;
+ FOR new_function_row IN SELECT p.* FROM pg_proc p WHERE NOT EXISTS(SELECT 1 FROM pi_functions b WHERE b.oid=p.oid) AND p.pronamespace IN ('public'::regnamespace,'character_production'::regnamespace) LOOP
+ expected_owner:=CASE WHEN new_function_row.proname='character_production_new_blank_draft' THEN current_user::regrole::oid ELSE own END;
+ extra:=CASE WHEN new_function_row.proname='character_production_new_blank_draft' THEN own WHEN new_function_row.proname='character_production_planned_draft' THEN current_user::regrole::oid ELSE NULL END;
+ IF NOT (CASE new_function_row.proname
+ WHEN 'planning_record_immutable' THEN new_function_row.pronamespace='character_production'::regnamespace AND new_function_row.proargtypes=''::oidvector AND new_function_row.prorettype='trigger'::regtype AND NOT new_function_row.prosecdef
+ WHEN 'planning_policy_revoke' THEN new_function_row.pronamespace='character_production'::regnamespace AND new_function_row.proargtypes=''::oidvector AND new_function_row.prorettype='trigger'::regtype AND new_function_row.prosecdef
+ WHEN 'character_production_planned_draft' THEN new_function_row.pronamespace='public'::regnamespace AND new_function_row.proargtypes='2950 3802 25 25'::oidvector AND new_function_row.prorettype='boolean'::regtype AND new_function_row.prosecdef
+ WHEN 'character_production_new_blank_draft' THEN new_function_row.pronamespace='public'::regnamespace AND new_function_row.proargtypes='2950 3802 25 25'::oidvector AND new_function_row.prorettype='timestamptz'::regtype AND new_function_row.prosecdef
+ WHEN 'character_production_plan' THEN new_function_row.pronamespace='public'::regnamespace AND new_function_row.proargtypes='3802 25 3802 2950 20 2950'::oidvector AND new_function_row.prorettype='jsonb'::regtype AND new_function_row.prosecdef
+ WHEN 'character_production_planning_policy' THEN new_function_row.pronamespace='public'::regnamespace AND new_function_row.proargtypes='2950'::oidvector AND new_function_row.prorettype='jsonb'::regtype AND new_function_row.prosecdef
+ ELSE false END) OR new_function_row.proowner<>expected_owner OR new_function_row.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] THEN RAISE EXCEPTION 'Planner function identity mismatch'; END IF;
+ IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(new_function_row.proacl,acldefault('f',new_function_row.proowner)))), e AS (SELECT expected_owner grantor,expected_owner grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT expected_owner,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Planner function ACL mismatch'; END IF;
  END LOOP;
  IF (SELECT count(*) FROM pg_proc p WHERE NOT EXISTS(SELECT 1 FROM pi_functions b WHERE b.oid=p.oid) AND p.pronamespace IN ('public'::regnamespace,'character_production'::regnamespace))<>6 THEN RAISE EXCEPTION 'Unexpected planner functions'; END IF;
  IF (SELECT count(*) FROM pg_trigger t WHERE NOT t.tgisinternal AND NOT EXISTS(SELECT 1 FROM pi_triggers b WHERE b.oid=t.oid))<>2 THEN RAISE EXCEPTION 'Unexpected planner triggers'; END IF;

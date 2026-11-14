@@ -8,6 +8,7 @@ import {createCanonicalImageRuntimeProvider} from './character-production-image-
 import {createPrivateCanonicalImageSource} from './character-production-private-image'
 import type {CanonicalImageBinding} from './character-production-canonical-image'
 import type {CharacterProductionRuntimeConfig} from './character-production-runtime'
+import {createServerProductionRpc} from './character-production-server-rpc'
 import {restrictProductionRpc} from './character-production-exact-scope'
 import type {ExactProductionScope} from './character-production-exact-scope'
 import type {InternalProductionDependencies} from './character-production-internal-worker'
@@ -33,11 +34,7 @@ export function openInternalProduction(manifest:InternalProductionManifest,signa
  const images=createPrivateCanonicalImageSource(db.storage,origin,manifest.images)
  const provider=createCanonicalImageRuntimeProvider(manifest.configuration.heygen,manifest.expectedHeyGenUsername,
   ()=>process.env.HEYGEN_API_KEY,manifest.images,images,audio,providerNetwork.fetch)
- const rpc={rpc:(name:string,args:Record<string,unknown>)=>{
-   const allowed=['claim','submitted','unknown','pending','failed','output_status','output','due','authorization','broker_authorized'].map(n=>'character_production_'+n)
-   if(signal.aborted||!allowed.includes(name))throw Error('Production RPC scope rejected')
-   return db.rpc(name,args).abortSignal(signal).retry(false)
-  }}
+ const rpc=createServerProductionRpc(db,signal)
  return {rpc:manifest.exactScope?restrictProductionRpc(rpc,manifest.exactScope):rpc,storage:db.storage,...provider,
   readCanon:async innerSignal=>{
    if(signal.aborted)throw Error('Cancelled canonical read')

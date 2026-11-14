@@ -13,9 +13,9 @@ export function restrictProductionRpc(rpc:ProductionRpc,scope:ExactProductionSco
  const job=(v:unknown)=>object(v)&&v.key===s.key&&v.digest===s.digest
  return {async rpc(name,args){
   const suffix=name.replace(/^character_production_/,'')
-  if(name!=='character_production_'+suffix||!['due','pending','authorization','claim','submitted','unknown','failed','output_status','output','broker_authorized'].includes(suffix))throw Error('Out-of-scope RPC')
+  if(name!=='character_production_'+suffix||!['due','pending','authorization','claim','submitted','observe_receipt','unknown','failed','output_status','output','broker_authorized'].includes(suffix))throw Error('Out-of-scope RPC')
   if(suffix==='claim'&&(!slot(args.p_slot)||args.p_digest!==s.digest))throw Error('Out-of-scope claim')
-  if(['submitted','unknown'].includes(suffix)&&(args.p_key!==s.key||args.p_digest!==s.digest))throw Error('Out-of-scope receipt')
+  if(['submitted','observe_receipt','unknown'].includes(suffix)&&(args.p_key!==s.key||args.p_digest!==s.digest))throw Error('Out-of-scope receipt')
   if(['failed','output_status','output','broker_authorized'].includes(suffix)&&!job(args.p_job))throw Error('Out-of-scope job')
   if(suffix==='authorization'&&args.p_key!==s.key)throw Error('Out-of-scope authorization')
   const r=await rpc.rpc(name,args)

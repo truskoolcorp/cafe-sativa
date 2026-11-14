@@ -7,14 +7,16 @@ export type Collection={state:'pending'}|{state:'failed'}|({state:'completed'}&C
 export interface ProductionStore {
  /** Atomic nonreclaimable unique slot and independent cumulative provider/period budget. */
  claim(slot:ProductionSlot,digest:string):Promise<Claim|null>;
+ /** null performs a durable pre-submit capability/authority check; IDs are evidence only. */
+ observeReceipt?(key:string,token:string,digest:string,taskId:string|null):Promise<boolean>;
  markSubmitted(key:string,token:string,digest:string,taskId:string):Promise<boolean>;
  markUnknown(key:string,token:string,digest:string):Promise<void>;
  pending(provider:string,model:string,limit:number):Promise<Pending[]>;
  markFailed(job:Pending):Promise<void>;
  savePrivate(job:Pending,media:Collected&{sha256:string}):Promise<boolean>;
 }
-export interface ProductionProvider {name:string;submit(slot:ProductionSlot):Promise<{taskId:string}>;collect(taskId:string,providerBindingRevision:string):Promise<Collection>}
-export interface EngineConfig {enabled:boolean;provider:string;model:string;maxVideoBytes:number;characters:readonly string[];now():number}
+export interface ProductionProvider {name:string;supportsReceiptCapture?:boolean;submit(slot:ProductionSlot,observe?:(taskId:string)=>Promise<void>):Promise<{taskId:string}>;collect(taskId:string,providerBindingRevision:string):Promise<Collection>}
+export interface EngineConfig {enabled:boolean;captureReceipts?:boolean;provider:string;model:string;maxVideoBytes:number;characters:readonly string[];now():number}
 export interface EngineDependencies {store:ProductionStore;provider:ProductionProvider;/** Trusted current exact authority, canon, rights, quote and provider validation. */validateCurrent(slot:ProductionSlot):Promise<boolean>}
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,239}$/.test(v)
 const hash=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)
@@ -29,6 +31,7 @@ export function createCharacterProductionEngine(configuration:EngineConfig,open:
   if(c.enabled!==true)return {status:'disabled' as const}
   const s=Object.freeze({...input});if(!valid(s,c))return {status:'blocked' as const}
   const x=deps(),digest=productionSlotDigest(s)
+  if(c.captureReceipts===true&&(x.provider.supportsReceiptCapture!==true||!x.store.observeReceipt))return {status:'blocked' as const}
   try{if(await x.validateCurrent(s)!==true||!valid(s,c))return {status:'blocked' as const}}catch{return {status:'blocked' as const}}
   let claim:Claim|null
   try{claim=await x.store.claim(s,digest)}catch{return {status:'held' as const}}
@@ -37,8 +40,12 @@ export function createCharacterProductionEngine(configuration:EngineConfig,open:
   const hold=async()=>{try{await x.store.markUnknown(s.key,claim!.token,digest)}catch{/* durable reservation stays held */}return {status:'held' as const}}
   try{
    if(await x.validateCurrent(s)!==true||!valid(s,c))return await hold()
-   const receipt=await x.provider.submit(s)
-   if(!receipt||!id(receipt.taskId))return await hold()
+   if(c.captureReceipts===true&&await x.store.observeReceipt!(s.key,claim.token,digest,null)!==true)return await hold()
+   if(c.captureReceipts===true&&(await x.validateCurrent(s)!==true||!valid(s,c)))return await hold()
+   let observedTask:string|undefined
+   const observe=c.captureReceipts===true?async(taskId:string)=>{if(!id(taskId)||(observedTask!==undefined&&observedTask!==taskId)||await x.store.observeReceipt!(s.key,claim!.token,digest,taskId)!==true)throw Error('Receipt evidence unconfirmed');observedTask=taskId}:undefined
+   const receipt=await x.provider.submit(s,observe)
+   if(!receipt||!id(receipt.taskId)||(c.captureReceipts===true&&observedTask!==receipt.taskId))return await hold()
    if(await x.store.markSubmitted(s.key,claim.token,digest,receipt.taskId)!==true)return await hold()
    return {status:'submitted' as const}
   }catch{return await hold()}

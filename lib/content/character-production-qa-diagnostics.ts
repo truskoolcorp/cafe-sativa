@@ -27,3 +27,8 @@ export function qaHeldMessage(value:unknown):string {
  const d=safeQaDiagnostic(value)
  return 'Held. No approval was granted.'+(d?` Phase: ${d.phase}; reason: ${d.reason}; elapsed: ${d.elapsedMs} ms.`:'')+' Check the exact enrollment and QA draft before another action.'
 }
+
+export function qaRequestFailure(status:number,value:unknown):string {
+ const safe=['unsupported','forbidden','busy','unauthorized','unsupported_body','body_unconfirmed'].includes(String(value))?String(value):'request_unconfirmed'
+ return `Request not completed (HTTP ${Number.isInteger(status)&&status>=100&&status<=599?status:0}; ${safe}). No approval was granted.`
+}

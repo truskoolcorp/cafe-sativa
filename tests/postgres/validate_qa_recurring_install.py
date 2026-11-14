@@ -24,6 +24,21 @@ def suite():
  fk=db.run("SELECT conname FROM pg_constraint WHERE conrelid='public.cs_character_promo_delivery_plans'::regclass AND confrelid='public.cs_character_promo_drafts'::regclass AND contype='f'")
  p=subprocess.run(db.command(),input=prefix+'BEGIN; ALTER TABLE public.cs_character_promo_delivery_plans DROP CONSTRAINT '+fk+'; '+adapted,text=True,capture_output=True);assert p.returncode and 'FK missing' in p.stderr,p.stderr;assert base.snapshot()==before
  p=subprocess.run(db.command(),input=prefix+'BEGIN; GRANT CREATE ON SCHEMA public TO character_production_owner; '+adapted,text=True,capture_output=True);assert p.returncode and 'baseline' in p.stderr,p.stderr;assert base.snapshot()==before
+ # Unexpected default privileges to an unknown role must fail closed and roll back.
+ db.run('CREATE ROLE qa_unexpected NOLOGIN;')
+ defaults=db.run("SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY oid),'[]'::jsonb) FROM pg_default_acl d")
+ for setup in [
+  'ALTER DEFAULT PRIVILEGES FOR ROLE provision_installer IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO qa_unexpected;',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO qa_unexpected;',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner IN SCHEMA character_production GRANT SELECT ON TABLES TO qa_unexpected;',
+ ]:
+  p=subprocess.run(db.command(),input='BEGIN; '+setup+prefix+adapted,text=True,capture_output=True)
+  assert p.returncode and ('New function ACL mismatch' in p.stderr or 'New binding table ACL mismatch' in p.stderr),p.stderr
+  assert base.snapshot()==before,'unexpected default grant rollback'
+  assert db.run("SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY oid),'[]'::jsonb) FROM pg_default_acl d")==defaults
+ p=subprocess.run(db.command(),input='BEGIN; GRANT qa_unexpected TO character_production_owner; '+prefix+adapted,text=True,capture_output=True)
+ assert p.returncode and 'Unsafe owner' in p.stderr,p.stderr
+ assert base.snapshot()==before,'unsafe role membership rollback'
  db.run(prefix+adapted)
  db.check("NOT pg_has_role('provision_installer','character_production_owner','SET') AND NOT has_schema_privilege('character_production_owner','public','CREATE') AND NOT has_schema_privilege('provision_installer','character_production','USAGE') AND NOT has_column_privilege('character_production_owner','public.cs_character_promo_drafts','id','REFERENCES')",'temporary privileges restored')
  db.check('(SELECT count(*)=0 FROM character_production.qa_slot_bindings)','no bindings installed')

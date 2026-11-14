@@ -19,6 +19,7 @@ BEGIN;
 SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='45s';
 DO $$ BEGIN
  IF current_setting('server_version_num')::int NOT BETWEEN 170000 AND 179999 OR current_user<>session_user OR current_user<>'postgres' THEN RAISE EXCEPTION 'Expected direct reviewed PG17 installer'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='character_production_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolinherit AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls) OR EXISTS(SELECT 1 FROM pg_auth_members WHERE member='character_production_owner'::regrole OR (roleid='character_production_owner'::regrole AND member<>current_user::regrole)) THEN RAISE EXCEPTION 'Unsafe owner role or inherited membership'; END IF;
  IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='character_production' AND c.relname='qa_slot_bindings') OR to_regprocedure('public.character_production_qa_draft_unplanned(uuid)') IS NOT NULL THEN RAISE EXCEPTION 'Recurring bridge already exists'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') OR has_schema_privilege('character_production_owner','public','CREATE') OR has_column_privilege('character_production_owner','public.cs_character_promo_drafts','id','REFERENCES') THEN RAISE EXCEPTION 'Unexpected temporary-rights baseline'; END IF;
  IF (SELECT count(*) FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor<>current_user::regrole AND admin_option AND NOT inherit_option AND NOT set_option)<>1 OR EXISTS(SELECT 1 FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor=current_user::regrole) THEN RAISE EXCEPTION 'Missing original bootstrap membership'; END IF;
@@ -68,7 +69,7 @@ RESET ROLE;
 REVOKE REFERENCES(id) ON public.cs_character_promo_drafts FROM character_production_owner;
 REVOKE CREATE ON SCHEMA public FROM character_production_owner;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
-DO $$ BEGIN
+DO $$ DECLARE f record; t oid; owner_id oid:='character_production_owner'::regrole; BEGIN
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM ri_members) UNION ALL (SELECT * FROM ri_members EXCEPT SELECT * FROM pg_auth_members)) THEN RAISE EXCEPTION 'Membership changed'; END IF;
  IF EXISTS(SELECT 1 FROM ri_ns s LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspacl IS DISTINCT FROM s.nspacl) THEN RAISE EXCEPTION 'Schema ACL changed'; END IF;
  IF EXISTS(SELECT 1 FROM ri_objects o LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM o.relowner OR c.relacl IS DISTINCT FROM o.relacl OR c.relrowsecurity IS DISTINCT FROM o.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM o.relforcerowsecurity) THEN RAISE EXCEPTION 'Existing object changed'; END IF;
@@ -77,6 +78,19 @@ DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM ri_policies s LEFT JOIN pg_policy p USING(oid) WHERE p.oid IS NULL OR to_jsonb(p) IS DISTINCT FROM s.data) OR (SELECT count(*) FROM pg_policy)<>(SELECT count(*)+2 FROM ri_policies) THEN RAISE EXCEPTION 'Policy delta changed'; END IF;
  IF EXISTS(SELECT 1 FROM ri_triggers s LEFT JOIN pg_trigger t USING(oid) WHERE t.oid IS NULL OR to_jsonb(t) IS DISTINCT FROM s.data) THEN RAISE EXCEPTION 'Existing trigger changed'; END IF;
  IF EXISTS(WITH actual AS (SELECT 'drafts' name,to_jsonb(x) row FROM public.cs_character_promo_drafts x UNION ALL SELECT 'plans',to_jsonb(x) FROM public.cs_character_promo_delivery_plans x UNION ALL SELECT 'qa',to_jsonb(x) FROM public.cs_character_promo_qa_checks x) (SELECT * FROM actual EXCEPT SELECT * FROM ri_source) UNION ALL (SELECT * FROM ri_source EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'Source data changed'; END IF;
+
+ SELECT c.oid INTO t FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='character_production' AND c.relname='qa_slot_bindings' AND c.relkind='r';
+ IF t IS NULL OR NOT EXISTS(SELECT 1 FROM pg_class WHERE oid=t AND relowner=owner_id AND relrowsecurity AND NOT relforcerowsecurity) OR EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=t) OR EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=t AND attacl IS NOT NULL) THEN RAISE EXCEPTION 'New binding table ownership/RLS/column policy mismatch'; END IF;
+ IF EXISTS(WITH actual AS (SELECT a.* FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE c.oid=t), expected AS (SELECT * FROM aclexplode(acldefault('r',owner_id))) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New binding table ACL mismatch'; END IF;
+ FOR f IN SELECT p.*, CASE WHEN p.proname='character_production_qa_draft_unplanned' THEN current_user::regrole::oid ELSE owner_id END expected_owner,
+ CASE WHEN p.proname='character_production_qa_draft_unplanned' THEN owner_id WHEN p.proname IN ('character_production_qa_ready_slots','character_production_qa_materialize') THEN 'service_role'::regrole::oid ELSE NULL END extra_grantee
+ FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+ WHERE (n.nspname='public' AND p.proname IN ('character_production_qa_draft_unplanned','character_production_qa_ready_slots','character_production_qa_materialize')) OR (n.nspname='character_production' AND p.proname='qa_binding_guard') LOOP
+  IF f.proowner IS DISTINCT FROM f.expected_owner OR NOT f.prosecdef OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] THEN RAISE EXCEPTION 'New function owner/config mismatch'; END IF;
+  IF EXISTS(WITH actual AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))), expected AS (SELECT f.expected_owner grantor,f.expected_owner grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT f.expected_owner,f.extra_grantee,'EXECUTE',false WHERE f.extra_grantee IS NOT NULL) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New function ACL mismatch'; END IF;
+ END LOOP;
+ IF (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (n.nspname='public' AND p.proname IN ('character_production_qa_draft_unplanned','character_production_qa_ready_slots','character_production_qa_materialize')) OR (n.nspname='character_production' AND p.proname='qa_binding_guard'))<>4 THEN RAISE EXCEPTION 'New function identity count mismatch'; END IF;
+ IF (SELECT count(*) FROM pg_trigger WHERE tgrelid=t AND NOT tgisinternal)<>1 OR NOT EXISTS(SELECT 1 FROM pg_trigger x JOIN pg_proc f ON f.oid=x.tgfoid WHERE x.tgrelid=t AND x.tgname='qa_binding_guard' AND x.tgtype=27 AND x.tgenabled='O' AND x.tgqual IS NULL AND x.tgnargs=0 AND f.proname='qa_binding_guard' AND f.proowner=owner_id AND f.pronamespace=(SELECT oid FROM pg_namespace WHERE nspname='character_production')) THEN RAISE EXCEPTION 'New binding guard mismatch'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') OR has_schema_privilege('character_production_owner','public','CREATE') OR has_column_privilege('character_production_owner','public.cs_character_promo_drafts','id','REFERENCES') THEN RAISE EXCEPTION 'Temporary authority remains'; END IF;
 END $$;
 COMMIT;

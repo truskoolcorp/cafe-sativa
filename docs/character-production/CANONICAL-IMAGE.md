@@ -34,3 +34,16 @@ and existing engine claim-before-write wiring. This tranche makes no provider
 calls in production and does not install rows, grants or a schedule. Avatar IV
 may reject the source image or render imperfectly; inspect the private result
 before any approval/publication. One canary is not recurring automation.
+
+## Reviewed room scenes versus identity portraits
+
+`approvedScene` optionally binds a distinct rendered `imageSha256` and a reviewed
+`approvalReference`. The canonical `portraitSha256` stays the live character's
+primary identity portrait and must still agree with the audio and current canon.
+The scene hash controls private object path and byte readback only. A v2 scene
+binding digest includes identity, canonical revision, scene bytes, approval reference,
+and exact audio proof. Changing any requires a new reviewed binding/slot digest.
+Legacy portrait-only bindings retain their v1 digest unchanged. Nested scene proofs
+are snapshotted to prevent post-construction changes. This is not image approval
+inference: only trusted reviewed deployment configuration supplies the reference.
+No registry image replacement, automatic enrollment, paid call or activation occurs.

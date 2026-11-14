@@ -1,5 +1,5 @@
 """Disposable PG17 contract checks; uses genuine chained foundation, no shim."""
-import json, subprocess, concurrent.futures, datetime
+import json, subprocess, concurrent.futures, datetime, time
 import validate_planner as planner
 import validate_ledger as db
 import validate_planner_install as foundation
@@ -45,6 +45,7 @@ def suite():
  # Distinct synthetic enrollments in rolled-back transactions, never history edits.
  variant='33333333-3333-4333-8333-333333333333'
  for label,expiry,approved,authorization in [
+  ('expired enrollment',"clock_timestamp()-interval '1 minute'","clock_timestamp()-interval '2 minutes'",slot['authorizationExpiresAt']),
   ('enrollment beyond policy',"expires_at+interval '1 second'","clock_timestamp()-interval '1 minute'",slot['authorizationExpiresAt']),
   ('candidate after enrollment',"clock_timestamp()+interval '2 minutes'","clock_timestamp()-interval '1 minute'",slot['authorizationExpiresAt']),
   ('candidate before approval',"expires_at",db.quote(plan['scheduledAt'])+"::timestamptz+interval '1 second'",slot['authorizationExpiresAt']),
@@ -73,10 +74,48 @@ def suite():
  assert rpc("public.character_production_scheduler_reconciled('"+enrolled+"',0)")=='t'
  for mutation in ["UPDATE character_production.scheduler_binding SET enabled=false","DELETE FROM character_production.scheduler_binding"]:
   db.run("BEGIN; "+mutation+"; DO $$ BEGIN IF EXISTS(SELECT 1 FROM character_production.approved_slots WHERE key='scheduler-contract' AND enabled) OR EXISTS(SELECT 1 FROM character_production.schedules WHERE key='scheduler-contract' AND enabled) OR EXISTS(SELECT 1 FROM character_production.qa_slot_bindings WHERE slot_key='scheduler-contract' AND enabled) THEN RAISE EXCEPTION 'downstream not revoked'; END IF; END $$; SET ROLE service_role; DO $$ BEGIN IF "+write+" IS NOT NULL THEN RAISE EXCEPTION 'revoked binding wrote'; END IF; END $$; ROLLBACK;")
- # Concurrent revocation/write: any accepted write precedes revocation commit.
- with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-  futures=[pool.submit(rpc,write),pool.submit(db.run,"UPDATE character_production.scheduler_binding SET enabled=false")]
-  for f in futures:f.result()
+
+ # Current-admin removal blocks new planner work but is NOT a downstream revoke.
+ db.run("BEGIN; UPDATE auth.users SET raw_app_meta_data='{}' WHERE id='"+planner.ACT+"'; DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM character_production.approved_slots WHERE key='scheduler-contract' AND enabled) OR NOT EXISTS(SELECT 1 FROM character_production.schedules WHERE key='scheduler-contract' AND enabled) THEN RAISE EXCEPTION 'admin removal silently changed queue'; END IF; END $$; SET ROLE service_role; DO $$ BEGIN IF "+write+" IS NOT NULL THEN RAISE EXCEPTION 'removed admin planned'; END IF; END $$; ROLLBACK;")
+ # Revision mismatch invalidates context and policy trigger revokes old queue.
+ db.run("BEGIN; UPDATE character_production.planning_policies SET revision=revision+1 WHERE id='"+pol+"'; SET ROLE service_role; DO $$ BEGIN IF "+context+" IS NOT NULL OR "+write+" IS NOT NULL THEN RAISE EXCEPTION 'old revision accepted'; END IF; END $$; RESET ROLE; DO $$ BEGIN IF EXISTS(SELECT 1 FROM character_production.approved_slots WHERE key='scheduler-contract' AND enabled) THEN RAISE EXCEPTION 'policy revision did not revoke'; END IF; END $$; ROLLBACK;")
+ # Explicit retarget to a distinct staged successor, then rollback all changes.
+ successor='44444444-4444-4444-8444-444444444444'
+ db.run("BEGIN; INSERT INTO character_production.scheduler_enrollments SELECT '"+successor+"',policy_id,policy_revision,actor_id,policy_snapshot,candidate_snapshot,manifest_sha256,owner_evidence_ref,approved_at,expires_at,true FROM character_production.scheduler_enrollments WHERE id='"+enrolled+"'; UPDATE character_production.scheduler_binding SET enrollment_id='"+successor+"'; DO $$ BEGIN IF EXISTS(SELECT 1 FROM character_production.scheduler_enrollments WHERE id='"+enrolled+"' AND enabled) OR EXISTS(SELECT 1 FROM character_production.approved_slots WHERE key='scheduler-contract' AND enabled) OR EXISTS(SELECT 1 FROM character_production.schedules WHERE key='scheduler-contract' AND enabled) OR EXISTS(SELECT 1 FROM character_production.qa_slot_bindings WHERE slot_key='scheduler-contract' AND enabled) THEN RAISE EXCEPTION 'retarget failed downstream revoke'; END IF; END $$; ROLLBACK;")
+ assert rpc("public.character_production_scheduler_reconciled('"+enrolled+"',0)")=='t','retarget rollback restores original queue'
+
+ def interleave(leader_sql,waiter_sql,label):
+  leader=subprocess.Popen(db.command(),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+  leader.stdin.write("SET application_name='scheduler_leader'; "+leader_sql+"\n");leader.stdin.close()
+  waiter=None
+  try:
+   for _ in range(100):
+    if db.run("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='scheduler_leader' AND wait_event='PgSleep')")=='t':break
+    if leader.poll() is not None:raise AssertionError(leader.stderr.read())
+    time.sleep(.02)
+   else:raise AssertionError('leader barrier absent: '+label)
+   waiter=subprocess.Popen(db.command(),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+   waiter.stdin.write("SET application_name='scheduler_waiter'; "+waiter_sql+"\n");waiter.stdin.close()
+   for _ in range(100):
+    if db.run("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='scheduler_waiter' AND wait_event_type='Lock')")=='t':break
+    if waiter.poll() is not None:raise AssertionError('waiter did not block: '+waiter.stderr.read())
+    time.sleep(.02)
+   else:raise AssertionError('waiter lock barrier absent: '+label)
+   leader.wait(timeout=15);waiter.wait(timeout=15)
+   assert leader.returncode==0,leader.stderr.read()
+   assert waiter.returncode==0,waiter.stderr.read()
+  finally:
+   for child in [leader,waiter]:
+    if child and child.poll() is None:child.kill();child.wait()
+ # Planner holds policy/enrollment first; revoke waits, then rolled back queue
+ # remains unchanged. Statement verifies replay was authorized before revoke.
+ interleave("BEGIN; SET ROLE service_role; DO $$ BEGIN IF "+write+" IS NULL THEN RAISE EXCEPTION 'expected authorized plan'; END IF; END $$; SELECT pg_sleep(4); COMMIT;",
+ "BEGIN; UPDATE character_production.scheduler_binding SET enabled=false; ROLLBACK;",'planner-before-revoke')
+ assert rpc(context)!=''
+ # Revoker holds enrollment first; planner blocks and sees disabled row after
+ # commit, even though it began before that commit.
+ interleave("BEGIN; UPDATE character_production.scheduler_binding SET enabled=false; SELECT pg_sleep(4); COMMIT;",
+ "SET ROLE service_role; DO $$ BEGIN IF "+write+" IS NOT NULL THEN RAISE EXCEPTION 'write crossed committed revoke'; END IF; END $$;",'revoke-before-planner')
  assert rpc(write)=='','no write after revoke commit'
  assert rpc(context)==''
  db.finish('scheduler-principal-contract')

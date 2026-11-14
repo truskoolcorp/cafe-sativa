@@ -13,7 +13,7 @@ No service-role planner permission is assumed or granted. A missing reviewed nar
 planner client fails closed. Actor resolution is mandatory, fresh, server-authenticated,
 and may return null if unattended authority is unsupported. No actor is invented.
 
-Tests: 11 new composition tests pass; focused strict TypeScript passes including
+Tests: 20 new composition tests pass; focused strict TypeScript passes including
 server wrapper using existing local Supabase package resolution. No full Next build
 claim. No provider/database live execution was performed.
 
@@ -29,6 +29,6 @@ claim. No provider/database live execution was performed.
   receipts. These modules only establish planning composition, not live automation.
 
 ## Persisted reconciliation
-The immutable manifest is limited to 32 candidates. Each eligible candidate is read through the existing exact `character_production_planned_draft(uuid,jsonb,text,text)` boolean RPC using its draft ID, frozen slot, current computed digest and theme. Only literal true skips a candidate; null, errors or malformed results stop the tick before actor resolution or a planning write. A fresh process therefore skips prior persisted successful plans. There is at most one planning write per tick and no retry. The future narrow planner capability must explicitly permit this reconciliation RPC as well as the policy/planning RPCs; no grants are added here.
+The immutable manifest is limited to 32 candidates. Each eligible candidate is read through the existing exact `character_production_planned_draft(uuid,jsonb,text,text)` boolean RPC using its draft ID, frozen slot, current computed digest and theme. Only literal true skips a candidate; null, errors or malformed results stop the tick before actor resolution or a planning write. A fresh process therefore skips matching persisted active draft/slot/digest/theme bindings. This boolean does not compare the candidate policy ID/revision or scheduled time, and is only a deduplication hint, not proof that the full candidate or its publication is complete. There is at most one planning write per tick and no retry. The future narrow planner capability must explicitly permit this reconciliation RPC as well as the policy/planning RPCs; no grants are added here.
 
 Limit: that existing boolean returns false for disabled, conflicting or expired records as well as absent records. False is not proof that a draft is unused; the planner SQL remains responsible for rejecting conflicting records. Such a first candidate can block later candidates and requires reviewed reconciliation, not an automatic bypass or cadence skip.

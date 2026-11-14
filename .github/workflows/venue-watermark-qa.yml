@@ -33,3 +33,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run actual PostgreSQL fixtures without application secrets
         run: bash tests/sql/run-venue-watermark-ci.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Verify exact-byte gates and authenticated review boundaries
+        run: |
+          node tests/venue-watermark.cjs
+          node tests/venue-watermark-route.cjs
+          node tests/venue-variant-conflict.cjs

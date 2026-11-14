@@ -1,3 +1,5 @@
+import {canonicalImageTransport} from './character-production-canonical-image.ts'
+import type {CanonicalImageBinding,PrivateMediaSource} from './character-production-canonical-image.ts'
 import {renderedAudioDigest,renderedAudioPath,verifyRenderedAudio} from './character-production-rendered-audio.ts'
 import type {RenderedAudioBinding} from './character-production-rendered-audio.ts'
 import type {HeyGenTransport,HeyGenCodecs} from './character-production-provider-heygen.ts'
@@ -26,6 +28,7 @@ export function createDirectHeyGenApi(key:()=>string|undefined,fetcher:typeof fe
   })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{c.abort();reject(Error('HeyGen request unconfirmed'))},timeoutMs)})])}finally{clearTimeout(timer);c.abort();signal.removeEventListener('abort',abort)}
  }
  return {
+  imageTransport:(account:string,proofs:readonly CanonicalImageBinding[],images:PrivateMediaSource,audio:PrivateMediaSource)=>canonicalImageTransport(call,account,proofs,images,audio),
   /** Inventory only; current API lists use data arrays, NOT connector items. */
   account:(signal:AbortSignal)=>call('/v3/users/me',signal),
   looks:(signal:AbortSignal,token?:string)=>call('/v3/avatars/looks?ownership=private&limit=50'+cursor(token),signal),

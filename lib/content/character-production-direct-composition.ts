@@ -10,6 +10,7 @@ export function createDirectHeyGenRuntimeProvider(config:HeyGenConfig,expectedUs
  const bindings=config.bindings.map(b=>Object.freeze({...b})),pairs=new Set<string>()
  const selected:RenderedAudioBinding[]=[]
  for(const b of bindings){
+  if(b.imageBindingSha256)throw Error('Image mode requires canonical image composition')
   const pair=JSON.stringify([b.avatarId,b.voiceId]);if(pairs.has(pair))throw Error('Ambiguous avatar voice pairing');pairs.add(pair)
   if(b.audioBindingSha256){const found=audio.filter(a=>renderedAudioDigest(a)===b.audioBindingSha256&&a.characterId===b.characterId&&a.avatarId===b.avatarId&&a.voiceId===b.voiceId&&a.canonicalRevision===b.canonicalRevision&&a.portraitSha256===b.portraitSha256);if(found.length!==1)throw Error('Missing exact rendered audio proof');selected.push(Object.freeze({...found[0]}))}
  }

@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import WatermarkReview from './WatermarkReview'
 import styles from './review.module.css'
 
 const checks = { geometry: 'Room layout matches the reference', furniture: 'Furniture and materials match', lighting: 'Lighting remains believable and consistent', noPeople: 'No people or invented characters appear', noInventedText: 'No invented logos or distorted text appear', captionAccuracy: 'Caption accurately describes the virtual venue' }
@@ -112,6 +113,7 @@ export default function ContentReview({ jobId, embedded = false, onChanged }: { 
             {socialPreviews[`${job.id}:landscape`] && <a className={`${styles.button} ${styles.primary}`} href={socialPreviews[`${job.id}:landscape`]} target="_blank" rel="noreferrer">Open landscape preview ↗</a>}
             {job.status === 'pending_qa' && <a className={`${styles.button} ${styles.primary}`} href={`#review-${job.id}`}>Complete review below ↓</a>}
           </div>
+          {job.output_url && <WatermarkReview jobId={job.id} revision={job.updated_at} />}
           {job.blocker && <details className={styles.details}><summary>{job.status === 'scheduled' ? 'Show delivery receipt' : 'Show setup details'}</summary><p>{job.blocker}</p></details>}
           <div className={styles.mediaGrid}>
             {job.previewUrl && <section><h4>Video preview</h4><video src={job.previewUrl} controls preload="metadata" className={styles.media} /><a className={styles.textLink} href={job.previewUrl} target="_blank" rel="noreferrer">Open video in a new tab ↗</a></section>}

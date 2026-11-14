@@ -52,7 +52,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428083601",
+    "providerId": "428101396",
     "promoId": "90d5f842-69cc-4a43-ab6f-20e6eee89cf7",
     "videoSha256": "12017725d1bff3f6c643b4715623de9ca510a05d3ea6952b55d480cf805223d8",
     "brandId": "7605217",
@@ -64,7 +64,7 @@ const receipts:readonly ExternalPromoReceipt[]=[
   },
   {
     "provider": "metricool",
-    "providerId": "428083601",
+    "providerId": "428101396",
     "promoId": "90d5f842-69cc-4a43-ab6f-20e6eee89cf7",
     "videoSha256": "12017725d1bff3f6c643b4715623de9ca510a05d3ea6952b55d480cf805223d8",
     "brandId": "7605217",

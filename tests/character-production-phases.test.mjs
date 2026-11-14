@@ -56,7 +56,7 @@ test('production composition separates backend and provider transport and tracks
  const {readFileSync}=await import('node:fs')
  const s=readFileSync(new URL('../lib/content/character-production-server-composition.ts',import.meta.url),'utf8')
  assert.match(s,/const network=createProductionFetch\(signal\)/)
- assert.match(s,/createProductionProviderFetch\(signal,fetch,phases\?Math.max\(phases.submitMs,phases.statusMs\):8000\)/)
+ assert.match(s,/createProductionProviderFetch\(signal,fetch,phases\?Math.max\(phases.submitMs,phases.statusMs\):8000,/)
  assert.match(s,/createAdminClient\(network.fetch\)/)
  assert.match(s,/manifest.images,images,audio,providerNetwork.fetch\)/)
  assert.match(s,/providerNetwork.whenSettled\(\)/)

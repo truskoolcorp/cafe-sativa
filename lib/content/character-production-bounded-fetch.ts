@@ -2,8 +2,8 @@
  * cancellation and the finite tick abort requests, including response bodies. */
 export function createProductionFetch(tick:AbortSignal,fetcher:typeof fetch=fetch,timeoutMs=8000){return boundedNetwork(tick,fetcher,timeoutMs,10000)}
 /** Separate fixed-provider transport. Backend deadline is never widened. */
-export function createProductionProviderFetch(tick:AbortSignal,fetcher:typeof fetch=fetch,timeoutMs=8000){
- const fixed:typeof fetch=(input,init)=>{const u=new URL(input instanceof Request?input.url:String(input));if(u.origin!=='https://api.heygen.com'||u.username||u.password||u.hash)throw Error('Unverified provider host');return fetcher(input,init)}
+export function createProductionProviderFetch(tick:AbortSignal,fetcher:typeof fetch=fetch,timeoutMs=8000,beforeWrite?:()=>void){
+ const fixed:typeof fetch=(input,init)=>{const u=new URL(input instanceof Request?input.url:String(input));if(u.origin!=='https://api.heygen.com'||u.username||u.password||u.hash)throw Error('Unverified provider host');const method=(init?.method??(input instanceof Request?input.method:'GET')).toUpperCase();if(method!=='GET'&&method!=='HEAD')beforeWrite?.();return fetcher(input,init)}
  return boundedNetwork(tick,fixed,timeoutMs,30000)
 }
 function boundedNetwork(tick:AbortSignal,fetcher:typeof fetch,timeoutMs:number,maxMs:number){

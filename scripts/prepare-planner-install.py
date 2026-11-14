@@ -5,7 +5,7 @@ import hashlib
 R=Path(__file__).resolve().parents[1]
 names=['character-production-planner.sql','character-production-planner-policy-read.sql','character-production-planner-draft-helper.sql']
 sources=[(R/'docs/proposals'/n).read_text() for n in names]
-assert [hashlib.sha256(x.encode()).hexdigest() for x in sources]==['2af4122c887acea43ce63fa970d443a6d431b67d5c1ec754b70ea19849021264', '29ecf7fb8f2f5d9774aa4485ba7cf56155706afbacb4b923c9145c4fd7c76873', '41dd1f7d77a1e78a2c3c2163f79488cea474b6cd8334b0de69f8ff0c2088b59a']
+assert [hashlib.sha256(x.encode()).hexdigest() for x in sources]==['2af4122c887acea43ce63fa970d443a6d431b67d5c1ec754b70ea19849021264', '29ecf7fb8f2f5d9774aa4485ba7cf56155706afbacb4b923c9145c4fd7c76873', '57f5458cea766047986964b2890d8e178218591cc39bd227e2d570da6859e767']
 def body(x):return x.split('\nBEGIN;',1)[1].rsplit('\nCOMMIT;',1)[0]
 pre=r'''-- OFFLINE REVIEW ONLY. Prerequisites: reviewed recurring QA and HeyGen wallet
 -- guard already installed. Empty planner, no runtime grants/rows/activation.
@@ -23,6 +23,7 @@ DO $$ BEGIN
 END $$;
 LOCK TABLE public.cs_character_promo_drafts,public.cs_character_promo_delivery_plans,public.cs_character_promo_qa_checks IN SHARE MODE;
 CREATE TEMP TABLE pi_source ON COMMIT DROP AS SELECT 'drafts' name,to_jsonb(x) row FROM public.cs_character_promo_drafts x UNION ALL SELECT 'plans',to_jsonb(x) FROM public.cs_character_promo_delivery_plans x UNION ALL SELECT 'qa',to_jsonb(x) FROM public.cs_character_promo_qa_checks x;
+CREATE TEMP TABLE pi_defaults ON COMMIT DROP AS SELECT * FROM pg_default_acl;
 CREATE TEMP TABLE pi_members ON COMMIT DROP AS SELECT * FROM pg_auth_members;
 CREATE TEMP TABLE pi_ns ON COMMIT DROP AS SELECT oid,nspacl,nspowner FROM pg_namespace WHERE nspname IN ('public','character_production');
 CREATE TEMP TABLE pi_objects ON COMMIT DROP AS SELECT oid,relacl,relowner,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace IN ('public'::regnamespace,'character_production'::regnamespace);
@@ -60,6 +61,7 @@ RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM character_production_owner;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
 DO $$ DECLARE new_function_row record; new_table_row record; own oid:='character_production_owner'::regrole; expected_owner oid; extra oid; BEGIN
+ IF EXISTS((SELECT * FROM pg_default_acl EXCEPT SELECT * FROM pi_defaults) UNION ALL (SELECT * FROM pi_defaults EXCEPT SELECT * FROM pg_default_acl)) THEN RAISE EXCEPTION 'Default ACL changed'; END IF;
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM pi_members) UNION ALL (SELECT * FROM pi_members EXCEPT SELECT * FROM pg_auth_members)) THEN RAISE EXCEPTION 'Membership changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_ns b LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspacl IS DISTINCT FROM b.nspacl OR n.nspowner IS DISTINCT FROM b.nspowner) THEN RAISE EXCEPTION 'Schema authority changed'; END IF;
  IF EXISTS(SELECT 1 FROM pi_objects b LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM b.relowner OR c.relacl IS DISTINCT FROM b.relacl OR c.relrowsecurity IS DISTINCT FROM b.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM b.relforcerowsecurity) OR EXISTS(SELECT 1 FROM pi_cols b LEFT JOIN pg_attribute a USING(attrelid,attnum) WHERE a.attrelid IS NULL OR a.attacl IS DISTINCT FROM b.attacl) THEN RAISE EXCEPTION 'Existing object authority changed'; END IF;

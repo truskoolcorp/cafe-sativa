@@ -12,7 +12,7 @@ export type PlannerImageManifest=Readonly<{image:CanonicalImageBinding;themes:re
 export function createPlannerImageBindingReader(d:{config:Pick<HeyGenConfig,'linkId'|'model'|'aspectRatio'>;manifests:readonly PlannerImageManifest[];images:PrivateMediaSource;audio:PrivateMediaSource;readAccount(signal:AbortSignal):Promise<unknown>;expectedUsername:string;now():number}):PlannerValidationSources['readBinding']{
  const now=d.now.bind(d),readAccount=d.readAccount.bind(d),username=d.expectedUsername,readImage=d.images.read.bind(d.images),readAudio=d.audio.read.bind(d.audio)
  const config=Object.freeze({...d.config}),manifests=d.manifests.map(m=>Object.freeze({...m,themes:Object.freeze([...m.themes]),image:Object.freeze({...m.image,audio:Object.freeze({...m.image.audio}),...(m.image.approvedScene?{approvedScene:Object.freeze({...m.image.approvedScene})}:{})})}))
- if(config.linkId!=='d61468fdf18c4b478f27857337ddd1ea'||config.model!=='avatar_iv'||!d.expectedUsername)throw Error('Planner account required')
+ if(!config.linkId||config.model!=='avatar_iv'||username!=='d61468fdf18c4b478f27857337ddd1ea')throw Error('Planner account required')
  for(const m of manifests){canonicalImageDigest(m.image);if(!m.rightsEvidenceRef?.trim()||!m.quoteEvidenceRef?.trim()||m.rightsEvidenceRef.length>500||m.quoteEvidenceRef.length>500||!Number.isSafeInteger(m.quoteCents)||m.quoteCents<1||m.quoteCents>2000||!Number.isSafeInteger(m.durationSeconds)||m.durationSeconds<8||m.durationSeconds>45||!Number.isSafeInteger(m.quoteObservedAt)||!Number.isSafeInteger(m.quoteExpiresAt)||m.quoteExpiresAt<=m.quoteObservedAt||m.quoteExpiresAt>m.quoteObservedAt+86400000)throw Error('Reviewed manifest required')}
  return async(i,digest,signal)=>{try{
   if(signal.aborted||productionSlotDigest(i.slot)!==digest)return null
@@ -26,6 +26,6 @@ export function createPlannerImageBindingReader(d:{config:Pick<HeyGenConfig,'lin
   const audio=await readAudio(renderedAudioPath(m.image.audio),m.image.audio.audioBytes,signal)
   if(!fresh()||!verifyCanonicalImage(m.image,image)||!verifyRenderedAudio(m.image.audio,i.slot.script,i.slot.voiceId,audio))return null
   const evidenceRef='sha256:'+createHash('sha256').update(JSON.stringify([m.rightsEvidenceRef,m.quoteEvidenceRef,canonicalImageDigest(m.image)])).digest('hex')
-  return {digest,providerBindingRevision:i.slot.providerBindingRevision,accountId:config.linkId,sourceBound:true,rightsApproved:true,themeApproved:true,quoteCents:m.quoteCents,observedAt:new Date(now()).toISOString(),evidenceRef}
+  return {digest,providerBindingRevision:i.slot.providerBindingRevision,accountId:username,sourceBound:true,rightsApproved:true,themeApproved:true,quoteCents:m.quoteCents,observedAt:new Date(now()).toISOString(),evidenceRef}
  }catch{return null}}
 }

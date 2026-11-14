@@ -58,6 +58,8 @@ jobs:
         run: python3 tests/postgres/validate_canary_owner.py
       - name: Validate original-task reconciliation without reclaims
         run: python3 tests/postgres/validate_original_reconcile.py
+      - name: Validate exact original output manual recovery
+        run: python3 tests/postgres/validate_original_recovery.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

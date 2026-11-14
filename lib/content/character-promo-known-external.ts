@@ -4,6 +4,30 @@ import type {ExternalPromoReceipt,PromoDeliveryIdentity} from './character-promo
 const receipts:readonly ExternalPromoReceipt[]=[
 {
   "provider": "metricool",
+  "providerId": "428247704",
+  "promoId": "ead1bf18-b531-4070-b74a-d01953c907cf",
+  "videoSha256": "5907971bbcfa87654aeb6c0be53acf3e1546f2f8e64e95be3fb97e0f54afe43f",
+  "brandId": "7605217",
+  "network": "facebook",
+  "accountId": "105363501666032",
+  "scheduledAt": "2026-11-14T18:00:00-06:00",
+  "observedAt": "2026-11-14T18:35:00Z",
+  "state": "scheduled"
+},
+{
+  "provider": "metricool",
+  "providerId": "428247704",
+  "promoId": "ead1bf18-b531-4070-b74a-d01953c907cf",
+  "videoSha256": "5907971bbcfa87654aeb6c0be53acf3e1546f2f8e64e95be3fb97e0f54afe43f",
+  "brandId": "7605217",
+  "network": "instagram",
+  "accountId": "cafesativainc",
+  "scheduledAt": "2026-11-14T18:00:00-06:00",
+  "observedAt": "2026-11-14T18:35:00Z",
+  "state": "scheduled"
+},
+{
+  "provider": "metricool",
   "providerId": "428188100",
   "promoId": "573fb8db-a215-491f-8efc-0f48153f2d85",
   "videoSha256": "7e5ecebd41c4ed492d3b16597ac82014078cb5c74f271bb91dac7caa7a5ad1c7",

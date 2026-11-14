@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto'
 import type {PromoSources} from './character-promo-delivery'
 import {cafeScheduleDigest,cafeReservationKeys,validateCafeSchedule} from './character-promo-cafe-metricool'
 import type {CafeSchedule,CafeCollaborator} from './character-promo-cafe-metricool'
+import {normalizePromoDatabaseTime} from './character-promo-time'
 import {assertNoKnownExternalPromo} from './character-promo-known-external'
 
 /** Dormant authority writer; never exposed to request bodies or dispatches.
@@ -33,7 +34,7 @@ function validate(candidate:CafeApprovalCandidate,now:number){
  validateCafeSchedule(s,candidate.verifiedCollaborators,now);assertNoKnownExternalPromo(s)
  demand(uuid(s.planId)&&uuid(s.promoId)&&p.id===s.planId&&d.id===s.promoId&&p.promo_id===d.id&&p.character_id===d.character_id&&s.characterId===d.character_id,'Exact source identity required')
  demand(d.status==='script_approved'&&p.status==='ready_for_delivery'&&d.actual_social_account==='metricool-brand:7605217','Source not cleared')
- demand(p.caption===s.caption&&p.scheduled_at===s.scheduledAt&&p.network===s.network&&p.account_id===s.accountId,'Plan metadata changed')
+ demand(p.caption===s.caption&&normalizePromoDatabaseTime(p.scheduled_at,true)===s.scheduledAt&&p.network===s.network&&p.account_id===s.accountId,'Plan metadata changed')
  demand(d.spoken_script.trim()&&d.visual_brief.trim()&&dated(d.updated_at,now),'Reviewed script and revision required')
  demand([d.voice_approved_at,d.video_qa_approved_at,d.publication_approved_at].every(t=>dated(t,now)),'Existing final approvals required')
  demand(v.videoBytes instanceof Uint8Array&&v.videoBytes.length>=16&&v.videoBytes.length<=35*1024*1024&&Buffer.from(v.videoBytes.subarray(4,8)).toString('ascii')==='ftyp','Verified bounded MP4 required')

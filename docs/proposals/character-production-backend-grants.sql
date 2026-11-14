@@ -4,7 +4,6 @@ SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='30s';
 DO $$ DECLARE sig text; BEGIN
  IF current_setting('server_version_num')::integer NOT BETWEEN 170000 AND 179999 THEN RAISE EXCEPTION 'PostgreSQL17 required'; END IF;
  IF current_user<>session_user OR current_user<>'postgres' THEN RAISE EXCEPTION 'Expected reviewed direct installer'; END IF;
- IF EXISTS(SELECT 1 FROM character_production.jobs) OR EXISTS(SELECT 1 FROM character_production.approved_slots) OR EXISTS(SELECT 1 FROM character_production.budgets) THEN RAISE EXCEPTION 'Nonempty ledger requires separate reconciliation'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') THEN RAISE EXCEPTION 'Unexpected preexisting SET owner'; END IF;
  IF (SELECT count(*) FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor<>current_user::regrole AND admin_option AND NOT inherit_option AND NOT set_option)<>1 OR EXISTS(SELECT 1 FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor=current_user::regrole) THEN RAISE EXCEPTION 'Missing exact bootstrap role authority'; END IF;
  IF EXISTS(SELECT 1 FROM pg_proc WHERE (pronamespace='character_production'::regnamespace OR (pronamespace='public'::regnamespace AND proname LIKE 'character_production_%')) AND has_function_privilege('service_role',oid,'EXECUTE')) THEN RAISE EXCEPTION 'Unexpected preexisting backend function access'; END IF;
@@ -35,6 +34,9 @@ CREATE TEMP TABLE backend_expected_functions ON COMMIT DROP AS
  'public.character_production_submitted(text,text,text,text)','public.character_production_unknown(text,text,text)']) sig;
 GRANT character_production_owner TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE GRANTED BY postgres;
 SET LOCAL ROLE character_production_owner;
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM character_production.jobs) OR EXISTS(SELECT 1 FROM character_production.approved_slots) OR EXISTS(SELECT 1 FROM character_production.budgets) THEN RAISE EXCEPTION 'Nonempty ledger requires separate reconciliation'; END IF;
+END $$;
 GRANT EXECUTE ON FUNCTION public.character_production_authorization(text,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.character_production_broker_authorized(jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.character_production_claim(jsonb,text) TO service_role;

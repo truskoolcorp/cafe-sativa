@@ -40,3 +40,13 @@ No model synthesis, provider billing mutation, storage write or credential acces
 Implementation route remains hard-disabled. Exact model-rate and voice-rate metadata plus raw deprecated allowance field must pass the strict parser; current sanitized diagnostic alone cannot prove those facts. The one-shot claim can consume this test permission even when the POST is never reached.
 
 Read-only authenticated GET now exposes only bounded quota/rate compatibility facts; synthesis remains disabled. Auth is bounded at5s, overall readiness18s, admission retained until original work/provider operations settle. Resource route reuses45s handler: max6s auth/body, monotonic pre-speech admission at9s into operation,12s direct provider timeout, five3s backend storage stages and3s margin. Slow preflight after claim consumes permission without attempting synthesis. Provider fetch, response-read and cancellation settlement participate in admission, not only Supabase requests.
+
+## Narrow owner-authorized activation follow-up
+One fixed 54-character Bree/v4 call is enabled by this reviewed patch. Fresh raw
+voice sharing.rate must equal1 and overage entitlement must be false; any changed
+rate, including0, holds. This observed custom rate is NOT interpreted as a credit
+multiplier. Claim and receipt preserve observedCustomRate1 and creditEstimate:null.
+Actual included-credit delta must be measured after the one call. All original
+fixed-input, private storage, immutable claim and no-retry fences are unchanged.
+No call was made while authoring this patch. Earlier disabled-tranche description
+applies to the prior deployment only, not this activation candidate.

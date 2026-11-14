@@ -10,7 +10,7 @@ import {createIncludedProvider,createIncludedStore} from '@/lib/content/characte
 export const dynamic='force-dynamic'
 export const maxDuration=60
 // Deployment alone never authorizes the paid/included-resource request.
-const ENABLED=false
+const ENABLED=true
 const handler=createOriginalQaHandler({authorize:isContentAdmin,open(signal){
  const network=createProductionFetch(signal,fetch,3000),db=createAdminClient(network.fetch)
  const provider=createIncludedProvider(process.env.ELEVENLABS_API_KEY??'',signal),store=createIncludedStore(db.storage,signal)

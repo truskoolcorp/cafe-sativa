@@ -19,10 +19,10 @@ export function includedQuotaProof(subscription:any,models:any,voice:any){
  const rate=m.model_rates?.character_cost_multiplier,discount=m.model_rates?.cost_discount_multiplier
  if(typeof rate!=='number'||!Number.isFinite(rate)||rate<=0||rate>4||typeof discount!=='number'||!Number.isFinite(discount)||discount<=0||discount>1)throw Error('model_rate_unverified')
  if(voice?.voice_id!==c.voiceId)throw Error('voice_unverified')
- // Never reinterpret voice sharing.rate as a credit multiplier. Only explicit
- // zero custom rate or private generated/cloned voice without sharing qualifies.
- if(!(voice.sharing?.rate===0||voice.sharing===null&&['generated','cloned'].includes(voice.category)))throw Error('voice_rate_unverified')
- return {remainingCredits:remaining,modelCharacterMultiplier:rate,modelDiscountMultiplier:discount,overageEntitled:s.can_extend_character_limit,overageCap:cap,customVoiceRateAbsent:true,accountBinding:'existing-production-server-key'}
+ // Owner-authorized ONE fixed Bree test permits only the observed custom
+ // rate1, with no overage entitlement. It is NOT a1x credit estimate.
+ if(voice.sharing?.rate!==1||s.can_extend_character_limit!==false)throw Error('voice_rate_unverified')
+ return {remainingCredits:remaining,modelCharacterMultiplier:rate,modelDiscountMultiplier:discount,overageEntitled:s.can_extend_character_limit,overageCap:cap,observedCustomRate:1,creditEstimate:null,accountBinding:'existing-production-server-key'}
 }
 export type CanaryStore={preflight():Promise<void>;claim(bytes:Uint8Array):Promise<void>;readClaim():Promise<Uint8Array>;audio(bytes:Uint8Array,sha:string):Promise<void>;readAudio(sha:string,size:number):Promise<Uint8Array>;receipt(bytes:Uint8Array):Promise<void>;readReceipt():Promise<Uint8Array>}
 /** Fixed one-shot included-resource test. Claim is never released, even if no
@@ -47,7 +47,7 @@ export async function runIncludedCanary(d:{signal:AbortSignal;now():number;monot
  // Unknown audio write may be reconciled by exact readback, never rewritten.
  try{await d.store.audio(bytes,sha)}catch{/* readback only */}
  active();const readback=await d.store.readAudio(sha,bytes.length);if(readback.length!==bytes.length||hash(readback)!==sha)throw Error('audio_unconfirmed');active()
- const receipt=Buffer.from(JSON.stringify({version:1,key:includedCanary.key,inputDigest:hash(JSON.stringify(includedCanary)),claimSha256:hash(claim),requestId:result.requestId,audioSha256:sha,audioBytes:bytes.length,voiceId:includedCanary.voiceId,modelId:includedCanary.modelId,qaApproved:false,publicationApproved:false}))
+ const receipt=Buffer.from(JSON.stringify({version:1,key:includedCanary.key,inputDigest:hash(JSON.stringify(includedCanary)),claimSha256:hash(claim),requestId:result.requestId,audioSha256:sha,audioBytes:bytes.length,voiceId:includedCanary.voiceId,modelId:includedCanary.modelId,observedCustomRate:1,creditEstimate:null,qaApproved:false,publicationApproved:false}))
  await d.store.receipt(receipt);active();if(hash(await d.store.readReceipt())!==hash(receipt))throw Error('receipt_unconfirmed');active()
  return {status:'private_pending_qa' as const,audioSha256:sha,audioBytes:bytes.length,providerReceiptConfirmed:true,qaApproved:false,publicationApproved:false}
 }

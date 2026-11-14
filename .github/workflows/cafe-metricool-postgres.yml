@@ -1,0 +1,46 @@
+name: Cafe Metricool isolated PostgreSQL
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/cafe-metricool-postgres.yml'
+      - 'docs/proposals/cafe-metricool-store.sql'
+      - 'tests/postgres/validate_cafe_metricool.py'
+      - 'lib/content/character-promo-cafe-store.ts'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_metricool
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d character_ci_metricool"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_metricool
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install official PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Validate isolated authority, concurrent reservations and receipts
+        run: python3 tests/postgres/validate_cafe_metricool.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cafe-metricool-postgres-evidence
+          path: evidence/postgres-cafe-metricool-validation.log

@@ -7,6 +7,8 @@ on:
       - 'docs/proposals/character-production-qa-*.sql'
       - 'docs/proposals/character-production-planner*.sql'
       - 'scripts/prepare-planner-install.py'
+      - 'scripts/prepare-planner-admin-install.py'
+      - 'docs/proposals/character-production-admin-bridge*.sql'
       - 'tests/postgres/validate_planner_install.py'
       - 'docs/proposals/character-production-heygen*'
       - 'tests/postgres/validate_qa_install.py'

@@ -1,3 +1,4 @@
+import {productionSlotDigest} from './character-production-engine.ts'
 import {createCharacterProductionPlanner} from './character-production-planner.ts'
 import type {PlannerInput} from './character-production-planner.ts'
 import {createPlannerScheduler} from './character-production-planner-scheduler.ts'
@@ -24,6 +25,7 @@ export interface TrustedPlannerSources {
 export function createTrustedPlannerComposition(manifest:TrustedPlannerManifest,now:()=>number,open:(signal:AbortSignal)=>TrustedPlannerSources){
  const enabled=manifest.enabled===true,deadlineMs=manifest.deadlineMs,heygen=Object.freeze({...manifest.heygen}),username=manifest.expectedUsername
  const images=manifest.images.map(m=>Object.freeze({...m,themes:Object.freeze([...m.themes]),image:Object.freeze({...m.image,audio:Object.freeze({...m.image.audio}),...(m.image.approvedScene?{approvedScene:Object.freeze({...m.image.approvedScene})}:{})})}))
+ if(manifest.candidates.length>32)throw Error('Candidate manifest exceeds reconciliation bound')
  const candidates=manifest.candidates.map(c=>{if(Object.keys(c).includes('actorId'))throw Error('Candidate cannot supply actor');return Object.freeze({...c,slot:Object.freeze({...c.slot})})})
  const clock=now
  return {async tick(signal:AbortSignal){
@@ -37,9 +39,19 @@ export function createTrustedPlannerComposition(manifest:TrustedPlannerManifest,
     if(inner.aborted)return null
     const at=clock(),eligible=candidates.filter(c=>Date.parse(c.scheduledAt)>=at&&Date.parse(c.scheduledAt)<=at+86400000&&c.slot.authorizationExpiresAt>Date.parse(c.scheduledAt)).sort((a,b)=>a.scheduledAt.localeCompare(b.scheduledAt)||a.slot.key.localeCompare(b.slot.key))
     if(!eligible.length)return null
-    const actor=await resolve(inner)
-    if(inner.aborted||!actor)return null
-    return Object.freeze({...eligible[0],actorId:actor})
+    // Persisted reconciliation survives runtime restarts. No service-role fallback,
+    // retry or inferred success. Capability must include this exact boolean RPC.
+    for(const candidate of eligible){
+     if(inner.aborted)return null
+     const result=await d.db.rpc('character_production_planned_draft',{p_id:candidate.draftId,p_slot:candidate.slot,p_digest:productionSlotDigest(candidate.slot),p_theme:candidate.theme}).abortSignal(inner).retry(false)
+     if(inner.aborted)return null
+     if(result.error||typeof result.data!=='boolean')throw Error('Planning reconciliation unavailable')
+     if(result.data)continue
+     const actor=await resolve(inner)
+     if(inner.aborted||!actor)return null
+     return Object.freeze({...candidate,actorId:actor})
+    }
+    return null
    }}
   }).tick(lifetime.signal)}finally{lifetime.abort();signal.removeEventListener('abort',abort)}
  }}

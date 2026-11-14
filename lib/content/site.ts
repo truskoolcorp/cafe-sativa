@@ -1,3 +1,4 @@
+import { reviewedVenueBytes } from '@/lib/content/venue-watermark'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import { approvedAsset } from '@/lib/content/policy'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -34,7 +35,7 @@ export async function siteMediaApproved(item: {id?:string;site_category?:string|
   if (item.media_url !== '/api/content/media/approved-bar.mp4') return Boolean(await approvedMediaJob(item))
   if (!item.source_job_id || item.media_url !== '/api/content/media/approved-bar.mp4') return false
   const db = createAdminClient()
-  const result = await db.from('cs_content_jobs').select('canonical_asset_id,output_url,qa_approved_by,qa_approved_at,policy_version,status')
+  const result = await db.from('cs_content_jobs').select('id,canonical_asset_id,output_url,qa_approved_by,qa_approved_at,policy_version,status')
     .eq('id',item.source_job_id).eq('slot_key','2026-10-07:bar').in('status',['approved','scheduled','published']).maybeSingle()
   if(result.error) throw result.error
   const job=result.data
@@ -42,7 +43,8 @@ export async function siteMediaApproved(item: {id?:string;site_category?:string|
   if(!job?.qa_approved_by || !job.qa_approved_at || job.policy_version !== '2026-10-07' || job.output_url !== 'ee51c8a4-cffa-4dc1-b34d-cc5b98dc43eb.mp4') return false
   const canonical=await db.from('cs_canonical_assets').select('*').eq('id',job.canonical_asset_id).eq('kind','venue').eq('subject','bar').maybeSingle()
   if(canonical.error) throw canonical.error
-  return approvedAsset(canonical.data)
+  if(!approvedAsset(canonical.data))return false
+  try { await reviewedVenueBytes(db,job); return true } catch { return false }
 }
 
 export async function publishDueSiteContent(now = new Date()) {

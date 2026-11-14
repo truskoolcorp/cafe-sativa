@@ -1,3 +1,4 @@
+import { reviewedVenueBytes, inspectVenueBytes } from '@/lib/content/venue-watermark'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -17,13 +18,9 @@ export async function prepareVideoVariant(db: ReturnType<typeof createAdminClien
   // Callers still enforce QA and canonical approval; accept only a flat UUID MP4.
   if (!MEDIA_UUID.test(job.id) || typeof job.output_url !== 'string' || !job.output_url.endsWith('.mp4') || !MEDIA_UUID.test(job.output_url.slice(0,-4))) throw new Error('Stored approved master required')
   const bucket = db.storage.from('cafe-sativa-content')
-  const master = await bucket.download(job.output_url)
-  if (master.error || !master.data || master.data.size > MAX_BYTES) throw new Error('Master unavailable or too large for automatic export')
-  const bytes = Buffer.from(await master.data.arrayBuffer())
-  const hash = createHash('sha256').update(bytes).digest('hex')
-  const path = `variants/${job.id}/${hash}-${format}-${VERSION}.mp4`
-  const cached = await bucket.download(path)
-  if (cached.error || !cached.data) {
+  const {bytes,sha256:hash}=await reviewedVenueBytes(db,job)
+  let path=''
+  {
     const folder = await mkdtemp(join(tmpdir(), 'cs-export-'))
     try {
       const input = join(folder, 'master.mp4'), output = join(folder, 'export.mp4')
@@ -32,11 +29,21 @@ export async function prepareVideoVariant(db: ReturnType<typeof createAdminClien
       await execute(executable, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-protocol_whitelist', 'file,pipe', '-i', input, '-map', '0:v:0', '-map', '0:a:0?', '-vf', preserveFrameFilter(format), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-threads', '2', '-y', output], { timeout: 25000, maxBuffer: 512 * 1024 })
       const encoded = await readFile(output)
       if (!encoded.length || encoded.length > MAX_BYTES) throw new Error('Export size unsupported')
-      const saved = await bucket.upload(path, encoded, { contentType: 'video/mp4', upsert: true })
-      if (saved.error) throw new Error('Export could not be stored')
+      const encodedHash=createHash('sha256').update(encoded).digest('hex')
+      path=`variants/${job.id}/${hash}-${format}-${VERSION}/${encodedHash}.mp4`
+      const saved = await bucket.upload(path, encoded, { contentType: 'video/mp4', upsert: false })
+      if(saved.error){
+        if(!explicitVariantConflict(saved.error))throw new Error('Export could not be stored')
+        const existing=await inspectVenueBytes(db,{id:job.id,output_url:path})
+        if(existing.sha256!==encodedHash || existing.bytes.length!==encoded.length)throw new Error('Existing derivative mismatch')
+      }
     } finally { await rm(folder, { recursive: true, force: true }) }
   }
-  const signed = await bucket.createSignedUrl(path, 3600)
+  // A transform/cache is not an independently reviewed public artifact.
+  await reviewedVenueBytes(db,{id:job.id,output_url:path})
+  const signed = await bucket.createSignedUrl(path, 60)
   if (signed.error || !signed.data) throw new Error('Export URL unavailable')
   return { url: signed.data.signedUrl, format, sourceSha256: hash, version: VERSION }
 }
+
+export function explicitVariantConflict(error:any){return String(error?.statusCode??error?.status)==='409' && (['ResourceAlreadyExists','KeyAlreadyExists','Duplicate'].includes(error?.error??error?.code)||error?.message==='The resource already exists')}

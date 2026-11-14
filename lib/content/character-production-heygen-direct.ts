@@ -4,7 +4,7 @@ const object=(v:unknown):Record<string,unknown>=>{if(!v||typeof v!=='object'||Ar
 function data(raw:unknown){const r=object(raw);if(r.error!==undefined&&r.error!==null)throw Error('HeyGen API error');return object(r.data)}
 export const directHeyGenCodecs:HeyGenCodecs={
  receipt(raw){const d=data(raw);if(!id(d.video_id)||!['waiting','pending','processing'].includes(String(d.status))||d.output_format!==undefined&&d.output_format!=='mp4'||d.resolution!==undefined&&d.resolution!==null&&d.resolution!=='1080p'||d.resolution_note)throw Error('Unverified HeyGen creation receipt');return {taskId:d.video_id}},
- status(raw){const d=data(raw);if(!id(d.id))throw Error('Invalid video identity');if(d.status==='pending'||d.status==='processing')return {taskId:d.id,state:'pending'};if(d.status==='failed')return {taskId:d.id,state:'failed'};if(d.status!=='completed'||typeof d.video_url!=='string'||!d.video_url.startsWith('https://')||d.error_code||d.error_message)throw Error('Invalid completed video');return {taskId:d.id,state:'completed',mediaUrl:d.video_url}},
+ status(raw){const d=data(raw);if(!id(d.id))throw Error('Invalid video identity');if(d.status==='pending'||d.status==='processing')return {taskId:d.id,state:'pending'};if(d.status==='failed')return {taskId:d.id,state:'failed'};if(d.status!=='completed'||typeof d.video_url!=='string'||!d.video_url.startsWith('https://')||d.error_code||d.error_message||d.failure_code||d.failure_message)throw Error('Invalid completed video');return {taskId:d.id,state:'completed',mediaUrl:d.video_url}},
 }
 /** Fixed-host HTTP client. Existing backend env accessor supplied by caller;
  * never logs key/body/raw error. Native fetch does not retry. No arbitrary URL. */

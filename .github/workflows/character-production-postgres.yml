@@ -52,6 +52,8 @@ jobs:
           node-version: '22'
       - name: Validate inert non-superuser provisioning
         run: python3 tests/postgres/validate_provisioning.py
+      - name: Validate exact backend RPC grants and rollback
+        run: python3 tests/postgres/validate_backend_grants.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

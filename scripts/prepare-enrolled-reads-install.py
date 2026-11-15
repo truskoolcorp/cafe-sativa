@@ -6,6 +6,8 @@ R=Path(__file__).resolve().parents[1]
 def pinned(path,sha):
  s=(R/path).read_text();assert hashlib.sha256(s.encode()).hexdigest()==sha,path
  return s
+# The original generator capability remains on raw due/pending after backend grants.
+pinned('scripts/prepare-character-provisioning.mjs','1c6df64be018446f2a476b6c8ec967afc5003bd64d5505bfdf7b66b496bfc392')
 # Reuse the exact reviewed restricted-owner bootstrap and catalog preservation code.
 pinned('scripts/prepare-scheduler-principal-install.py','d4d5be1fd5e6567b2d9fb2c34759c7a205f99b66cbbc94e16b5af114c862144b')
 with contextlib.redirect_stdout(io.StringIO()): old=runpy.run_path(str(R/'scripts/prepare-scheduler-principal-install.py'))
@@ -37,7 +39,8 @@ for source,name,sig,sec,extra in [
  schema,proname=name.split('.')
  argtypes=' '.join({'uuid':'2950','text':'25','integer':'23','timestamptz':'1184'}[t] for t in sig.split(','))
  checks+=" SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname="+quote(schema)+" AND p.proname="+quote(proname)+" AND p.proargtypes="+quote(argtypes)+"::oidvector;\n IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM "+str(sec).lower()+" OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM "+quote(function(source,name))+" THEN RAISE EXCEPTION 'Dependency definition mismatch: "+name+"'; END IF;\n"
- checks+=" extra:="+("'service_role'::regrole" if extra else 'NULL')+";\n IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch'; END IF;\n"
+ generator_acl=" UNION ALL SELECT own,'character_production_generator'::regrole::oid,'EXECUTE',false" if name in ('public.character_production_due','public.character_production_pending') else ""
+ checks+=" extra:="+("'service_role'::regrole" if extra else 'NULL')+";\n IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL"+generator_acl+") (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch: "+name+"'; END IF;\n"
 checks+=" SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('public.character_production_qa_draft_unplanned(uuid)');\n IF NOT FOUND OR f.proowner<>current_user::regrole OR NOT f.prosecdef OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM "+quote(function(recurring,'public.character_production_qa_draft_unplanned'))+" THEN RAISE EXCEPTION 'Source-owned unplanned dependency mismatch'; END IF;\n IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))), e AS (SELECT f.proowner grantor,f.proowner grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT f.proowner,own,'EXECUTE',false) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Source-owned unplanned ACL mismatch'; END IF;\n"
 checks+='END $$;\n'
 pre=pre.replace('LOCK TABLE public.cs_character_promo_drafts',checks+'LOCK TABLE public.cs_character_promo_drafts',1)

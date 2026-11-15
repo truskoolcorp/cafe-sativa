@@ -1,4 +1,4 @@
-import copy,hashlib,importlib.util,json,re,unittest
+import copy,hashlib,importlib.util,json,re,unittest,tempfile,stat
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 s=importlib.util.spec_from_file_location('derive',ROOT/'scripts/derive-cafe-standing-expected.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
@@ -42,4 +42,12 @@ class Tests(unittest.TestCase):
  def test_duplicate_identity_rejected(self):
   b,a=fixture();b['catalog']['functions']*=2
   with self.assertRaises(ValueError):m.derive(b,b,a)
+class PrivateOutputTests(unittest.TestCase):
+ def test_private_from_creation_and_no_overwrite(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'private.json';m.write_private(p,b'first')
+   self.assertEqual(stat.S_IMODE(p.stat().st_mode),0o600)
+   with self.assertRaises(FileExistsError):m.write_private(p,b'second')
+   self.assertEqual(p.read_bytes(),b'first')
+
 if __name__=='__main__':unittest.main()

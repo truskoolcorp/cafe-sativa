@@ -2,7 +2,7 @@
 """Derive a PRIVATE candidate manifest from a reviewed disposable object delta.
 Not a live-schema replay, installer, approval, provider operation or production write.
 """
-import argparse,copy,hashlib,json,re
+import argparse,copy,hashlib,json,re,os
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 AUTHORIZED='cafe_metricool_private.authorized(uuid,text)'
@@ -94,6 +94,11 @@ def load(path,digest):
  raw=Path(path).read_bytes()
  if not re.fullmatch('[0-9a-f]{64}',digest) or hashlib.sha256(raw).hexdigest()!=digest:raise ValueError('Reviewed input hash mismatch')
  return json.loads(raw)
+def write_private(path,raw):
+ # Exclusive creation starts private; never truncate an existing reviewed file.
+ fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+ with os.fdopen(fd,'wb') as handle:handle.write(raw)
+
 def main():
  p=argparse.ArgumentParser(description=__doc__)
  for n in ['live-before','fixture-before','fixture-after']:
@@ -101,6 +106,6 @@ def main():
  p.add_argument('--output',required=True);a=p.parse_args();out=Path(a.output).resolve()
  if out==ROOT or ROOT in out.parents:raise ValueError('Private manifest output must remain outside repository')
  m,counts=derive(*[load(getattr(a,n),getattr(a,n+'_sha256')) for n in ['live_before','fixture_before','fixture_after']])
- raw=(json.dumps(m,separators=(',',':'))+'\n').encode();out.write_bytes(raw);out.chmod(0o600)
+ raw=(json.dumps(m,separators=(',',':'))+'\n').encode();write_private(out,raw)
  print(json.dumps({'status':'private_candidate_overlay_not_live_replay','sha256':hashlib.sha256(raw).hexdigest(),'added':counts,'changed':['authorized_definition_only'],'liveActions':False}))
 if __name__=='__main__':main()

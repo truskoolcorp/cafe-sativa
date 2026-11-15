@@ -1,3 +1,4 @@
+import {hasEmptyRequestBody} from './character-production-empty-request-body.ts'
 import type {IncludedSpeechOperation} from './character-production-included-speech-operation.ts'
 import {validateIncludedSpeechOperation} from './character-production-included-speech-operation.ts'
 type Opened={run():Promise<unknown>;whenSettled():Promise<void>}
@@ -11,7 +12,8 @@ export function createIncludedSpeechHandler(input:IncludedSpeechOperation,d:{ena
  return async(req:Request):Promise<Response>=>{
   const response=(status:string,code:number)=>Response.json({status,qaApproved:false,publicationApproved:false},{status:code,headers:{'Cache-Control':'private, no-store'}})
   if(!d.enabled()||now()>=s.expiresAt)return response('disabled',503)
-  if(req.method!=='POST'||new URL(req.url).search||req.body!==null||req.headers.get('origin')!==d.origin)return response('unsupported_request',400)
+  if(req.method!=='POST'||new URL(req.url).search||req.headers.get('origin')!==d.origin)return response('unsupported_request',400)
+  if(!await hasEmptyRequestBody(req))return response('nonempty_or_unreadable_body',400)
   if(req.signal.aborted)return response('cancelled',499)
   if(busy)return response('busy',429)
   busy=true

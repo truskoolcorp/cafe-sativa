@@ -25,7 +25,7 @@ def suite():
  for setup,label in [
   ('GRANT CREATE ON SCHEMA public TO character_production_owner;','Unexpected temporary authority'),
   ('ALTER ROLE character_production_owner BYPASSRLS;','Unsafe owner baseline'),
-  ('GRANT EXECUTE ON FUNCTION public.character_production_due(text,text,integer) TO anon;','Dependency ACL mismatch'),
+  ('GRANT EXECUTE ON FUNCTION public.character_production_due(text,text,integer) TO anon;','Dependency ACL mismatch: public.character_production_due'),
   ("CREATE OR REPLACE FUNCTION public.character_production_pending(p_provider text,p_model text,p_limit integer) RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$ SELECT '[]'::jsonb $$;",'Dependency definition mismatch'),
   ('DROP FUNCTION public.character_production_qa_ready_slots(integer);','Dependency definition mismatch'),
  ]:

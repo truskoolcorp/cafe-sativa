@@ -58,3 +58,23 @@ test('Facebook caption mentions remain plain text with no fabricated identity ta
  assert.ok(info.text.startsWith(f.s.caption));assert.equal(info.facebookData.tags,undefined)
  assert.equal(info.instagramData,undefined)
 })
+
+test('inline hashtags and metadata hashtags share the final five-tag limit',async()=>{
+ const f=fixture();f.s.caption='Gallery #Inline';f.s.hashtags=['One','Two','Three','Four','Five']
+ f.deps.authorize=async()=>assert.fail('authority must not run')
+ await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/five distinct hashtags/)
+ assert.equal(f.stats().state,null);assert.equal(f.s.caption,'Gallery #Inline')
+})
+test('casefold duplicate hashtags across inline caption and metadata are rejected before authorization',async()=>{
+ for(const [caption,hashtags] of [['Gallery #Art',['art']],['#ART #art',[]],['Gallery',['ART','art']],['#ÉCOLE',['école']],['#Straße',['STRASSE']]]){
+  const f=fixture();f.s.caption=caption;f.s.hashtags=hashtags
+  f.deps.authorize=async()=>assert.fail('authority must not run')
+  await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/five distinct hashtags/)
+  assert.equal(f.stats().state,null);assert.equal(f.s.caption,caption)
+ }
+})
+test('five total Unicode inline and metadata hashtags preserve exact approved caption',()=>{
+ const f=fixture();f.s.caption='Gallery #藝術 #École #Art_2';f.s.hashtags=['CafeSativa','Culture']
+ m.validateCafeSchedule(f.s,f.deps.verifiedCollaborators,now)
+ assert.equal(m.cafeMetricoolInfo(f.s).text,'Gallery #藝術 #École #Art_2\n\n#CafeSativa #Culture')
+})

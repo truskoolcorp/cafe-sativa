@@ -1,7 +1,7 @@
 -- Read-only catalog evidence; no row data, passwords, keys, invocation or grants.
 WITH scope AS (SELECT oid,nspname FROM pg_namespace WHERE nspname IN ('public','character_production','cafe_metricool_private')),
 items AS (
- SELECT 'roles' kind, r.rolname key, jsonb_build_object('name',rolname,'super',rolsuper,'inherit',rolinherit,'createrole',rolcreaterole,'createdb',rolcreatedb,'login',rolcanlogin,'replication',rolreplication,'bypassrls',rolbypassrls,'config',rolconfig,'connectionLimit',rolconnlimit,'validUntil',rolvaliduntil) val FROM pg_roles r
+ SELECT 'roles'::text kind, r.rolname::text key, jsonb_build_object('name',rolname,'super',rolsuper,'inherit',rolinherit,'createrole',rolcreaterole,'createdb',rolcreatedb,'login',rolcanlogin,'replication',rolreplication,'bypassrls',rolbypassrls,'config',rolconfig,'connectionLimit',rolconnlimit,'validUntil',rolvaliduntil) val FROM pg_roles r
  UNION ALL SELECT 'members',format('%s/%s/%s',roleid::regrole,member::regrole,grantor::regrole),jsonb_build_object('role',roleid::regrole::text,'member',member::regrole::text,'grantor',grantor::regrole::text,'admin',admin_option,'inherit',inherit_option,'set',set_option) FROM pg_auth_members
  UNION ALL SELECT 'schemas',n.nspname,jsonb_build_object('name',n.nspname,'owner',n.nspowner::regrole::text,'acl',n.nspacl::text) FROM pg_namespace n JOIN scope s ON s.oid=n.oid
  UNION ALL SELECT 'functions',p.oid::regprocedure::text,jsonb_build_object('identity',p.oid::regprocedure::text,'definition',pg_get_functiondef(p.oid),'owner',p.proowner::regrole::text,'acl',p.proacl::text) FROM pg_proc p JOIN scope s ON s.oid=p.pronamespace WHERE p.prokind IN ('f','p')
@@ -12,6 +12,6 @@ items AS (
  UNION ALL SELECT 'policies',format('%s/%s',p.polrelid::regclass,p.polname),jsonb_build_object('table',p.polrelid::regclass::text,'name',p.polname,'cmd',p.polcmd,'permissive',p.polpermissive,'roles',(SELECT jsonb_agg(CASE WHEN x=0 THEN 'PUBLIC' ELSE x::regrole::text END ORDER BY x::regrole::text) FROM unnest(p.polroles) x),'using',pg_get_expr(p.polqual,p.polrelid),'check',pg_get_expr(p.polwithcheck,p.polrelid)) FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN scope s ON s.oid=c.relnamespace
  UNION ALL SELECT 'defaults',format('%s/%s/%s',d.defaclrole::regrole,n.nspname,d.defaclobjtype),jsonb_build_object('role',d.defaclrole::regrole::text,'schema',n.nspname,'type',d.defaclobjtype,'acl',d.defaclacl::text) FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
 ), kinds AS (SELECT unnest(ARRAY['roles','members','schemas','functions','relations','columns','constraints','triggers','policies','defaults']) kind), groups AS (
- SELECT k.kind,coalesce(jsonb_agg(i.val ORDER BY i.key) FILTER(WHERE i.key IS NOT NULL),'[]'::jsonb) vals FROM kinds k LEFT JOIN items i USING(kind) GROUP BY k.kind
+ SELECT k.kind,coalesce(jsonb_agg(i.val ORDER BY i.key COLLATE "C", i.val::text COLLATE "C") FILTER(WHERE i.key IS NOT NULL),'[]'::jsonb) vals FROM kinds k LEFT JOIN items i USING(kind) GROUP BY k.kind
 )
 SELECT jsonb_build_object('format','cafe-standing-catalog-v1','catalog',jsonb_object_agg(kind,vals)) AS manifest FROM groups;

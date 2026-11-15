@@ -98,3 +98,12 @@ on raw due/pending; backend grants add service_role without removing it. Exact
 expected ACLs now retain owner + generator + service_role on these two existing
 functions only. Calendar and scheduler_current remain owner-only. Every
 dependency ACL failure now names the dependency. No ACL is changed by this fix.
+
+Fixture execution detail: predecessor validate_ledger.run removes comments and
+flattens newlines. That caused negative raw-SQL cases to fail exact prosrc checks
+before their intended mutation. This fixture now temporarily supplies a verbatim
+runner for the entire predecessor/setup/test chain, with the same timeout,
+error detection and evidence logging, and restores the runner afterward.
+Production SQL and byte-exact body checks remain unchanged. Named stages and
+unchanged-preflight assertions distinguish fixture failures. A fresh PG17 run
+must verify predecessor tests tolerate this more faithful representation.

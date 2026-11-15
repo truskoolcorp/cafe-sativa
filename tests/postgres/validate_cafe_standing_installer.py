@@ -105,13 +105,13 @@ def main():
  assert capture()==before and grants()==before_grants
  db.run(promoted)
  assert capture()==after and grants()==before_grants,'only exact owner-only contract persists'
- db.check("NOT EXISTS(SELECT 1 FROM cafe_metricool_private.publication_scopes) AND NOT EXISTS(SELECT 1 FROM cafe_metricool_private.semantic_budgets)", 'no runtime activation data')
+ db.check("NOT EXISTS(SELECT 1 FROM cafe_metricool_private.publication_scopes) AND NOT EXISTS(SELECT 1 FROM cafe_metricool_private.publication_binding) AND NOT EXISTS(SELECT 1 FROM cafe_metricool_private.publication_authorities) AND NOT EXISTS(SELECT 1 FROM cafe_metricool_private.semantic_budgets) AND NOT EXISTS(SELECT 1 FROM cafe_metricool_private.semantic_attempts)", 'no runtime activation data')
  db.check("NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('cs_record_enrolled_cafe_authority','cs_reserve_cafe_semantic_attempt','cs_finish_cafe_semantic_attempt') AND (has_function_privilege('service_role',p.oid,'EXECUTE') OR has_function_privilege('anon',p.oid,'EXECUTE') OR has_function_privilege('authenticated',p.oid,'EXECUTE')))", 'new runtime RPCs denied')
  fail(promoted,'Exact reviewed before catalog mismatch')
  assert capture()==after and grants()==before_grants,'replay must not modify installed contract'
  db.finish('cafe-standing-installer')
  pins={path:hashlib.sha256((db.ROOT/path).read_bytes()).hexdigest() for path in [
-  'scripts/cafe-standing-catalog.sql','scripts/prepare-cafe-standing-install.py',
+  'scripts/cafe-standing-catalog.sql','scripts/prepare-cafe-standing-install.py','scripts/prepare-cafe-standing-promotion.py',
   'scripts/derive-cafe-standing-expected.py','tests/postgres/validate_cafe_standing_installer.py',
   'docs/proposals/cafe-standing-publication-authority.sql','docs/proposals/cafe-semantic-budget.sql']}
  for label,manifest in [('before',projected_before),('after',projected_after)]:

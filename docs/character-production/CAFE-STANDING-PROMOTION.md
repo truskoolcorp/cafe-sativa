@@ -15,3 +15,19 @@ This persists five empty tables and ten contract functions, changes existing `au
 ## Validation
 
 Local provider-free tests validate digest/refusal, expiry, guard preservation and private no-overwrite output. The expanded disposable PostgreSQL17 fixture exercises promotion commit and exact persistence, before/after drift rejection, expiry before DDL and at final guard, no activation data/runtime grants, preservation of the six scheduler/four dispatch permissions, and rejection of replay. Record actual exact-head CI results before claiming these passed. All fixture references and manifests are synthetic, not production approval or proof of production compatibility.
+
+## Operational execution and independent proof
+
+After specific approval, use a quiescent schema-change window with no concurrent
+administrative DDL. Catalog checks do not serialize unrelated administrators and
+are not a global database snapshot lock. Refresh baseline immediately before
+preparation; any drift requires new review, never weakened comparison.
+
+Execute only the exact separately reviewed artifact against the verified target.
+After confirmed commit, independently recapture the catalog read-only and compare
+it with the exact reviewed expected-after. Also verify all five new tables empty,
+all six scheduler/four dispatch grants retained, raw writer owner-only and no new
+service_role/anon/authenticated function execution. Report each verified result.
+If response is uncertain, recapture and reconcile read-only; do not retry or create
+a new artifact merely because no success response was received. A mismatched
+post-state is a blocker, not permission to reset or roll back unrelated changes.

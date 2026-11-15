@@ -18,7 +18,7 @@ SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='45s';
 DO $$ DECLARE t text; BEGIN
  IF current_setting('server_version_num')::int NOT BETWEEN 170000 AND 179999 THEN RAISE EXCEPTION 'PostgreSQL17 required'; END IF;
  IF current_user<>session_user OR current_user<>'postgres' THEN RAISE EXCEPTION 'Exact direct installer required'; END IF;
- IF to_regnamespace('cafe_metricool_private') IS NOT NULL OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname='cafe_metricool_owner') OR to_regprocedure('public.cs_cafe_metricool_is_admin(uuid)') IS NOT NULL THEN RAISE EXCEPTION 'Existing store requires reconciliation'; END IF;
+ IF to_regnamespace('cafe_metricool_private') IS NOT NULL OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname='cafe_metricool_owner') THEN RAISE EXCEPTION 'Existing store requires reconciliation'; END IF;
  FOREACH t IN ARRAY ARRAY['public.cs_character_promo_drafts','public.cs_character_promo_delivery_plans','public.cs_character_promo_qa_checks'] LOOP
  IF NOT EXISTS(SELECT 1 FROM pg_class WHERE oid=to_regclass(t) AND relowner=current_user::regrole AND relrowsecurity) THEN RAISE EXCEPTION 'Expected installer-owned RLS source %',t; END IF;
  END LOOP;
@@ -26,6 +26,25 @@ DO $$ DECLARE t text; BEGIN
  IF NOT has_column_privilege(current_user,'auth.users','id','SELECT') OR NOT has_column_privilege(current_user,'auth.users','raw_app_meta_data','SELECT') OR NOT has_schema_privilege(current_user,'auth','USAGE') THEN RAISE EXCEPTION 'Missing preexisting installer auth lookup/reference rights'; END IF;
  IF EXISTS(SELECT 1 FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('cs_preflight_cafe_metricool','cs_claim_cafe_metricool','cs_identity_cafe_metricool','cs_finish_cafe_metricool')) THEN RAISE EXCEPTION 'Unexpected old RPC'; END IF;
 END $$;
+-- Existing production bridge is recognized only by its exact reviewed definition and ACL.
+CREATE TEMP TABLE cm_helper ON COMMIT DROP AS SELECT oid,proowner,proacl,pg_get_functiondef(oid) definition FROM pg_proc WHERE oid=to_regprocedure('public.cs_cafe_metricool_is_admin(uuid)');
+DO $bridge$ BEGIN
+ IF EXISTS(SELECT 1 FROM cm_helper) THEN
+  IF NOT EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=(SELECT oid FROM cm_helper)
+   AND p.proowner=current_user::regrole AND pg_get_functiondef(p.oid)=$definition$CREATE OR REPLACE FUNCTION public.cs_cafe_metricool_is_admin(p_actor uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog'
+AS $function$
+ SELECT EXISTS(SELECT 1 FROM auth.users u
+ WHERE u.id=p_actor AND u.raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb)
+$function$
+$definition$) THEN RAISE EXCEPTION 'Unknown existing admin bridge definition'; END IF;
+  IF to_regrole('character_production_owner') IS NULL THEN RAISE EXCEPTION 'Missing bridge owner role'; END IF;
+  IF EXISTS(WITH actual AS (SELECT a.* FROM cm_helper p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a), expected AS (SELECT current_user::regrole::oid grantor,current_user::regrole::oid grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT current_user::regrole::oid,'character_production_owner'::regrole::oid,'EXECUTE',false) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'Unknown existing admin bridge ACL'; END IF;
+ END IF;
+END $bridge$;
 CREATE TEMP TABLE cm_members ON COMMIT DROP AS SELECT roleid,member,grantor,admin_option,inherit_option,set_option FROM pg_auth_members;
 CREATE TEMP TABLE cm_policies ON COMMIT DROP AS SELECT oid,to_jsonb(p) data FROM pg_policy p WHERE polrelid IN ('public.cs_character_promo_drafts'::regclass,'public.cs_character_promo_delivery_plans'::regclass,'public.cs_character_promo_qa_checks'::regclass);
 CREATE TEMP TABLE cm_triggers ON COMMIT DROP AS SELECT oid,to_jsonb(t) data FROM pg_trigger t WHERE tgrelid IN ('public.cs_character_promo_drafts'::regclass,'public.cs_character_promo_delivery_plans'::regclass,'public.cs_character_promo_qa_checks'::regclass);
@@ -44,10 +63,15 @@ DO $$ BEGIN
 END $$;
 GRANT cafe_metricool_owner TO postgres WITH ADMIN FALSE, INHERIT FALSE, SET TRUE GRANTED BY postgres;
 -- Only the boolean helper can inspect private auth metadata; fixed UUID lookup.
-CREATE FUNCTION public.cs_cafe_metricool_is_admin(p_user uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DO $create_bridge$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM cm_helper) THEN
+ EXECUTE $ddl$CREATE FUNCTION public.cs_cafe_metricool_is_admin(p_user uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT coalesce((SELECT raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb FROM auth.users WHERE id=p_user),false)
 $$;
-REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC,anon,authenticated,service_role;
+$ddl$;
+ REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC,anon,authenticated,service_role;
+ END IF;
+END $create_bridge$;
 GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO cafe_metricool_owner;
 GRANT USAGE,CREATE ON SCHEMA public TO cafe_metricool_owner;
 DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO cafe_metricool_owner',current_database()); END $$;
@@ -81,10 +105,10 @@ DO $$ DECLARE r text; new_object record; new_owner oid:='cafe_metricool_owner'::
  IF EXISTS(SELECT 1 FROM cm_policies b LEFT JOIN pg_policy p USING(oid) WHERE b.data IS DISTINCT FROM to_jsonb(p)) OR EXISTS(SELECT 1 FROM cm_triggers b LEFT JOIN pg_trigger t USING(oid) WHERE b.data IS DISTINCT FROM to_jsonb(t)) THEN RAISE EXCEPTION 'Existing guards/policies changed'; END IF;
  IF (SELECT count(*) FROM pg_policy p WHERE p.polrelid IN (SELECT oid FROM cm_tables WHERE oid<>'auth.users'::regclass) AND NOT EXISTS(SELECT 1 FROM cm_policies b WHERE b.oid=p.oid))<>4 OR EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid IN (SELECT oid FROM cm_tables WHERE oid<>'auth.users'::regclass) AND NOT EXISTS(SELECT 1 FROM cm_policies b WHERE b.oid=p.oid) AND NOT (p.polroles=ARRAY['cafe_metricool_owner'::regrole::oid] AND p.polpermissive AND pg_get_expr(p.polqual,p.polrelid)='true' AND ((p.polname='cafe_metricool_owner_read' AND p.polcmd='r' AND p.polwithcheck IS NULL) OR (p.polname='cafe_metricool_owner_lock' AND p.polrelid='public.cs_character_promo_drafts'::regclass AND p.polcmd='w' AND pg_get_expr(p.polwithcheck,p.polrelid)='false')))) THEN RAISE EXCEPTION 'Unexpected added source policy'; END IF;
  IF (SELECT count(*) FROM pg_trigger t WHERE t.tgrelid IN (SELECT oid FROM cm_tables WHERE oid<>'auth.users'::regclass) AND NOT t.tgisinternal AND NOT EXISTS(SELECT 1 FROM cm_triggers b WHERE b.oid=t.oid))<>3 OR EXISTS(SELECT 1 FROM pg_trigger t WHERE t.tgrelid IN (SELECT oid FROM cm_tables WHERE oid<>'auth.users'::regclass) AND NOT t.tgisinternal AND NOT EXISTS(SELECT 1 FROM cm_triggers b WHERE b.oid=t.oid) AND NOT (t.tgname IN ('cafe_metricool_draft_guard','cafe_metricool_plan_guard','cafe_metricool_qa_guard') AND t.tgfoid=(SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='cafe_metricool_private' AND p.proname='guard_source' AND p.pronargs=0))) THEN RAISE EXCEPTION 'Unexpected added source trigger'; END IF;
- IF EXISTS(SELECT 1 FROM cm_functions b LEFT JOIN pg_proc p USING(oid) WHERE (b.proowner,b.proacl,b.definition) IS DISTINCT FROM (p.proowner,p.proacl,pg_get_functiondef(p.oid))) THEN RAISE EXCEPTION 'Prior public functions changed'; END IF;
+ IF EXISTS(SELECT 1 FROM cm_functions b LEFT JOIN pg_proc p USING(oid) WHERE (b.proowner,b.definition) IS DISTINCT FROM (p.proowner,pg_get_functiondef(p.oid)) OR (b.oid NOT IN (SELECT oid FROM cm_helper) AND b.proacl IS DISTINCT FROM p.proacl)) THEN RAISE EXCEPTION 'Prior public functions changed'; END IF;
  IF EXISTS((SELECT * FROM cm_members UNION ALL SELECT * FROM cm_bootstrap EXCEPT SELECT roleid,member,grantor,admin_option,inherit_option,set_option FROM pg_auth_members) UNION ALL (SELECT roleid,member,grantor,admin_option,inherit_option,set_option FROM pg_auth_members EXCEPT (SELECT * FROM cm_members UNION ALL SELECT * FROM cm_bootstrap))) THEN RAISE EXCEPTION 'Membership restoration mismatch'; END IF;
  IF pg_has_role(current_user,'cafe_metricool_owner','SET') OR has_schema_privilege('cafe_metricool_owner','auth','USAGE') OR has_schema_privilege('cafe_metricool_owner','public','CREATE') OR has_database_privilege('cafe_metricool_owner',current_database(),'CREATE') OR has_table_privilege('cafe_metricool_owner','auth.users','SELECT') THEN RAISE EXCEPTION 'Temporary authority leaked'; END IF;
- IF NOT EXISTS(SELECT 1 FROM pg_proc WHERE oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure AND proowner=current_user::regrole AND prosecdef AND prorettype='boolean'::regtype AND proconfig=ARRAY['search_path=pg_catalog']) OR EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure AND (a.grantee NOT IN (current_user::regrole,'cafe_metricool_owner'::regrole) OR a.privilege_type<>'EXECUTE' OR a.is_grantable)) THEN RAISE EXCEPTION 'Admin helper must expose only fixed boolean to exact owner'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_proc WHERE oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure AND proowner=current_user::regrole AND prosecdef AND prorettype='boolean'::regtype AND proconfig=ARRAY['search_path=pg_catalog']) OR EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure AND (a.grantee NOT IN (current_user::regrole,'cafe_metricool_owner'::regrole) AND NOT (EXISTS(SELECT 1 FROM cm_helper) AND a.grantee=to_regrole('character_production_owner')) OR a.privilege_type<>'EXECUTE' OR a.is_grantable)) THEN RAISE EXCEPTION 'Admin helper must expose only fixed boolean to exact owner'; END IF;
  IF EXISTS(SELECT 1 FROM pg_proc WHERE (pronamespace='cafe_metricool_private'::regnamespace OR (pronamespace='public'::regnamespace AND proname IN ('cs_preflight_cafe_metricool','cs_claim_cafe_metricool','cs_identity_cafe_metricool','cs_finish_cafe_metricool'))) AND proowner<>'cafe_metricool_owner'::regrole) THEN RAISE EXCEPTION 'Wrong store function owner'; END IF;
  IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='cafe_metricool_private' AND nspowner=new_owner) OR EXISTS(WITH actual AS (SELECT a.* FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a WHERE n.nspname='cafe_metricool_private'), expected AS (SELECT * FROM aclexplode(acldefault('n',new_owner))) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New private schema ACL mismatch'; END IF;
  FOR new_object IN SELECT * FROM pg_class WHERE relnamespace='cafe_metricool_private'::regnamespace AND relkind='r' LOOP
@@ -96,7 +120,7 @@ DO $$ DECLARE r text; new_object record; new_owner oid:='cafe_metricool_owner'::
  IF new_object.proowner<>new_owner OR EXISTS(WITH actual AS (SELECT * FROM aclexplode(coalesce(new_object.proacl,acldefault('f',new_owner)))), expected AS (SELECT new_owner grantor,new_owner grantee,'EXECUTE'::text privilege_type,false is_grantable) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New private function ACL mismatch'; END IF;
  END LOOP;
  IF (SELECT count(*) FROM pg_proc WHERE pronamespace='cafe_metricool_private'::regnamespace OR (pronamespace='public'::regnamespace AND proname IN ('cs_preflight_cafe_metricool','cs_claim_cafe_metricool','cs_identity_cafe_metricool','cs_finish_cafe_metricool')))<>7 THEN RAISE EXCEPTION 'New private function count mismatch'; END IF;
- IF EXISTS(WITH actual AS (SELECT a.* FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure), expected AS (SELECT current_user::regrole::oid grantor,current_user::regrole::oid grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT current_user::regrole::oid,new_owner,'EXECUTE',false) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New boolean helper ACL mismatch'; END IF;
+ IF EXISTS(WITH actual AS (SELECT a.* FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure), expected AS (SELECT current_user::regrole::oid grantor,current_user::regrole::oid grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT current_user::regrole::oid,new_owner,'EXECUTE',false UNION ALL SELECT current_user::regrole::oid,to_regrole('character_production_owner')::oid,'EXECUTE',false WHERE EXISTS(SELECT 1 FROM cm_helper)) (SELECT * FROM actual EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM actual)) THEN RAISE EXCEPTION 'New boolean helper ACL mismatch'; END IF;
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='cafe_metricool_owner' AND (rolcanlogin OR rolsuper OR rolinherit OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)) THEN RAISE EXCEPTION 'Owner must remain inert'; END IF;
  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
  IF has_schema_privilege(r,'cafe_metricool_private','USAGE') OR EXISTS(SELECT 1 FROM pg_proc WHERE (pronamespace='cafe_metricool_private'::regnamespace OR (pronamespace='public'::regnamespace AND proname IN ('cs_cafe_metricool_is_admin','cs_preflight_cafe_metricool','cs_claim_cafe_metricool','cs_identity_cafe_metricool','cs_finish_cafe_metricool'))) AND has_function_privilege(r,oid,'EXECUTE')) THEN RAISE EXCEPTION 'Runtime role gained access'; END IF;
@@ -109,3 +133,4 @@ COMMIT;
 # Add final private state assertions while still owner.
 checks="""\nDO $$ BEGIN IF EXISTS(SELECT 1 FROM cafe_metricool_private.approvals) OR EXISTS(SELECT 1 FROM cafe_metricool_private.attempts) OR (SELECT count(*) FROM cafe_metricool_private.external_receipts)<>22 THEN RAISE EXCEPTION 'Expected inert store and 22 negative receipts'; END IF; END $$;\n"""
 print(pre+source+checks+post)
+

@@ -8,10 +8,26 @@ import validate_scheduler_principal_install as foundation
 
 def suite():
  foundation.suite()
+ # Reproduce verified live proxy/source topology, not zero-membership assumptions.
+ db.run("CREATE ROLE authenticator LOGIN NOINHERIT NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS; ALTER ROLE service_role NOLOGIN INHERIT NOSUPERUSER NOCREATEROLE NOCREATEDB BYPASSRLS; CREATE ROLE capability_outsider NOLOGIN NOINHERIT;")
+ grantor=db.run("SELECT r.rolname FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.grantor WHERE m.roleid='character_production_owner'::regrole AND m.member='provision_installer'::regrole")
+ assert grantor.isidentifier(),grantor
+ db.run('GRANT service_role TO authenticator WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY '+grantor+'; GRANT service_role TO provision_installer WITH ADMIN TRUE,INHERIT TRUE,SET TRUE GRANTED BY '+grantor+';')
  source=(db.ROOT/'docs/proposals/character-production-scheduler-capability-grant.sql').read_text()
  assert source==subprocess.check_output(['python3','scripts/prepare-scheduler-capability-grant.py'],cwd=db.ROOT,text=True)
  sql=qa.adapt(source);prefix='SET SESSION AUTHORIZATION provision_installer; '
  before=(qa.snapshot(),planner.auth_snapshot())
+ # Each unsafe membership must fail without altering existing topology/data.
+ for setup,label in [
+  ('GRANT capability_outsider TO character_production_owner WITH INHERIT TRUE,SET TRUE;','Unsafe ledger owner memberships'),
+  ('GRANT character_production_owner TO capability_outsider WITH INHERIT TRUE,SET TRUE;','Unsafe ledger owner memberships'),
+  ('GRANT capability_outsider TO service_role WITH INHERIT TRUE,SET TRUE;','Service role membership baseline mismatch'),
+  ('GRANT service_role TO capability_outsider WITH INHERIT FALSE,SET TRUE;','Service role membership baseline mismatch'),
+  ('GRANT authenticator TO capability_outsider WITH INHERIT FALSE,SET TRUE;','Unexpected effective service principal'),
+ ]:
+  proc=subprocess.run(db.command(),input='BEGIN; '+setup+prefix+sql,text=True,capture_output=True)
+  assert proc.returncode and label in proc.stderr,proc.stderr
+  assert before==(qa.snapshot(),planner.auth_snapshot())
  db.run(prefix+sql.replace('\nCOMMIT;','\nROLLBACK;'))
  assert before==(qa.snapshot(),planner.auth_snapshot())
  for broken,label in [(sql.replace('\nCOMMIT;',"\nDO $$ BEGIN RAISE EXCEPTION 'injected abort'; END $$; COMMIT;"),'injected abort'),(sql.replace('TO service_role;','TO authenticated;'),'result ACL mismatch')]:
@@ -34,6 +50,7 @@ def suite():
  assert before==(qa.snapshot(),planner.auth_snapshot())
  auth_before=planner.auth_snapshot();db.run(prefix+sql);assert planner.auth_snapshot()==auth_before
  signatures=['character_production_scheduler_context(uuid)','character_production_scheduler_reconciled(uuid,integer)','character_production_scheduler_plan(uuid,integer,jsonb)']
+ db.check("pg_has_role('authenticator','service_role','SET') AND NOT pg_has_role('authenticator','service_role','USAGE') AND pg_has_role('provision_installer','service_role','USAGE')",'reviewed proxy/source access retained')
  for sig in signatures:
   db.check("has_function_privilege('service_role',"+db.quote('public.'+sig)+",'EXECUTE')",'exact capability granted')
   for role in ['anon','authenticated','character_production_generator','character_production_output_broker']:

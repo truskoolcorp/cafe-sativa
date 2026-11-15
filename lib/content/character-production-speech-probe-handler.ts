@@ -1,3 +1,4 @@
+import {hasEmptyRequestBody} from './character-production-empty-request-body.ts'
 export type SpeechProbeAttempt={id:string;expiresAt:string}
 const validAttempt=(a:SpeechProbeAttempt|undefined)=>!!a&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(a.id)&&Number.isFinite(Date.parse(a.expiresAt))&&Date.parse(a.expiresAt)>Date.now()
 type Opened={run():Promise<unknown>;whenSettled():Promise<void>;reconciliation?():{bucket:string;path?:string}}
@@ -6,7 +7,8 @@ export function createSpeechProbeHandler(d:{authorize():Promise<boolean>;enabled
  return async(req:Request)=>{
   const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}})
   const mode=req.method==='POST'?'probe':req.method==='GET'?'canon':null
-  if(!mode||new URL(req.url).search||req.body!==null||mode==='probe'&&req.headers.get('origin')!=='https://www.cafe-sativa.com')return json({status:'unsupported'},400)
+  if(!mode||new URL(req.url).search||mode==='probe'&&req.headers.get('origin')!=='https://www.cafe-sativa.com')return json({status:'unsupported'},400)
+  if(!await hasEmptyRequestBody(req))return json({status:'unsupported',reason:'nonempty_or_unreadable_body'},400)
   const configured=mode==='probe'?d.attempt():undefined,attempt=configured?Object.freeze({...configured}):undefined
   if(mode==='probe'&&(!d.enabled()||!validAttempt(attempt)))return json({status:'disabled'},503)
   if(busy)return json({status:'busy'},429)

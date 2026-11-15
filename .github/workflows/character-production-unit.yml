@@ -5,6 +5,8 @@ on:
       - 'lib/content/character-production-*.ts'
       - 'lib/content/character-promo-sources.ts'
       - 'lib/content/character-promo-cafe-metricool.ts'
+      - 'lib/content/character-promo-external-receipts.ts'
+      - 'tests/character-promo-external-receipts.test.mjs'
       - 'lib/content/character-promo-cafe-authority-server.ts'
       - 'lib/content/character-promo-cafe-approval.ts'
       - 'lib/content/character-promo-cafe-owner-policy.ts'
@@ -31,8 +33,9 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/character-production-*.test.mjs tests/character-promo-cafe-metricool.test.cjs tests/character-promo-cafe-authority-server.test.cjs
+      - run: node --test tests/character-production-*.test.mjs tests/character-promo-cafe-metricool.test.cjs tests/character-promo-cafe-authority-server.test.cjs tests/character-promo-external-receipts.test.mjs
       # Server composition intentionally uses the existing Next backend and @/
       # aliases. Keep strict checking, with the actual deployment project config.
       - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false
+
 

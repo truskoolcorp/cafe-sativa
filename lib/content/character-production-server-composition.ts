@@ -9,7 +9,8 @@ import {createCanonicalImageRuntimeProvider} from './character-production-image-
 import {createPrivateCanonicalImageSource} from './character-production-private-image'
 import type {CanonicalImageBinding} from './character-production-canonical-image'
 import type {CharacterProductionRuntimeConfig} from './character-production-runtime'
-import {createServerProductionRpc} from './character-production-server-rpc'
+import {createServerProductionRpc,type ProductionServerRpcClient} from './character-production-server-rpc'
+import type {ProductionRpc} from './character-production-store'
 import {restrictProductionRpc} from './character-production-exact-scope'
 import type {ExactProductionScope} from './character-production-exact-scope'
 import type {InternalProductionDependencies} from './character-production-internal-worker'
@@ -23,7 +24,7 @@ export type InternalProductionManifest={
  images:readonly CanonicalImageBinding[];
  exactScope?:ExactProductionScope;
 }
-export function openInternalProduction(manifest:InternalProductionManifest,signal:AbortSignal,budget?:ProductionTimeBudget):InternalProductionDependencies&{whenSettled():Promise<void>}{
+export function openInternalProduction(manifest:InternalProductionManifest,signal:AbortSignal,budget?:ProductionTimeBudget,rpcFactory?:(db:ProductionServerRpcClient,signal:AbortSignal)=>ProductionRpc):InternalProductionDependencies&{whenSettled():Promise<void>}{
  if(signal.aborted)throw Error('Cancelled production tick')
  const network=createProductionFetch(signal)
  const phases=manifest.configuration.heygen.phases
@@ -40,7 +41,7 @@ export function openInternalProduction(manifest:InternalProductionManifest,signa
  const images=createPrivateCanonicalImageSource(db.storage,origin,manifest.images)
  const provider=createCanonicalImageRuntimeProvider(manifest.configuration.heygen,manifest.expectedHeyGenUsername,
   ()=>process.env.HEYGEN_API_KEY,manifest.images,images,audio,providerNetwork.fetch)
- const rpc=createServerProductionRpc(db,signal)
+ const rpc=rpcFactory?rpcFactory(db,signal):createServerProductionRpc(db,signal)
  return {rpc:manifest.exactScope?restrictProductionRpc(rpc,manifest.exactScope):rpc,storage:db.storage,...provider,
   readCanon:async innerSignal=>{
    if(signal.aborted)throw Error('Cancelled canonical read')

@@ -23,8 +23,12 @@ def _suite():
  grantor=db.run("SELECT r.rolname FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.grantor WHERE m.roleid='character_production_owner'::regrole AND m.member='provision_installer'::regrole")
  assert grantor.isidentifier(),grantor
  db.run('GRANT service_role TO authenticator WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY '+grantor+'; GRANT service_role TO provision_installer WITH ADMIN TRUE,INHERIT TRUE,SET TRUE GRANTED BY '+grantor+';')
- # Managed grantor is synthetic here; existing bootstrap grantor remains intact.
- db.run("CREATE ROLE supabase_admin NOLOGIN SUPERUSER; CREATE ROLE supabase_storage_admin LOGIN NOINHERIT NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS; ALTER ROLE supabase_storage_admin SET search_path='storage'; ALTER ROLE supabase_storage_admin SET log_statement='none'; GRANT authenticator TO supabase_storage_admin WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY supabase_admin;")
+ # Synthetic provider grantor is not a superuser. PG17 GRANTED BY requires
+ # explicit ADMIN on authenticator; INHERIT/SET remain false. This fixture-only
+ # grant enables issuance of the observed edge, not another effective service path.
+ # Existing bootstrap grantor remains intact; production SQL is unchanged.
+ db.run("CREATE ROLE supabase_admin NOLOGIN NOSUPERUSER NOINHERIT NOCREATEROLE NOCREATEDB NOBYPASSRLS; GRANT authenticator TO supabase_admin WITH ADMIN TRUE,INHERIT FALSE,SET FALSE; CREATE ROLE supabase_storage_admin LOGIN NOINHERIT NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS; ALTER ROLE supabase_storage_admin SET search_path='storage'; ALTER ROLE supabase_storage_admin SET log_statement='none'; GRANT authenticator TO supabase_storage_admin WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY supabase_admin;")
+ db.check("NOT pg_has_role('supabase_admin','service_role','SET') AND NOT pg_has_role('supabase_admin','service_role','USAGE')",'synthetic grantor has no effective service path')
  source=(db.ROOT/'docs/proposals/character-production-enrolled-runtime-capability-grant.sql').read_text()
  assert source==subprocess.check_output(['python3','scripts/prepare-enrolled-runtime-capability-grant.py'],cwd=db.ROOT,text=True)
  sql=qa.adapt(source);prefix='SET SESSION AUTHORIZATION provision_installer; '

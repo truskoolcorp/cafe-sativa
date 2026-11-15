@@ -4,6 +4,7 @@ import os,json,hashlib,subprocess,datetime,time,concurrent.futures
 import validate_ledger as db
 import validate_planner_install as foundation
 import validate_planner as planner
+from validate_enrolled_reads_install import verbatim_run
 q=db.quote
 j=lambda x:q(json.dumps(x))+'::jsonb'
 E='22222222-2222-4222-8222-222222222222'
@@ -113,4 +114,8 @@ def main():
  db.run('SET ROLE service_role; DO $$ BEGIN IF '+claim+" IS NOT NULL THEN RAISE EXCEPTION 'committed revoke ignored'; END IF; END $$;")
  assert foundation.auth_snapshot()==auth_before
  db.finish('cafe-standing-publication')
-if __name__=='__main__':main()
+if __name__=='__main__':
+ original=db.run
+ db.run=verbatim_run
+ try:main()
+ finally:db.run=original

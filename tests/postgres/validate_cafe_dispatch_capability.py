@@ -12,12 +12,13 @@ def validate(prefix,snap):
  m.run("CREATE ROLE supabase_admin NOLOGIN NOSUPERUSER NOINHERIT NOCREATEROLE NOCREATEDB NOBYPASSRLS; GRANT authenticator TO supabase_admin WITH ADMIN TRUE,INHERIT FALSE,SET FALSE; CREATE ROLE supabase_storage_admin LOGIN NOINHERIT NOSUPERUSER NOCREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS; ALTER ROLE supabase_storage_admin SET search_path='storage'; ALTER ROLE supabase_storage_admin SET log_statement='none'; GRANT authenticator TO supabase_storage_admin WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY supabase_admin;")
  source=(R/'docs/proposals/cafe-dispatch-capability-grant.sql').read_text()
  assert source==subprocess.check_output(['python3','scripts/prepare-cafe-dispatch-capability-grant.py'],cwd=R,text=True)
- sql=source.replace("'postgres'","'metricool_installer'").replace('TO postgres WITH','TO metricool_installer WITH').replace('BY postgres;','BY metricool_installer;').replace('FROM postgres GRANTED','FROM metricool_installer GRANTED')
+ sql=source.replace("'postgres'","'metricool_installer'").replace('TO postgres WITH','TO metricool_installer WITH').replace('BY postgres;','BY metricool_installer;').replace('FROM postgres GRANTED','FROM metricool_installer GRANTED').replace("grantor='supabase_admin'::regrole","grantor='postgres'::regrole")
  original_snap=snap
  def snap():
   return (original_snap(),m.run("SELECT jsonb_build_object('roles',(SELECT jsonb_agg(to_jsonb(r) ORDER BY oid) FROM pg_roles r),'defaults',(SELECT jsonb_agg(to_jsonb(d) ORDER BY oid) FROM pg_default_acl d),'approvals',(SELECT jsonb_agg(to_jsonb(x) ORDER BY plan_id) FROM cafe_metricool_private.approvals x),'attempts',(SELECT jsonb_agg(to_jsonb(x) ORDER BY plan_id) FROM cafe_metricool_private.attempts x),'provenance',(SELECT jsonb_agg(to_jsonb(x) ORDER BY plan_id) FROM cafe_metricool_private.owner_authority_provenance x),'receipts',(SELECT jsonb_agg(to_jsonb(x) ORDER BY to_jsonb(x)::text) FROM cafe_metricool_private.external_receipts x))"))
  before=snap()
  for setup,label in [
+ ('CREATE ROLE capability_alternate_grantor SUPERUSER NOLOGIN; SET ROLE capability_alternate_grantor; GRANT cafe_metricool_owner TO metricool_installer WITH ADMIN TRUE,INHERIT FALSE,SET FALSE; GRANT service_role TO authenticator WITH ADMIN FALSE,INHERIT FALSE,SET TRUE; GRANT service_role TO metricool_installer WITH ADMIN TRUE,INHERIT TRUE,SET TRUE; RESET ROLE; REVOKE cafe_metricool_owner FROM metricool_installer GRANTED BY postgres; REVOKE service_role FROM authenticator GRANTED BY postgres; REVOKE service_role FROM metricool_installer GRANTED BY postgres;','Bootstrap membership mismatch'),
  ('GRANT authenticator TO capability_outsider WITH INHERIT FALSE,SET TRUE;','Unexpected effective service principal'),
  ('GRANT service_role TO capability_outsider WITH INHERIT FALSE,SET TRUE;','Service role membership baseline mismatch'),
  ('GRANT supabase_storage_admin TO capability_outsider WITH INHERIT FALSE,SET TRUE;','Managed Storage membership baseline mismatch'),
@@ -54,3 +55,4 @@ if __name__=='__main__':
  finally:
   (R/'evidence').mkdir(exist_ok=True)
   (R/'evidence/postgres-cafe-dispatch-capability.log').write_text('\n'.join(m.LOG))
+

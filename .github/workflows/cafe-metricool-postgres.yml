@@ -15,6 +15,8 @@ on:
       - 'tests/postgres/validate_cafe_dispatch_capability.py'
       - 'scripts/prepare-scheduler-capability-grant.py'
       - 'scripts/prepare-enrolled-runtime-capability-grant.py'
+      - 'docs/proposals/cafe-authenticated-owner-authority.sql'
+      - 'tests/postgres/validate_cafe_authenticated_owner.py'
       - 'docs/proposals/cafe-metricool-store.sql'
       - 'docs/proposals/cafe-metricool-external-identity-repair.sql'
       - 'tests/postgres/validate_cafe_external_identity_repair.py'
@@ -61,6 +63,8 @@ jobs:
         run: python3 tests/postgres/validate_cafe_external_identity_repair.py
       - name: Validate four dispatch capabilities after negative-only repair
         run: python3 tests/postgres/validate_cafe_dispatch_capability.py
+      - name: Validate exact authenticated owner finite authority
+        run: python3 tests/postgres/validate_cafe_authenticated_owner.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,4 +73,5 @@ jobs:
             evidence/postgres-cafe-metricool*-validation.log
             evidence/postgres-cafe-external-identity-repair.log
             evidence/postgres-cafe-dispatch-capability.log
+            evidence/postgres-cafe-authenticated-owner.log
 

@@ -13,6 +13,10 @@ assert len(chunks)==5
 managed=next(n.value.value for n in ast.parse(e).body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='managed' for t in n.targets))
 map_sql=lambda s:s.replace('character_production_owner','cafe_metricool_owner').replace('character_production.%I','cafe_metricool_private.%I').replace("'character_production'::regnamespace","'cafe_metricool_private'::regnamespace")
 pre=map_sql(chunks[0]).replace('Three exact wrapper grants.','Four Café dispatch grants only. Authority writer remains owner-only.')
+# Prospective hardening: provider identity is fixed, not any matching non-self grantor.
+bootstrap="grantor<>current_user::regrole AND admin_option AND NOT inherit_option AND NOT set_option"
+assert pre.count(bootstrap)==1
+pre=pre.replace(bootstrap,"grantor='supabase_admin'::regrole AND admin_option AND NOT inherit_option AND NOT set_option")
 pre=pre.replace(" IF EXISTS(SELECT 1 FROM pg_roles r WHERE NOT r.rolsuper",managed+" IF EXISTS(SELECT 1 FROM pg_roles r WHERE NOT r.rolsuper",1)
 pre=pre.replace("current_user::regrole,'service_role'::regrole,'authenticator'::regrole)","current_user::regrole,'service_role'::regrole,'authenticator'::regrole,'supabase_storage_admin'::regrole)")
 rows=json.loads((R/'tests/sql/cafe-capability-installed-baseline.json').read_text());assert len(rows)==10
@@ -42,3 +46,4 @@ checks=r''' IF (SELECT count(*) FROM pg_proc WHERE prokind='f')<>(SELECT count(*
 '''
 post=post.replace(' IF EXISTS((SELECT * FROM pg_roles EXCEPT',checks+' IF EXISTS((SELECT * FROM pg_roles EXCEPT',1)
 print(pre+snap+grants+post,end='')
+

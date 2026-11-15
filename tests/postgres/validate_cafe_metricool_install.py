@@ -90,6 +90,8 @@ $function$;
  assert m.owner("SELECT public.cs_cafe_metricool_is_admin(NULL);")=='f'
  m.check("(SELECT count(*)=0 FROM cafe_metricool_private.approvals) AND (SELECT count(*)=0 FROM cafe_metricool_private.attempts)",'installation inert')
  m.check("NOT has_column_privilege('metricool_installer','auth.users','id','REFERENCES WITH GRANT OPTION') AND NOT has_schema_privilege('metricool_installer','auth','USAGE WITH GRANT OPTION')",'production-like no grantable auth rights')
+ from validate_cafe_authority_install import validate
+ validate(prefix,snap)
  f=fixture('rls-owner')
  m.run('BEGIN; UPDATE cafe_metricool_private.approvals SET approved_by='+m.q(m.uid('absent-admin'))+' WHERE plan_id='+m.q(f[0])+"; DO $$ BEGIN IF public.cs_preflight_cafe_metricool("+m.q(f[0])+','+m.q(f[2])+") THEN RAISE EXCEPTION 'missing actor accepted'; END IF; END $$; ROLLBACK;")
  assert m.owner('SELECT public.cs_preflight_cafe_metricool('+m.q(f[0])+','+m.q(f[2])+');')=='t','owner can read final authority under RLS'

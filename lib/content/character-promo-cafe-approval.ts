@@ -89,3 +89,6 @@ export function createCafeApprovalPersistence(rpc:(name:'cs_record_cafe_metricoo
   return v&&v.digest===i.digest&&v.expiresAt===i.expiresAt?{digest:i.digest,expiresAt:i.expiresAt}:null
  }
 }
+
+/** Read-only validation for an owner preview. Never records or fabricates authority. */
+export {validate as validateCafeApprovalCandidate}

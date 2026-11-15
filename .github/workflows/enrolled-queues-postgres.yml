@@ -1,0 +1,56 @@
+name: Enrolled queue PG17 proposal
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/proposals/character-production-*.sql'
+      - 'tests/postgres/*.py'
+      - 'lib/content/character-production-enrolled-queue-adapter.ts'
+      - 'lib/content/character-production-exact-scope.ts'
+      - 'lib/content/character-production-engine.ts'
+      - 'lib/content/character-production-server-rpc.ts'
+      - 'tests/character-production-enrolled-queue-adapter.test.mjs'
+      - '.github/workflows/enrolled-queues-postgres.yml'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d character_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_test
+      PG_TEST_SERVER: '1'
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Scoped adapter unit tests
+        run: node --experimental-strip-types --test tests/character-production-enrolled-queue-adapter.test.mjs
+      - name: Install official PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Validate planner rollback restricted roles and concurrency
+        run: python3 tests/postgres/validate_enrolled_queues.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enrolled-queues-postgres-evidence
+          path: evidence/postgres-*-validation.log

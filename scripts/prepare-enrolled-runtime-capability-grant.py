@@ -10,6 +10,17 @@ pinned('scripts/prepare-scheduler-capability-grant.py','1cc267ee2337afb9f3d23e89
 buffer=io.StringIO()
 with contextlib.redirect_stdout(buffer):runpy.run_path(str(R/'scripts/prepare-scheduler-capability-grant.py'))
 sql=buffer.getvalue().replace('Three exact wrapper grants.','Six exact wrapper/read grants; supersedes the unexecuted three-wrapper proposal.')
+# Exact observed managed Storage proxy. This broadens effective-principal disclosure,
+# not live authorization; a new owner approval is required before application.
+managed=""" IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_storage_admin' AND rolcanlogin AND NOT rolsuper AND NOT rolinherit AND NOT rolcreatedb AND rolcreaterole AND NOT rolreplication AND NOT rolbypassrls AND rolconfig=ARRAY['search_path=storage','log_statement=none']::text[]) THEN RAISE EXCEPTION 'Managed Storage role baseline mismatch'; END IF;
+ IF (SELECT count(*) FROM pg_auth_members WHERE member='supabase_storage_admin'::regrole OR roleid='supabase_storage_admin'::regrole)<>1 OR NOT EXISTS(SELECT 1 FROM pg_auth_members WHERE member='supabase_storage_admin'::regrole AND roleid='authenticator'::regrole AND grantor=(SELECT oid FROM pg_roles WHERE rolname='supabase_admin') AND NOT admin_option AND NOT inherit_option AND set_option) THEN RAISE EXCEPTION 'Managed Storage membership baseline mismatch'; END IF;
+ IF NOT pg_has_role('supabase_storage_admin','service_role','SET') OR pg_has_role('supabase_storage_admin','service_role','USAGE') THEN RAISE EXCEPTION 'Managed Storage effective path mismatch'; END IF;
+"""
+needle=" IF EXISTS(SELECT 1 FROM pg_roles r WHERE NOT r.rolsuper"
+assert sql.count(needle)==1
+sql=sql.replace(needle,managed+needle,1)
+sql=sql.replace("current_user::regrole,'service_role'::regrole,'authenticator'::regrole)","current_user::regrole,'service_role'::regrole,'authenticator'::regrole,'supabase_storage_admin'::regrole)")
+sql=sql.replace("'character_production_owner'::regrole,'service_role'::regrole,'authenticator'::regrole)","'character_production_owner'::regrole,'service_role'::regrole,'authenticator'::regrole,'supabase_storage_admin'::regrole)")
 queue=pinned('docs/proposals/character-production-enrolled-queues.sql','5dee74d8305f72774e249f951e762fb7de16bf05e2e8aac90771d586b39e2208')
 qa=pinned('docs/proposals/character-production-enrolled-qa.sql','b74b0a6de9139aa338a3f900bf68f160f8ea77499107bc8bb33aafd918f6e5de')
 extra=[('character_production_scheduler_due','uuid,text,text,integer',queue),('character_production_scheduler_pending','uuid,text,text,integer',queue),('character_production_scheduler_qa_ready','uuid,integer',qa)]

@@ -23,7 +23,7 @@ DO $$ DECLARE f record; own oid:='character_production_owner'::regrole; extra oi
  IF to_regprocedure('public.character_production_planning_policy(uuid)') IS NULL OR to_regprocedure('public.character_production_planned_draft(uuid,jsonb,text,text)') IS NULL THEN RAISE EXCEPTION 'Planner readers missing'; END IF;
 END $$;
 DO $$ DECLARE f pg_proc; own oid:='character_production_owner'::regrole; extra oid; BEGIN
- SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('character_production.scheduler_current(uuid)');
+ SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='character_production' AND p.proname='scheduler_current' AND p.proargtypes='2950'::oidvector;
  IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM true OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM '
 DECLARE e character_production.scheduler_enrollments; p character_production.planning_policies; pid uuid;
 BEGIN
@@ -51,13 +51,13 @@ BEGIN
 END ' THEN RAISE EXCEPTION 'Dependency definition mismatch: character_production.scheduler_current'; END IF;
  extra:=NULL;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch'; END IF;
- SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('character_production.calendar_period(text,timestamptz)');
+ SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='character_production' AND p.proname='calendar_period' AND p.proargtypes='25 1184'::oidvector;
  IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM false OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM '
  SELECT to_char(p_at AT TIME ZONE CASE WHEN p_provider=''heygen'' THEN ''America/Chicago'' ELSE ''UTC'' END,''YYYY-MM'')
 ' THEN RAISE EXCEPTION 'Dependency definition mismatch: character_production.calendar_period'; END IF;
  extra:=NULL;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch'; END IF;
- SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('public.character_production_due(text,text,integer)');
+ SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='character_production_due' AND p.proargtypes='25 25 23'::oidvector;
  IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM true OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM '
  WITH observed AS (SELECT clock_timestamp() AS at), due AS (
   SELECT jsonb_build_object(''slot'',a.slot,''digest'',a.digest,
@@ -81,7 +81,7 @@ END ' THEN RAISE EXCEPTION 'Dependency definition mismatch: character_production
 ' THEN RAISE EXCEPTION 'Dependency definition mismatch: public.character_production_due'; END IF;
  extra:='service_role'::regrole;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch'; END IF;
- SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('public.character_production_pending(text,text,integer)');
+ SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='character_production_pending' AND p.proargtypes='25 25 23'::oidvector;
  IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM true OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM '
  SELECT coalesce(jsonb_agg(x.j),''[]''::jsonb) FROM (
  SELECT jsonb_build_object(''key'',key,''token'',token,''digest'',digest,''taskId'',task,''provider'',provider,''model'',model,''providerBindingRevision'',provider_binding_revision) j
@@ -90,7 +90,7 @@ END ' THEN RAISE EXCEPTION 'Dependency definition mismatch: character_production
 ' THEN RAISE EXCEPTION 'Dependency definition mismatch: public.character_production_pending'; END IF;
  extra:='service_role'::regrole;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch'; END IF;
- SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('public.character_production_qa_ready_slots(integer)');
+ SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='character_production_qa_ready_slots' AND p.proargtypes='23'::oidvector;
  IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM true OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM '
  SELECT coalesce(jsonb_agg(x.identity),''[]''::jsonb) FROM (
  SELECT jsonb_build_object(''key'',j.key,''digest'',j.digest) identity
@@ -112,7 +112,7 @@ END ' THEN RAISE EXCEPTION 'Dependency definition mismatch: character_production
 ' THEN RAISE EXCEPTION 'Dependency definition mismatch: public.character_production_qa_ready_slots'; END IF;
  extra:='service_role'::regrole;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,extra,'EXECUTE',false WHERE extra IS NOT NULL) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Dependency ACL mismatch'; END IF;
- SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure('public.character_production_qa_materialize(text,text)');
+ SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='character_production_qa_materialize' AND p.proargtypes='25 25'::oidvector;
  IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM true OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM '
 DECLARE a character_production.approved_slots; j character_production.jobs;
  b character_production.qa_slot_bindings; d public.cs_character_promo_drafts;

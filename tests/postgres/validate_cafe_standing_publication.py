@@ -88,6 +88,12 @@ def main():
   db.run('BEGIN; '+mutation+' SET ROLE service_role; DO $$ BEGIN IF '+claim+" IS NOT NULL THEN RAISE EXCEPTION 'queued revoked claim'; END IF; END $$; ROLLBACK;")
  # Retarget to distinct owner-created scope irreversibly disables old scope.
  db.run("BEGIN; INSERT INTO cafe_metricool_private.publication_scopes SELECT '55555555-5555-4555-8555-555555555555',enrollment_id,manifest_sha256,actor_id,policy,true FROM cafe_metricool_private.publication_scopes WHERE id='"+S+"'; UPDATE cafe_metricool_private.publication_binding SET scope_id='55555555-5555-4555-8555-555555555555'; SET ROLE service_role; DO $$ BEGIN IF "+claim+" IS NOT NULL THEN RAISE EXCEPTION 'retargeted old claim'; END IF; END $$; ROLLBACK;")
+ # Positive rollback proves the same source can claim before testing contention.
+ db.run('BEGIN; SET ROLE service_role; DO $$ BEGIN IF '+claim+" IS NULL THEN RAISE EXCEPTION 'valid claim rejected'; END IF; END $$; ROLLBACK;")
+ db.check("NOT EXISTS(SELECT 1 FROM cafe_metricool_private.attempts)",'positive rollback leaves no attempt')
+ # authorized() catches NOWAIT exceptions and returns false: contention must
+ # return NULL, not consume an attempt or raise past the authorization wrapper.
+ blocked_claim='SET ROLE service_role; DO $$ BEGIN IF '+claim+" IS NOT NULL THEN RAISE EXCEPTION 'contended claim accepted'; END IF; END $$;"
  # Deterministic NOWAIT contention and binding-retarget linearization.
  def leader(sql,follow,expected=None):
   proc=subprocess.Popen(db.command(),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -103,10 +109,11 @@ def main():
    proc.wait(timeout=10);assert proc.returncode==0,proc.stderr.read()
   finally:
    if proc.poll() is None:proc.kill();proc.wait()
- leader("INSERT INTO cafe_metricool_private.publication_scopes SELECT '77777777-7777-4777-8777-777777777778',enrollment_id,manifest_sha256,actor_id,policy,true FROM cafe_metricool_private.publication_scopes WHERE id='"+S+"'; UPDATE cafe_metricool_private.publication_binding SET scope_id='77777777-7777-4777-8777-777777777778';",'SET ROLE service_role; SELECT '+claim+';','could not obtain lock')
- leader("UPDATE cafe_metricool_private.publication_binding SET enabled=false;",'SET ROLE service_role; SELECT '+claim+';','could not obtain lock')
- leader("UPDATE character_production.scheduler_binding SET enabled=false;",'SET ROLE service_role; SELECT '+claim+';','could not obtain lock')
- leader("SELECT 1 FROM character_production.planning_policies WHERE id='"+planner.POL+"' FOR UPDATE;",'SET ROLE service_role; SELECT '+claim+';','could not obtain lock')
+ leader("INSERT INTO cafe_metricool_private.publication_scopes SELECT '77777777-7777-4777-8777-777777777778',enrollment_id,manifest_sha256,actor_id,policy,true FROM cafe_metricool_private.publication_scopes WHERE id='"+S+"'; UPDATE cafe_metricool_private.publication_binding SET scope_id='77777777-7777-4777-8777-777777777778';",blocked_claim)
+ leader("UPDATE cafe_metricool_private.publication_binding SET enabled=false;",blocked_claim)
+ leader("UPDATE character_production.scheduler_binding SET enabled=false;",blocked_claim)
+ leader("SELECT 1 FROM character_production.planning_policies WHERE id='"+planner.POL+"' FOR UPDATE;",blocked_claim)
+ db.check("NOT EXISTS(SELECT 1 FROM cafe_metricool_private.attempts)",'contended claims leave no attempt')
  # Claim first holds scope/binding; a later retarget waits and commits only after
  # consumed authority linearizes. Test rolls back claim, then commits disable.
  leader('SET ROLE service_role; SELECT '+claim+';',"UPDATE cafe_metricool_private.publication_binding SET enabled=false;")

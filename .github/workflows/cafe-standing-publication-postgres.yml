@@ -10,7 +10,7 @@ on:
       - 'docs/proposals/cafe-standing-publication-authority.sql'
       - 'docs/proposals/cafe-metricool-store.sql'
       - 'docs/proposals/cafe-metricool-authority-writer.sql'
-      - 'tests/postgres/validate_cafe_standing_publication.py'
+      - 'tests/postgres/*.py'
       - 'scripts/prepare-*-install.py'
       - 'docs/proposals/character-production-receipt-evidence.sql'
       - 'scripts/prepare-planner-admin-install.py'

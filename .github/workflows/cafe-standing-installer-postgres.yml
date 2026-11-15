@@ -13,6 +13,8 @@ on:
       - 'tests/postgres/*.py'
       - 'scripts/prepare-*-install.py'
       - 'scripts/cafe-standing-catalog.sql'
+      - 'scripts/derive-cafe-standing-expected.py'
+      - 'tests/scripts/test_cafe_standing_expected.py'
       - 'docs/proposals/cafe-semantic-budget.sql'
       - 'docs/proposals/character-production-receipt-evidence.sql'
       - 'scripts/prepare-planner-admin-install.py'
@@ -54,6 +56,8 @@ jobs:
           node-version: '22'
       - name: Install official PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Validate private delta helper
+        run: python3 -m unittest discover -s tests/scripts -p test_cafe_standing_expected.py
       - name: Validate catalog, rollback, drift and six-plus-four grants
         run: python3 tests/postgres/validate_cafe_standing_installer.py
       - uses: actions/upload-artifact@v4

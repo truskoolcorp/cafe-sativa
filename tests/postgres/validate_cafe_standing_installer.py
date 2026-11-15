@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Disposable PG17 wrapper rehearsal; no production manifests or connections."""
-import importlib.util,json,os,subprocess
+import base64,hashlib,importlib.util,json,os,subprocess
 import validate_ledger as db
 import validate_cafe_standing_publication as standing
 from validate_enrolled_reads_install import verbatim_run
 spec=importlib.util.spec_from_file_location('standing_install',db.ROOT/'scripts/prepare-cafe-standing-install.py')
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
+delta_spec=importlib.util.spec_from_file_location('standing_expected',db.ROOT/'scripts/derive-cafe-standing-expected.py')
+delta=importlib.util.module_from_spec(delta_spec);delta_spec.loader.exec_module(delta)
 CATALOG=(db.ROOT/'scripts/cafe-standing-catalog.sql').read_text()
 STANDING=(db.ROOT/'docs/proposals/cafe-standing-publication-authority.sql').read_text()
 SIX=['character_production_scheduler_context(uuid)','character_production_scheduler_reconciled(uuid,integer)','character_production_scheduler_plan(uuid,integer,jsonb)','character_production_scheduler_due(uuid,text,text,integer)','character_production_scheduler_pending(uuid,text,text,integer)','character_production_scheduler_qa_ready(uuid,integer)']
@@ -72,7 +74,28 @@ def main():
  # Independent absence/denial checks, not just catalog equality.
  db.check("to_regclass('cafe_metricool_private.publication_scopes') IS NULL AND to_regclass('cafe_metricool_private.semantic_budgets') IS NULL",'no persistent activation tables')
  for s in SIX+FOUR:db.check("has_function_privilege('service_role',"+db.quote('public.'+s)+",'EXECUTE')",'existing scoped grant preserved')
+ # This exact synthetic server-derived delta must round-trip through the private
+ # overlay helper before exporting evidence. No production manifest is present.
+ bmap,amap=delta.catalog(before),delta.catalog(after)
+ projected_before={'format':'cafe-standing-catalog-v1','catalog':{}}
+ projected_after={'format':'cafe-standing-catalog-v1','catalog':{}}
+ for kind in sorted(delta.KINDS):
+  changed={k for k in set(bmap[kind])|set(amap[kind]) if bmap[kind].get(k)!=amap[kind].get(k)}
+  projected_before['catalog'][kind]=[bmap[kind][k] for k in sorted(changed) if k in bmap[kind]]
+  projected_after['catalog'][kind]=[amap[kind][k] for k in sorted(changed) if k in amap[kind]]
+ reconstructed,counts=delta.derive(before,projected_before,projected_after)
+ assert reconstructed==after,'private projected delta must match actual full server catalog' 
  db.finish('cafe-standing-installer')
+ pins={path:hashlib.sha256((db.ROOT/path).read_bytes()).hexdigest() for path in [
+  'scripts/cafe-standing-catalog.sql','scripts/prepare-cafe-standing-install.py',
+  'scripts/derive-cafe-standing-expected.py','tests/postgres/validate_cafe_standing_installer.py',
+  'docs/proposals/cafe-standing-publication-authority.sql','docs/proposals/cafe-semantic-budget.sql']}
+ for label,manifest in [('before',projected_before),('after',projected_after)]:
+  raw=(json.dumps(manifest,separators=(',',':'))+'\n').encode()
+  encoded=base64.b64encode(raw).decode();chunks=[encoded[i:i+12000] for i in range(0,len(encoded),12000)]
+  print('CAFE_STANDING_SYNTHETIC_MANIFEST_V1 '+json.dumps({'kind':'metadata','label':label,'sha256':hashlib.sha256(raw).hexdigest(),'chunks':len(chunks),'source_sha256':pins,'synthetic':True,'projection':True,'allTestsPassed':True,'githubSha':os.environ.get('GITHUB_SHA'),'deltaCounts':counts},separators=(',',':')),flush=True)
+  for index,chunk in enumerate(chunks):
+   print('CAFE_STANDING_SYNTHETIC_MANIFEST_V1 '+json.dumps({'kind':'chunk','label':label,'index':index,'data':chunk},separators=(',',':')),flush=True)
 if __name__=='__main__':
  original=db.run;db.run=verbatim_run
  try:main()

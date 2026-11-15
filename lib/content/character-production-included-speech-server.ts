@@ -14,6 +14,7 @@ import {createIncludedSpeechHandler} from './character-production-included-speec
 export function createFiniteIncludedSpeechHandler(operation:IncludedSpeechOperation){
  return createIncludedSpeechHandler(operation,{
   origin:'https://www.cafe-sativa.com',
+  deadlineMs:85000, // Leaves cleanup margin below the 90-second Next route ceiling.
   enabled:()=>process.env.CS_CHARACTER_FINITE_SPEECH_ENABLED==='true',
   authorize:isContentAdmin,
   open(s,signal){

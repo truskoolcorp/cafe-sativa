@@ -60,7 +60,12 @@ export function validateCafeSchedule(s:CafeSchedule, verified:readonly CafeColla
  assert(sha(s.videoSha256)&&sha(s.contentApprovalDigest)&&s.videoPath&&!s.videoPath.includes('..'),'Exact approved content required')
  assert(Number.isFinite(now)&&Date.parse(s.scheduledAt)>now+60000&&new Date(s.scheduledAt).toISOString()===s.scheduledAt&&!promoDispatchTimeIssue(s.scheduledAt,s.timezone),'Exact future schedule required')
  assert(typeof s.caption==='string'&&s.caption.trim()&&Array.isArray(s.hashtags)&&s.hashtags.length<=5&&new Set(s.hashtags).size===s.hashtags.length&&s.hashtags.every(h=>/^[\p{L}\p{N}_]{1,80}$/u.test(h)),'Reviewed caption and relevant distinct hashtags required')
- assert(Array.from(text(s)).length<=2200,'Caption exceeds adapter limit')
+ // Count the exact final payload, including editorial inline tags. Do not
+ // rewrite reviewed caption text to conceal duplicates or over-limit content.
+ const finalText=text(s),tags=Array.from(finalText.matchAll(/#([\p{L}\p{N}_]+)/gu),m=>m[1])
+ const folded=tags.map(tag=>tag.normalize('NFKC').toUpperCase().toLowerCase())
+ assert(tags.length<=5&&new Set(folded).size===folded.length,'Final caption must contain at most five distinct hashtags')
+ assert(Array.from(finalText).length<=2200,'Caption exceeds adapter limit')
  assert(Array.isArray(s.collaborators)&&s.collaborators.length<=3&&new Set(s.collaborators.map(c=>c.handle)).size===s.collaborators.length,'Ambiguous collaborators')
  if(s.network==='facebook')assert(typeof s.facebookTitle==='string'&&s.facebookTitle.trim()&&Array.from(s.facebookTitle).length<=100&&s.collaborators.length===0,'Facebook title required; Instagram collaborators are not Facebook tags')
  else assert(s.facebookTitle===undefined,'Facebook metadata cannot leak to Instagram')

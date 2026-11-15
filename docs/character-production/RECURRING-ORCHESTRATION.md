@@ -40,3 +40,21 @@ inference allowance; current paid provider configuration within $20 Dallas-month
 HeyGen cap and no top-ups; no third-party watermarks; reviewed cron and runtime
 flags; independent integration tests and one real receipt-verified run. Existing
 past canary windows must not be extended or silently reused.
+
+## Concrete private QA binding
+
+`createRecurringQaSession` now uses the same `openPrivateQaSession` as the
+existing private-QA route: exact four-function RPC allowlist, cancellation and
+no retry, verified private destination and original immutable bridge. Selection
+reads one current eligible database slot; the real recurring runner re-reads
+eligibility before materialization/copy, so a completed/revoked slot is not
+resurrected. No caller candidate or synthetic row is supplied. The adapter
+rechecks the existing QA flag, binds one AbortSignal, and consumes at most one
+stage. Empty re-read means no work, not proof of ingestion.
+
+The new adapter is not registered in a route or scheduler and has no new flag or
+grant. Other phase adapters and the overall durable/fair phase selector remain
+outstanding. QA queue head starvation from existing frozen drafts remains an
+operational limitation; do not activate recurrence until durable backoff or
+reviewed eligibility handling is available. Database mocks exercise the real
+runner, but do not prove live eligible content, grants or storage-copy success.

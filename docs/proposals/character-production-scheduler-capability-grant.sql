@@ -7,6 +7,10 @@ DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN RAISE EXCEPTION 'Existing service role required'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') OR has_schema_privilege('character_production_owner','public','CREATE') THEN RAISE EXCEPTION 'Unexpected temporary authority'; END IF;
  IF (SELECT count(*) FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor<>current_user::regrole AND admin_option AND NOT inherit_option AND NOT set_option)<>1 OR EXISTS(SELECT 1 FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND grantor=current_user::regrole) THEN RAISE EXCEPTION 'Bootstrap membership mismatch'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_auth_members WHERE member='character_production_owner'::regrole OR (roleid='character_production_owner'::regrole AND member<>current_user::regrole)) THEN RAISE EXCEPTION 'Unsafe ledger owner memberships'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role' AND NOT rolcanlogin AND NOT rolsuper AND rolinherit AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND rolbypassrls) OR NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticator' AND rolcanlogin AND NOT rolsuper AND NOT rolinherit AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls) THEN RAISE EXCEPTION 'Service proxy role baseline mismatch'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_auth_members WHERE member='service_role'::regrole) OR (SELECT count(*) FROM pg_auth_members WHERE roleid='service_role'::regrole)<>2 OR EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.roleid='service_role'::regrole AND NOT (m.grantor=(SELECT grantor FROM pg_auth_members WHERE roleid='character_production_owner'::regrole AND member=current_user::regrole AND admin_option AND NOT inherit_option AND NOT set_option) AND ((m.member='authenticator'::regrole AND NOT m.admin_option AND NOT m.inherit_option AND m.set_option) OR (m.member=current_user::regrole AND m.admin_option AND m.inherit_option AND m.set_option)))) THEN RAISE EXCEPTION 'Service role membership baseline mismatch'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_roles r WHERE NOT r.rolsuper AND r.oid NOT IN (current_user::regrole,'service_role'::regrole,'authenticator'::regrole) AND (pg_has_role(r.oid,'service_role','USAGE') OR pg_has_role(r.oid,'service_role','SET'))) THEN RAISE EXCEPTION 'Unexpected effective service principal'; END IF;
 END $$;
 CREATE TEMP TABLE cg_expected(sig text PRIMARY KEY,body text) ON COMMIT DROP;
 INSERT INTO cg_expected VALUES('public.character_production_scheduler_context(uuid)',$expected$
@@ -87,7 +91,7 @@ DO $$ DECLARE expected record; f record; own oid:='character_production_owner'::
  SELECT p.* INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='character_production' AND p.proname=split_part(split_part(expected.sig,'.',2),'(',1)
  AND p.proargtypes=CASE WHEN expected.sig LIKE '%scheduler_current%' THEN '2950'::oidvector ELSE ''::oidvector END;
- IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM expected.definer OR f.prosrc IS DISTINCT FROM expected.body OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prokind<>'f' OR f.provolatile<>'v' OR f.prolang<>(SELECT oid FROM pg_language WHERE lanname='plpgsql') OR f.prorettype<>CASE WHEN expected.sig LIKE '%scheduler_current%' THEN (SELECT t.oid FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='character_production' AND t.typname='scheduler_enrollments' AND t.typtype='c') ELSE 'trigger'::regtype END THEN RAISE EXCEPTION 'Scoped dependency identity/body mismatch'; END IF;
+ IF NOT FOUND OR f.proowner<>own OR f.prosecdef IS DISTINCT FROM expected.definer OR f.prosrc IS DISTINCT FROM expected.body OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prokind<>'f' OR f.provolatile<>'v' OR f.prolang<>(SELECT oid FROM pg_language WHERE lanname='plpgsql') OR f.prorettype<>(CASE WHEN expected.sig LIKE '%scheduler_current%' THEN (SELECT t.oid FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='character_production' AND t.typname='scheduler_enrollments' AND t.typtype='c') ELSE 'trigger'::regtype END) THEN RAISE EXCEPTION 'Scoped dependency identity/body mismatch'; END IF;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Scoped dependency ACL mismatch'; END IF;
  END LOOP;
 END $$;
@@ -95,10 +99,11 @@ END $$;
 DO $$ DECLARE expected record; f record; own oid:='character_production_owner'::regrole; BEGIN
  FOR expected IN SELECT * FROM cg_expected LOOP
  SELECT * INTO f FROM pg_proc WHERE oid=to_regprocedure(expected.sig);
- IF NOT FOUND OR f.proowner<>own OR NOT f.prosecdef OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM expected.body OR f.provolatile<>'v' OR f.prokind<>'f' OR f.prolang<>(SELECT oid FROM pg_language WHERE lanname='plpgsql') OR f.prorettype<>CASE WHEN expected.sig LIKE '%reconciled%' THEN 'boolean'::regtype ELSE 'jsonb'::regtype END THEN RAISE EXCEPTION 'Scoped wrapper identity/body mismatch'; END IF;
+ IF NOT FOUND OR f.proowner<>own OR NOT f.prosecdef OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prosrc IS DISTINCT FROM expected.body OR f.provolatile<>'v' OR f.prokind<>'f' OR f.prolang<>(SELECT oid FROM pg_language WHERE lanname='plpgsql') OR f.prorettype<>(CASE WHEN expected.sig LIKE '%reconciled%' THEN 'boolean'::regtype ELSE 'jsonb'::regtype END) THEN RAISE EXCEPTION 'Scoped wrapper identity/body mismatch'; END IF;
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Scoped wrapper baseline ACL mismatch'; END IF;
  END LOOP;
 END $$;
+CREATE TEMP TABLE cg_role_attributes ON COMMIT DROP AS SELECT * FROM pg_roles;
 CREATE TEMP TABLE cg_members ON COMMIT DROP AS SELECT * FROM pg_auth_members;
 CREATE TEMP TABLE cg_defaults ON COMMIT DROP AS SELECT * FROM pg_default_acl;
 CREATE TEMP TABLE cg_namespaces ON COMMIT DROP AS SELECT oid,nspowner,nspacl FROM pg_namespace;
@@ -130,6 +135,7 @@ END $$;
 RESET ROLE;
 REVOKE character_production_owner FROM postgres GRANTED BY postgres;
 DO $$ DECLARE f record; own oid:='character_production_owner'::regrole; target oid:='service_role'::regrole; BEGIN
+ IF EXISTS((SELECT * FROM pg_roles EXCEPT SELECT * FROM cg_role_attributes) UNION ALL (SELECT * FROM cg_role_attributes EXCEPT SELECT * FROM pg_roles)) THEN RAISE EXCEPTION 'Role attributes changed'; END IF;
  IF EXISTS((SELECT * FROM pg_auth_members EXCEPT SELECT * FROM cg_members) UNION ALL (SELECT * FROM cg_members EXCEPT SELECT * FROM pg_auth_members)) OR EXISTS((SELECT * FROM pg_default_acl EXCEPT SELECT * FROM cg_defaults) UNION ALL (SELECT * FROM cg_defaults EXCEPT SELECT * FROM pg_default_acl)) THEN RAISE EXCEPTION 'Membership/default ACL changed'; END IF;
  IF EXISTS(SELECT 1 FROM cg_namespaces b LEFT JOIN pg_namespace n USING(oid) WHERE n.oid IS NULL OR n.nspowner IS DISTINCT FROM b.nspowner OR n.nspacl IS DISTINCT FROM b.nspacl) OR EXISTS(SELECT 1 FROM cg_tables b LEFT JOIN pg_class c USING(oid) WHERE c.oid IS NULL OR c.relowner IS DISTINCT FROM b.relowner OR c.relacl IS DISTINCT FROM b.relacl OR c.relrowsecurity IS DISTINCT FROM b.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM b.relforcerowsecurity) OR EXISTS(SELECT 1 FROM cg_columns b LEFT JOIN pg_attribute a USING(attrelid,attnum) WHERE a.attrelid IS NULL OR a.attacl IS DISTINCT FROM b.attacl) THEN RAISE EXCEPTION 'Existing object authority changed'; END IF;
  IF EXISTS(SELECT 1 FROM cg_policies b LEFT JOIN pg_policy p USING(oid) WHERE p.oid IS NULL OR to_jsonb(p) IS DISTINCT FROM b.data) OR (SELECT count(*) FROM pg_policy)<>(SELECT count(*) FROM cg_policies) THEN RAISE EXCEPTION 'Policies changed'; END IF;
@@ -137,6 +143,7 @@ DO $$ DECLARE f record; own oid:='character_production_owner'::regrole; target o
  FOR f IN SELECT p.* FROM pg_proc p JOIN cg_expected e ON p.oid=to_regprocedure(e.sig) LOOP
  IF EXISTS(WITH a AS (SELECT * FROM aclexplode(coalesce(f.proacl,acldefault('f',own)))), e AS (SELECT own grantor,own grantee,'EXECUTE'::text privilege_type,false is_grantable UNION ALL SELECT own,target,'EXECUTE',false) (SELECT * FROM a EXCEPT SELECT * FROM e) UNION ALL (SELECT * FROM e EXCEPT SELECT * FROM a)) THEN RAISE EXCEPTION 'Scoped wrapper result ACL mismatch'; END IF;
  END LOOP;
+ IF EXISTS(SELECT 1 FROM pg_roles r CROSS JOIN cg_expected e WHERE NOT r.rolsuper AND r.oid NOT IN (current_user::regrole,'character_production_owner'::regrole,'service_role'::regrole,'authenticator'::regrole) AND has_function_privilege(r.oid,to_regprocedure(e.sig),'EXECUTE')) THEN RAISE EXCEPTION 'Unexpected effective wrapper grantee'; END IF;
  IF pg_has_role(current_user,'character_production_owner','SET') OR has_schema_privilege('character_production_owner','public','CREATE') THEN RAISE EXCEPTION 'Temporary authority remains'; END IF;
 END $$;
 COMMIT;

@@ -10,9 +10,7 @@ import type {ProductionRpc} from './character-production-store'
 
 // No manifest, binding rows or scheduler are created by this route. Missing
 // reviewed runtime grants/configuration holds; a flag alone cannot enroll jobs.
-export const processPrivateQa=createPrivateQaWorker({
- enabled:()=>process.env.CS_CHARACTER_QA_BRIDGE_ENABLED==='true',authorize:cronAuthorized,
- open(signal){
+export function openPrivateQaSession(signal:AbortSignal){
   const network=createProductionFetch(signal),db=createAdminClient(network.fetch)
   const allowed=new Set(['character_production_qa_ready_slots','character_production_qa_materialize','character_production_qa_prepare','character_production_qa_commit'])
   const rpc:ProductionRpc={async rpc(name,args){
@@ -21,12 +19,15 @@ export const processPrivateQa=createPrivateQaWorker({
   }}
   const storage=createStreamingQaStorage(db.storage,15000)
   const bridge=createCharacterProductionQaBridge(rpc,storage)
-  return {rpc,whenSettled:network.whenSettled,bridge:{async ingest(key,digest){
+  return {rpc,whenSettled:network.whenSettled,bridge:{async ingest(key:string,digest:string){
    if(signal.aborted)throw Error('QA cancelled')
    const bucket=await db.storage.getBucket('cafe-sativa-content')
    if(bucket.error)throw Error('QA destination unavailable')
    assertOriginalQaDestination(bucket.data)
    return bridge.ingest(key,digest)
   }}}
- },
+}
+export const processPrivateQa=createPrivateQaWorker({
+ enabled:()=>process.env.CS_CHARACTER_QA_BRIDGE_ENABLED==='true',authorize:cronAuthorized,
+ open:openPrivateQaSession,
 })

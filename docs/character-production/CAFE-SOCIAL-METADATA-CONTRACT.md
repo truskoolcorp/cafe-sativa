@@ -1,0 +1,16 @@
+# Inert Café character metadata contract
+
+New pure builder/serializer only; no import by a live adapter, no DB changes, routes, writes, publication or new supported destination. Audited main: 42c8b9a38a7c5f3b4a73e7b8ea89df84ac48fc10.
+
+The final caption is supplied already reviewed, never generated or rewritten. The exact hashtags in caption must match the explicit list in order. Conservative local limits are 500 caption characters, five ASCII hashtags, 100 title characters and two collaborator handles; these are local review limits, not asserted platform maxima. Unknown fields, destination identities, mentions, handles and unsupported combinations fail closed. The fixed server-owned mappingRevision cafe-metricool-metadata-20261115-v1 binds this evidence set; callers cannot supply or replace it. A later mapping/evidence revision changes the snapshot and therefore invalidates its digest. Snapshot digest covers mappingRevision, title, final caption, hashtags, invitation list and exact Café account mapping. Caller must persist/bind it into the authoritative approval snapshot before any integration; this helper does not establish approval itself.
+
+Verified inventory supplied by parent: Café brand7605217, user4174093, FB105363501666032 and IGcafesativainc. Tru Skool IGtruskoolcorp. DOT absent from current brand inventory. The configured dotproject2017 handle is supported only by existing Café scheduled collaborator readback, not ownership/eligibility proof. Allowed invitations: truskoolcorp and dotproject2017; their acceptance remains unverified. Instagram caption mentions allowed only these plus cafesativainc. Facebook rejects all @ syntax because no Facebook-specific mention binding/format has been verified. Unknown handles require separate verification, not fuzzy matching.
+
+Provider evidence:
+- Official OpenAPI https://app.metricool.com/api/swagger.json: ScheduledPostFacebookData title:string/type:string (parent verified). Serialize Facebook title only when provided and reviewed; no Facebook collaboration field.
+- Parent observed Café scheduled posts428098477/428099102/428099509 with instagramData.collaborators[{username:'truskoolcorp',deleted:false}], and428101396 with dotproject2017. Observed Instagram Reel fields: type REEL, autoPublish true, showReelOnFeed true, isAiGenerated true. Keep AI disclosure enabled.
+- Official https://help.metricool.com/schedule-and-post-on-instagram-6b6q5 describes collaborator invitations needing acceptance in Instagram; private or age-restricted accounts are ineligible. Configured invitation is never reported as accepted.
+
+Readback validates only metadata. It does not prove account identity, schedule, media, durable attempt, provider ID, publication or acceptance. The existing adapter must still verify all of those independently. Duplicate detection must remain broader than metadata equality: changing a title or collaborator must not create a duplicate. Existing TS/Keith contracts remain untouched.
+
+Required integration, deliberately not done: authoritative per-plan metadata storage; SQL source-state/validation/cohort CAS binding; exact review UI+digest; verified Café destination branch; durable claim/readback receipt binding. Existing source still hard-codes Keith/TS Facebook/Threads, so this contract alone does not enable Café posting.

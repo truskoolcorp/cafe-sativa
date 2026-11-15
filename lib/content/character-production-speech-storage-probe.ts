@@ -5,7 +5,7 @@ function isDuplicate(error:unknown){
  if(!error||typeof error!=='object')return false
  const e=error as {status?:unknown;statusCode?:unknown;code?:unknown;message?:unknown}
  const status=String(e.status??e.statusCode),message=typeof e.message==='string'?e.message.trim().toLowerCase():''
- if(status==='400')return message==='asset already exists'
+ if(status==='400')return message==='asset already exists'||(message==='the resource already exists'&&['409','KeyAlreadyExists'].includes(String(e.statusCode??e.code)))
  if(status==='409')return e.code==='ResourceAlreadyExists'||e.statusCode==='ResourceAlreadyExists'||message==='the resource already exists'||message==='resource already exists'||message==='the resource already exists.'
  return false
 }
@@ -40,4 +40,21 @@ export async function probeSpeechClaimStorage(sdk:SpeechProbeStorage,signal:Abor
   if(signal.aborted||bytes.length!==payloads[success[0]].length||sha(bytes)!==sha(payloads[success[0]]))throw Error('winner_readback_mismatch')
   return {status:'verified' as const,bucket,path,sha256:sha(bytes),bytes:bytes.length,successfulCreates:1,explicitConflicts:1,private:true,providerCalls:0,cleanup:'retained_private_probe_evidence'}
  }catch{return {status:'unverified' as const,bucket,path,providerCalls:0,retry:false,next:'read_only_reconciliation'}}
+}
+
+
+/** Read-only recovery of the configured synthetic marker, never a probe retry.
+ * Successful payload/hash readback alone does NOT prove historical conflict. */
+export async function reconcileSpeechClaimStorage(sdk:SpeechProbeStorage,signal:AbortSignal,attemptId:string){
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)||signal.aborted)throw Error('attempt_unverified')
+ const id=attemptId.toLowerCase(),path=`production-speech-operations/storage-probe-${id}/claim.json`
+ const metadata=await sdk.getBucket(bucket),m=metadata.data
+ if(signal.aborted||metadata.error||!m||m.id!==bucket||m.public!==false||m.file_size_limit!==10485760||!Array.isArray(m.allowed_mime_types)||[...m.allowed_mime_types].sort().join(',')!=='application/json,image/jpeg,image/png,image/webp')throw Error('private_policy_unconfirmed')
+ const r=await sdk.from(bucket).download(path,{}, {signal,cache:'no-store',redirect:'error'}).asStream()
+ if(signal.aborted||r.error||!r.data)throw Error('readback_unconfirmed')
+ const bytes=await boundedOperationBytes(r.data,1024,signal)
+ const expected=[0,1].map(contender=>Buffer.from(JSON.stringify({version:1,kind:'disposable-storage-atomicity-probe',probeId:id,contender,noSynthesis:true})))
+ const contender=expected.findIndex(x=>x.length===bytes.length&&sha(x)===sha(bytes))
+ if(signal.aborted||contender<0)throw Error('marker_payload_mismatch')
+ return {status:'readback_verified',bucket,path,attemptId:id,contender,sha256:sha(bytes),bytes:bytes.length,private:true,writes:0,providerCalls:0,historicalConflictVerified:false,requires:'correlate_existing_storage_logs',synthesisAttempted:false}
 }

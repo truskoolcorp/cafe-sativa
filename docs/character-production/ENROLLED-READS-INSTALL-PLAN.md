@@ -1,6 +1,6 @@
 # Owner-only scoped reads installation plan (not executable authorization)
 
-Base: `7c710608fc5b9c1fa9d57affb0772f556ee3dce9`.
+Base: `101862229e2683aa098a3338ef2b69df48421a33`.
 This plan is offline. Do not paste the source proposals directly into production:
 they assume the restricted owner has already been safely established.
 
@@ -86,3 +86,8 @@ refusal, injected data/identity change, unsafe owner/temporary authority and
 missing/drifted dependencies. A separate workflow runs it on disposable PG17.
 Generation and Python compilation have passed locally. Actual PostgreSQL proof
 is pending CI; no local PG17 executable is available. No live installation.
+
+Dependency identity lookup uses pg_proc/pg_namespace plus exact built-in argument
+OIDs before temporary authority. It requires no USAGE on the private schema.
+The first PG17 CI run exposed the prior to_regprocedure permission assumption;
+this catalog-only correction still needs a successful rerun.

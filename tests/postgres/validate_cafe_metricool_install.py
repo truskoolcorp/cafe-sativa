@@ -47,7 +47,37 @@ def suite():
  p=subprocess.run(['psql','-X','-qAt','-v','ON_ERROR_STOP=1'],input=prefix+"BEGIN; CREATE POLICY unexpected_public_write ON public.cs_character_promo_drafts FOR UPDATE TO PUBLIC USING(true) WITH CHECK(true); "+source,text=True,capture_output=True,timeout=40)
  assert p.returncode and 'PUBLIC write policy' in p.stderr,p.stderr
  assert snap()==before,'PUBLIC policy rollback'
+ # Original absent-helper path has passed rollback and all fail-closed controls above.
+ # Install the exact existing production bridge (OID intentionally allocated by this DB).
+ m.run("CREATE ROLE character_production_owner NOLOGIN NOSUPERUSER;")
+ bridge="""CREATE FUNCTION public.cs_cafe_metricool_is_admin(p_actor uuid)
+ RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $function$
+ SELECT EXISTS(SELECT 1 FROM auth.users u
+ WHERE u.id=p_actor AND u.raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb)
+$function$;
+ REVOKE ALL ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM PUBLIC,anon,authenticated,service_role;
+ GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO character_production_owner;"""
+ m.run(prefix+bridge)
+ bridge_before=m.run("SELECT jsonb_build_array(oid,pg_get_functiondef(oid),proowner,provolatile,proisstrict,proconfig) FROM pg_proc WHERE oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure")
+ before=snap()
+ m.run(prefix+source.replace('\nCOMMIT;','\nROLLBACK;'))
+ assert snap()==before,'recognized bridge rollback preserves exact OID/body/ACL'
+ for label,mutation in [
+  ('body',"CREATE OR REPLACE FUNCTION public.cs_cafe_metricool_is_admin(p_actor uuid) RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$ SELECT true $$;"),
+  ('volatility','ALTER FUNCTION public.cs_cafe_metricool_is_admin(uuid) STABLE;'),
+  ('security','ALTER FUNCTION public.cs_cafe_metricool_is_admin(uuid) SECURITY INVOKER;'),
+  ('searchpath',"ALTER FUNCTION public.cs_cafe_metricool_is_admin(uuid) SET search_path=public;"),
+  ('extra ACL','GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO service_role;'),
+  ('lost old grant','REVOKE EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) FROM character_production_owner;'),
+  ('grant option','GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO character_production_owner WITH GRANT OPTION;'),
+ ]:
+  p=subprocess.run(['psql','-X','-qAt','-v','ON_ERROR_STOP=1'],input=prefix+'BEGIN; '+mutation+source,text=True,capture_output=True,timeout=40)
+  m.LOG.append(label+': '+p.stdout+p.stderr)
+  assert p.returncode and 'Unknown existing admin bridge' in p.stderr,(label,p.stderr)
+  assert snap()==before,label+' must rollback exactly'
  m.run(prefix+source)
+ assert m.run("SELECT jsonb_build_array(oid,pg_get_functiondef(oid),proowner,provolatile,proisstrict,proconfig) FROM pg_proc WHERE oid='public.cs_cafe_metricool_is_admin(uuid)'::regprocedure")==bridge_before,'existing bridge identity/body/flags preserved'
+ m.check("has_function_privilege('character_production_owner','public.cs_cafe_metricool_is_admin(uuid)','EXECUTE')",'existing production grant retained')
  m.check("NOT pg_has_role('metricool_installer','cafe_metricool_owner','SET')",'installer cannot retain SET')
  m.check("(SELECT count(*)=1 FROM pg_auth_members WHERE roleid='cafe_metricool_owner'::regrole AND member='metricool_installer'::regrole AND grantor='postgres'::regrole AND admin_option AND NOT set_option AND NOT inherit_option)",'only original PG17 admin-only bootstrap')
  m.check("NOT has_schema_privilege('cafe_metricool_owner','public','CREATE') AND NOT has_schema_privilege('cafe_metricool_owner','auth','USAGE') AND NOT has_table_privilege('cafe_metricool_owner','auth.users','SELECT')",'no create or raw auth access')
@@ -84,3 +114,4 @@ def suite():
 if __name__=='__main__':
  try:suite()
  finally:(ROOT/'evidence').mkdir(exist_ok=True);(ROOT/'evidence/postgres-cafe-metricool-install-validation.log').write_text('\n'.join(m.LOG))
+

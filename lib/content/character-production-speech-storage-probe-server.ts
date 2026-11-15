@@ -10,9 +10,10 @@ import {normalizePromoCanon} from './character-promo-sources'
 export const runAuthorizedSpeechStorageProbe=createSpeechProbeHandler({
  authorize:isContentAdmin,
  enabled:()=>process.env.CS_CHARACTER_SPEECH_STORAGE_PROBE_ENABLED==='true',
- open(mode,signal){
+ attempt:()=>({id:process.env.CS_CHARACTER_SPEECH_STORAGE_PROBE_ATTEMPT_ID??'',expiresAt:process.env.CS_CHARACTER_SPEECH_STORAGE_PROBE_EXPIRES_AT??''}),
+ open(mode,signal,attempt){
   if(mode==='canon')return {async run(){const source=await liveGlyphCharacters(signal);if(signal.aborted)throw Error('cancelled');const c=normalizePromoCanon(source,'zaria-solenne',new Date().toISOString());return {status:'observed',characterId:c.character_id,canonicalRevision:c.revision_sha256,portraitAssetId:c.primary_asset_id,portraitSha256:c.portrait_sha256,voiceId:c.voice_id,rightsStatus:c.rights_status,voiceStatus:c.voice_status,productionReady:c.production_ready,observedAt:c.checked_at,synthesisAttempted:false}},async whenSettled(){}}
   const network=createProductionFetch(signal,fetch,3000),db=createAdminClient(network.fetch);let markerPath:string|undefined
-  return {run:()=>probeSpeechClaimStorage(db.storage,signal,path=>{markerPath=path}),whenSettled:network.whenSettled,reconciliation:()=>({bucket:'cafe-sativa-characters',path:markerPath})}
+  return {run:()=>probeSpeechClaimStorage(db.storage,signal,attempt!.id,path=>{markerPath=path}),whenSettled:network.whenSettled,reconciliation:()=>({bucket:'cafe-sativa-characters',path:markerPath})}
  },
 })

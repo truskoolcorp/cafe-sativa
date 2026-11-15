@@ -11,7 +11,7 @@ BEGIN
  FROM character_production.jobs j
  JOIN character_production.scheduler_candidates c ON c.enrollment_id=e.id AND c.slot=j.slot AND c.digest=j.digest AND c.slot->>'key'=j.key
  JOIN character_production.approved_slots a ON a.key=j.key AND a.digest=j.digest AND a.slot=j.slot AND a.enabled=true
- JOIN character_production.qa_slot_bindings b ON b.slot_key=j.key AND b.digest=j.digest AND b.slot=j.slot AND b.enabled=true
+ JOIN character_production.qa_slot_bindings b ON b.slot_key=j.key AND b.digest=j.digest AND b.slot=j.slot AND b.enabled=true AND b.promo_id=c.draft_id
  JOIN public.cs_character_promo_drafts d ON d.id=b.promo_id
  WHERE j.state='pending_qa' AND d.updated_at=b.expected_updated_at
  AND d.character_id=j.slot->>'characterId' AND d.spoken_script=j.slot->>'script'

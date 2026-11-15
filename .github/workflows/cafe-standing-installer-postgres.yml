@@ -12,6 +12,8 @@ on:
       - 'docs/proposals/cafe-metricool-authority-writer.sql'
       - 'tests/postgres/*.py'
       - 'scripts/prepare-*-install.py'
+      - 'scripts/prepare-cafe-standing-promotion.py'
+      - 'tests/scripts/test_cafe_standing_promotion.py'
       - 'scripts/cafe-standing-catalog.sql'
       - 'scripts/derive-cafe-standing-expected.py'
       - 'tests/scripts/test_cafe_standing_expected.py'
@@ -57,7 +59,7 @@ jobs:
       - name: Install official PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Validate private delta helper
-        run: python3 -m unittest discover -s tests/scripts -p test_cafe_standing_expected.py
+        run: python3 -m unittest discover -s tests/scripts
       - name: Validate catalog, rollback, drift and six-plus-four grants
         run: python3 tests/postgres/validate_cafe_standing_installer.py
       - uses: actions/upload-artifact@v4

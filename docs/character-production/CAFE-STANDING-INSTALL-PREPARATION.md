@@ -2,12 +2,11 @@
 
 This package prepares a **rollback-only rehearsal**, never connects to a database,
 never reads credentials and has no commit flag. Do not remove ROLLBACK or apply the
-proposal as a workaround. A separately reviewed live promotion is still required.
+proposal as a workaround. The separate commit-capable promotion generator requires its own review and exact-action authorization; see CAFE-STANDING-PROMOTION.md.
 
-## Missing evidence and hard stop
+## Required evidence and hard stop
 
-No current production catalog manifest or approved expected-after manifest was
-collected by this work. The generator requires both files and independently
+The generator requires current production and expected-after manifest files and independently
 reviewed SHA-256 values. Missing, incomplete, empty, mismatched or same manifests
 stop generation. Hashes bind bytes, not human approval: the explicit review and any
 required permission approval must happen separately. Synthetic unit-test manifests
@@ -69,10 +68,12 @@ existing target objects fail creation and require reconciliation, never replacem
 
 ## Validation and remaining work
 
-Four provider-free Python unit tests cover manifest binding, lifecycle refusal,
-noop refusal and rollback-only output. PostgreSQL execution of this installer
-wrapper and evidence query is still pending. Existing PR162 contract PG17 tests do
-not validate this new wrapper. A real production installer requires verified live
+Provider-free unit tests cover manifest binding, lifecycle refusal, noop refusal
+and rollback-only output. PR164/165 genuine isolated PostgreSQL17 CI subsequently
+validated the wrapper: rollback, before/after drift rejection, interrupted DDL,
+deterministic catalog capture and existing scoped-grant preservation. The private
+production expected-after remains a reviewed overlay, not a full production-schema
+replay; see CAFE-STANDING-PRIVATE-DELTA.md. A real production installer requires verified live
 baseline, reviewed expected delta, disposable PG17 lifecycle/ACL/drift tests,
 independent review and applicable approval. Runtime composition and semantic-model
 expense authorization remain separate; the $20 HeyGen budget is not an Anthropic

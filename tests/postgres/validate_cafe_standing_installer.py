@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Disposable PG17 wrapper rehearsal; no production manifests or connections."""
-import base64,hashlib,importlib.util,json,os,subprocess
+import base64,datetime,hashlib,importlib.util,json,os,subprocess
 import validate_ledger as db
 import validate_cafe_standing_publication as standing
 from validate_enrolled_reads_install import verbatim_run
@@ -8,6 +8,8 @@ spec=importlib.util.spec_from_file_location('standing_install',db.ROOT/'scripts/
 installer=importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
 delta_spec=importlib.util.spec_from_file_location('standing_expected',db.ROOT/'scripts/derive-cafe-standing-expected.py')
 delta=importlib.util.module_from_spec(delta_spec);delta_spec.loader.exec_module(delta)
+promotion_spec=importlib.util.spec_from_file_location('standing_promotion',db.ROOT/'scripts/prepare-cafe-standing-promotion.py')
+promotion=importlib.util.module_from_spec(promotion_spec);promotion_spec.loader.exec_module(promotion)
 CATALOG=(db.ROOT/'scripts/cafe-standing-catalog.sql').read_text()
 STANDING=(db.ROOT/'docs/proposals/cafe-standing-publication-authority.sql').read_text()
 SIX=['character_production_scheduler_context(uuid)','character_production_scheduler_reconciled(uuid,integer)','character_production_scheduler_plan(uuid,integer,jsonb)','character_production_scheduler_due(uuid,text,text,integer)','character_production_scheduler_pending(uuid,text,text,integer)','character_production_scheduler_qa_ready(uuid,integer)']
@@ -85,6 +87,28 @@ def main():
   projected_after['catalog'][kind]=[amap[kind][k] for k in sorted(changed) if k in amap[kind]]
  reconstructed,counts=delta.derive(before,projected_before,projected_after)
  assert reconstructed==after,'private projected delta must match actual full server catalog' 
+ # Separately prepared commit-capable promotion tested only on this disposable DB.
+ now=datetime.datetime.now(datetime.timezone.utc)
+ expires=(now+datetime.timedelta(minutes=10)).isoformat()
+ promoted=promotion.promote(before,after,hashlib.sha256(sql.encode()).hexdigest(),'synthetic-ci-action','synthetic-ci-review',expires,now)
+ fail(promoted.replace('BEGIN;','BEGIN; '+drift,1),'Exact reviewed before catalog mismatch')
+ assert capture()==before and grants()==before_grants
+ wrong_sql=installer.generate(before,wrong)
+ wrong_promotion=promotion.promote(before,wrong,hashlib.sha256(wrong_sql.encode()).hexdigest(),'synthetic-ci-action','synthetic-ci-review',expires,now)
+ fail(wrong_promotion,'Exact reviewed after catalog mismatch')
+ assert capture()==before and grants()==before_grants
+ fail(promoted.replace(expires,'2000-01-01T00:00:00+00:00'),'Promotion execution window expired')
+ assert capture()==before
+ # Inject expiry only at the final guard, after DDL: must undo every object.
+ i=promoted.rfind('DO $window$')
+ fail(promoted[:i]+promoted[i:].replace(expires,'2000-01-01T00:00:00+00:00'),'Promotion execution window expired')
+ assert capture()==before and grants()==before_grants
+ db.run(promoted)
+ assert capture()==after and grants()==before_grants,'only exact owner-only contract persists'
+ db.check("NOT EXISTS(SELECT 1 FROM cafe_metricool_private.publication_scopes) AND NOT EXISTS(SELECT 1 FROM cafe_metricool_private.semantic_budgets)", 'no runtime activation data')
+ db.check("NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('cs_record_enrolled_cafe_authority','cs_reserve_cafe_semantic_attempt','cs_finish_cafe_semantic_attempt') AND (has_function_privilege('service_role',p.oid,'EXECUTE') OR has_function_privilege('anon',p.oid,'EXECUTE') OR has_function_privilege('authenticated',p.oid,'EXECUTE')))", 'new runtime RPCs denied')
+ fail(promoted,'Exact reviewed before catalog mismatch')
+ assert capture()==after and grants()==before_grants,'replay must not modify installed contract'
  db.finish('cafe-standing-installer')
  pins={path:hashlib.sha256((db.ROOT/path).read_bytes()).hexdigest() for path in [
   'scripts/cafe-standing-catalog.sql','scripts/prepare-cafe-standing-install.py',

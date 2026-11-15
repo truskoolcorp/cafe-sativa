@@ -33,3 +33,15 @@ for(const duplicate of [{status:400,statusCode:'400',message:'Asset Already Exis
 for(const duplicate of [{status:400,message:'Bad request'},{status:409,message:'Conflict'},{statusCode:'409'},{status:400,statusCode:'ResourceAlreadyExists',message:'Other'}])test('generic conflict rejected '+JSON.stringify(duplicate),async()=>{
  const f=fixture({duplicate});assert.equal((await probeSpeechClaimStorage(f.sdk,new AbortController().signal,'12345678-1234-4123-8123-123456789abc')).status,'unverified')
 })
+test('SDK-shaped fixture HTTP400 internal409 duplicate message precisely',async()=>{
+ const f=fixture({duplicate:{name:'StorageApiError',status:400,statusCode:'409',message:'The resource already exists'}})
+ assert.equal((await probeSpeechClaimStorage(f.sdk,new AbortController().signal,'12345678-1234-4123-8123-123456789abc')).status,'verified')
+})
+test('400 duplicate message without recognized internal code remains unverified',async()=>{
+ const f=fixture({duplicate:{status:400,statusCode:'400',message:'The resource already exists'}})
+ assert.equal((await probeSpeechClaimStorage(f.sdk,new AbortController().signal,'12345678-1234-4123-8123-123456789abc')).status,'unverified')
+})
+test('SDK-shaped fixture KeyAlreadyExists plus exact message recognized',async()=>{
+ const f=fixture({duplicate:{name:'StorageApiError',status:400,statusCode:'KeyAlreadyExists',message:'The resource already exists'}})
+ assert.equal((await probeSpeechClaimStorage(f.sdk,new AbortController().signal,'12345678-1234-4123-8123-123456789abc')).status,'verified')
+})

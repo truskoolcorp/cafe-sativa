@@ -29,3 +29,32 @@ test('malformed provider list cannot be mistaken for an empty collision-free win
 test('atomic reservation contract blocks concurrent different plan IDs for same slot OR media',async()=>{for(const mode of ['slot','media']){const a=fixture(),b=fixture();b.s.planId='two';if(mode==='slot')b.s.videoSha256='c'.repeat(64);else b.s.scheduledAt=new Date(now+7200000).toISOString();const keys=new Set();const claim=async i=>{const k=[i.planId,i.destinationTimeKey,i.mediaDestinationKey];if(k.some(x=>keys.has(x)))return null;k.forEach(x=>keys.add(x));return 'claim'};a.deps.store.claim=claim;b.deps.store.claim=claim;const results=await Promise.all([m.dispatchCafeMetricool(a.s,a.deps,{enabled:true}),m.dispatchCafeMetricool(b.s,b.deps,{enabled:true})]);assert.equal(results.filter(r=>r.status==='already_claimed_or_stale').length,1);assert.equal(a.stats().creates+b.stats().creates,1)}})
 test('known external media is suppressed even with copied promo and later date',async()=>{const f=fixture();f.s.videoSha256='dc3317c20da4378aa290e7c4dc40ceac617a0267bc11db0444b153399edfb951';await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/Externally scheduled/);assert.equal(f.stats().state,null)})
 test('authorization delay cannot carry a scheduled create into the past',async()=>{const f=fixture();let clock=now,calls=0;f.deps.now=()=>clock;f.deps.authorize=async()=>{if(++calls===3)clock=Date.parse(f.s.scheduledAt)};assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().creates,0)})
+
+
+test('Instagram collaborators use provider objects rather than string handles',()=>{
+ const f=fixture(),info=m.cafeMetricoolInfo(f.s)
+ assert.equal(JSON.stringify(info.instagramData.collaborators),JSON.stringify([{username:'dotproject2017',deleted:false}]))
+ assert.equal(f.s.collaborators[0].evidenceRef,'owner-verified-IG-persona-scope')
+})
+test('five hashtags accepted; six rejected before authority or claim',async()=>{
+ const f=fixture();f.s.hashtags=['One','Two','Three','Four','Five']
+ m.validateCafeSchedule(f.s,f.deps.verifiedCollaborators,now)
+ f.s.hashtags.push('Six');f.deps.authorize=async()=>assert.fail('authority must not run')
+ await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}))
+ assert.equal(f.stats().state,null)
+})
+test('string-shaped, deleted or wrong-username collaborator readback consumes claim without retry',async()=>{
+ for(const value of [['dotproject2017'],[{username:'dotproject2017',deleted:true}],[{username:'other',deleted:false}]]){
+  const f=fixture(),open=f.deps.openSession
+  f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{const v=await raw.call(n,a);if(n==='getScheduledPosts'&&f.stats().creates)v[0].instagramData.collaborators=value;return v}}}
+  assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown')
+  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+ }
+})
+test('Facebook caption mentions remain plain text with no fabricated identity tags',()=>{
+ const f=fixture('facebook');f.s.caption='See @dotproject2017.'
+ const info=m.cafeMetricoolInfo(f.s)
+ assert.ok(info.text.startsWith(f.s.caption));assert.equal(info.facebookData.tags,undefined)
+ assert.equal(info.instagramData,undefined)
+})

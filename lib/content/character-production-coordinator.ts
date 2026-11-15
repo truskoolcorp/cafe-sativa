@@ -1,4 +1,3 @@
-import {cafeHeyGenPeriod} from './character-production-heygen-budget.ts'
 import {productionSlotDigest} from './character-production-engine.ts'
 import type {ProductionSlot,createCharacterProductionEngine} from './character-production-engine.ts'
 import type {ProductionRpc} from './character-production-store.ts'
@@ -11,6 +10,12 @@ const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const integer=(v:unknown):v is number=>Number.isSafeInteger(v)
 const hash=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)
+/** Match the durable provider calendar: HeyGen spending is Dallas-local. */
+function providerPeriod(provider:string,at:number){
+ if(provider!=='heygen')return new Date(at).toISOString().slice(0,7)
+ const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',year:'numeric',month:'2-digit'}).formatToParts(at)
+ return `${parts.find(p=>p.type==='year')!.value}-${parts.find(p=>p.type==='month')!.value}`
+}
 function valid(row:ScheduledProductionSlot,c:Pick<CoordinatorConfig,'provider'|'model'>){
  const s=row?.slot
  return !!s&&id(s.key)&&s.provider===c.provider&&s.model===c.model&&hash(row.digest)&&productionSlotDigest(s)===row.digest&&
@@ -61,7 +66,7 @@ export function createCharacterProductionCoordinator(config:CoordinatorConfig,op
    for(const row of ordered){
     const now=current()
     if(now>=deadline)return {status:'bounded' as const,...summary}
-    if(now<row.scheduledAt||now>=row.notAfter||row.slot.period!==(row.slot.provider==='heygen'?cafeHeyGenPeriod(now):new Date(now).toISOString().slice(0,7))){summary.skipped++;continue}
+    if(now<row.scheduledAt||now>=row.notAfter||row.slot.period!==providerPeriod(c.provider,now)){summary.skipped++;continue}
     if(attempts>=c.maxSubmissions)return {status:'bounded' as const,...summary}
     attempts++
     // Engine rechecks live authorization/canon and atomically reserves this exact

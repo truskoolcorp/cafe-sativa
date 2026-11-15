@@ -4,7 +4,8 @@ on:
     paths:
       - 'lib/content/character-production-*.ts'
       - 'lib/content/character-promo-sources.ts'
-      - 'lib/content/character-promo-cafe-metricool.ts'
+      - 'lib/content/character-promo-cafe-*.ts'
+      - 'tests/character-promo-cafe-*.test.cjs'
       - 'lib/content/character-promo-external-receipts.ts'
       - 'tests/character-promo-external-receipts.test.mjs'
       - 'lib/content/character-promo-cafe-authenticated-transport.ts'
@@ -23,6 +24,9 @@ on:
       - 'tests/character-production-*.mjs'
       - 'docs/proposals/character-production-*.sql'
       - '.github/workflows/character-production-unit.yml'
+      - 'scripts/prepare-cafe-standing-install.py'
+      - 'scripts/cafe-standing-catalog.sql'
+      - 'tests/scripts/test_cafe_standing_install.py'
       - 'package.json'
       - 'package-lock.json'
 permissions:
@@ -40,7 +44,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/character-promo-cafe-owner-preview.test.cjs tests/character-promo-cafe-authenticated-transport.test.cjs tests/character-production-*.test.mjs tests/character-promo-cafe-metricool.test.cjs tests/character-promo-cafe-authority-server.test.cjs tests/character-promo-external-receipts.test.mjs
+      - run: python3 -m unittest discover -s tests/scripts -p test_cafe_standing_install.py
+      - run: node --test tests/character-promo-cafe-*.test.cjs tests/character-production-*.test.mjs tests/character-promo-external-receipts.test.mjs
       # Server composition intentionally uses the existing Next backend and @/
       # aliases. Keep strict checking, with the actual deployment project config.
       - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false

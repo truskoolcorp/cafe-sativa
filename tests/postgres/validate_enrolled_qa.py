@@ -27,6 +27,7 @@ def suite():
  rpc="public.character_production_scheduler_qa_ready('"+new+"',1)"
  result=json.loads(db.run('SET ROLE service_role; SELECT '+rpc))
  assert [x['key'] for x in result]==['owned-pending']
+ db.run("BEGIN; INSERT INTO public.cs_character_promo_delivery_plans(promo_id,character_id,network,scheduled_at) VALUES('"+owned_pid+"','synthetic-persona','test-planned',now()); SET ROLE service_role; DO $$ BEGIN IF "+rpc+" IS DISTINCT FROM '[]'::jsonb THEN RAISE EXCEPTION 'planned draft selected'; END IF; END $$; ROLLBACK")
  # A same-slot binding redirected to another draft is not the enrolled target.
  db.run("BEGIN; DELETE FROM character_production.qa_slot_bindings WHERE slot_key='foreign-0'; UPDATE character_production.qa_slot_bindings SET promo_id='aaaaaaaa-aaaa-4aaa-8aaa-000000000000',expected_updated_at=(SELECT updated_at FROM public.cs_character_promo_drafts WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-000000000000') WHERE slot_key='owned-pending'; SET ROLE service_role; DO $$ BEGIN IF "+rpc+"<>'[]'::jsonb THEN RAISE EXCEPTION 'foreign draft selected'; END IF; END $$; ROLLBACK")
  db.run("BEGIN; UPDATE character_production.qa_slot_bindings SET enabled=false WHERE slot_key='owned-pending'; SET ROLE service_role; DO $$ BEGIN IF "+rpc+"<>'[]'::jsonb THEN RAISE EXCEPTION 'disabled QA binding selected'; END IF; END $$; ROLLBACK")

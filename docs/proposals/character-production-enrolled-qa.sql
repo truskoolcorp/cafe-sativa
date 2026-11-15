@@ -13,7 +13,7 @@ BEGIN
  JOIN character_production.approved_slots a ON a.key=j.key AND a.digest=j.digest AND a.slot=j.slot AND a.enabled=true
  JOIN character_production.qa_slot_bindings b ON b.slot_key=j.key AND b.digest=j.digest AND b.slot=j.slot AND b.enabled=true AND b.promo_id=c.draft_id
  JOIN public.cs_character_promo_drafts d ON d.id=b.promo_id
- WHERE j.state='pending_qa' AND d.updated_at=b.expected_updated_at
+ WHERE j.state='pending_qa' AND public.character_production_qa_draft_unplanned(b.promo_id) AND d.updated_at=b.expected_updated_at
  AND d.character_id=j.slot->>'characterId' AND d.spoken_script=j.slot->>'script'
  AND j.slot->>'characterId' ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,239}$' AND length(btrim(j.slot->>'script'))>0
  AND d.status IN ('draft','revision_requested') AND d.video_asset_path IS NULL AND d.audio_asset_path IS NULL

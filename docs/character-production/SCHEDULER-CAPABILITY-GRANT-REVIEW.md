@@ -42,3 +42,19 @@ CI must run before claiming verification of this new delta.
 
 Separate production approval and activation are still required. Approval of this
 code or CI does not enroll a scheduler or turn on generation/publication.
+
+## Verified role topology and effective access
+Preflight requires the observed service_role NOLOGIN/INHERIT/BYPASSRLS baseline
+and authenticator LOGIN/NOINHERIT/non-bypass baseline. Exact service-role members
+are the source owner (ADMIN/INHERIT/SET) and authenticator (SET only), from the
+same bootstrap grantor as the ledger owner. Ledger owner has no parent roles or
+other members; service_role has no parent roles. Unexpected direct or transitive
+SET/INHERIT paths fail closed. No roles or memberships are created in production.
+
+Effective capability is not literally exclusive to service_role: its legitimate
+source owner inherits it, authenticator may SET ROLE to it, and database
+superusers inherently retain access. These existing paths are documented and
+preserved, not additional grants. All other non-superuser effective wrapper
+EXECUTE paths are rejected. Role attributes and membership catalog are preserved.
+Disposable tests reproduce this topology and inject unsafe ledger/service/proxy
+memberships, including transitive SET escalation, to verify refusal.

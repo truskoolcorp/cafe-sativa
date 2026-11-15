@@ -5,15 +5,26 @@ const identity={promoId:'promo',videoSha256:'a'.repeat(64),brandId:'cafe',networ
 const receipt={...identity,provider:'metricool',providerId:'123',scheduledAt:'2026-11-14T16:00:00Z',observedAt:'2026-11-14T15:00:00Z',state:'scheduled'}
 test('scheduled, published and unknown all suppress exact bytes/destination without claiming publication',()=>{for(const state of ['scheduled','published','unknown'])assert.equal(decide(identity,[{...receipt,state}]),'already_external')})
 test('copied promo IDs and rescheduling never evade suppression',()=>assert.equal(decide({...identity,promoId:'copy'},[receipt]),'already_external'))
-test('distinct account, brand, network or bytes are not rewritten or suppressed',()=>{for(const [key,value] of [['accountId','truskool'],['brandId','other'],['network','threads'],['videoSha256','b'.repeat(64)]])assert.equal(decide({...identity,[key]:value},[receipt]),'clear')})
+test('distinct account, brand or network are not rewritten or suppressed',()=>{for(const [key,value] of [['accountId','truskool'],['brandId','other'],['network','threads']])assert.equal(decide({...identity,[key]:value},[receipt]),'clear')})
 test('missing or corrupted registry and identities fail closed',()=>{for(const receipts of [null,undefined,{},[{...receipt,providerId:''}],[{...receipt,state:'failed'}],[{...receipt,videoSha256:'bad'}]])assert.equal(decide(identity,receipts),'held');assert.equal(decide({...identity,accountId:''},[]),'held')})
 test('empty authoritative registry is clear; suppression has no time expiry',()=>{assert.equal(decide(identity,[]),'clear');assert.equal(decide(identity,[{...receipt,scheduledAt:'2000-01-01T00:00:00Z'}]),'already_external')})
 import {assertNoKnownExternalPromo} from '../lib/content/character-promo-known-external.ts'
 test('verified Café Laviche delivery blocks copied media and preserves other destinations',()=>{const x={promoId:'copy',videoSha256:'ed8153e2ddd80b3099823eec24c22327cccad3eabdc4c0a039d4425b5f3a52e7',brandId:'7605217',network:'facebook',accountId:'105363501666032'};assert.throws(()=>assertNoKnownExternalPromo(x));assert.throws(()=>assertNoKnownExternalPromo({...x,network:'instagram',accountId:'cafesativainc'}));assert.doesNotThrow(()=>assertNoKnownExternalPromo({...x,brandId:'5373515',accountId:'146219355471397'}))})
 import {readFileSync} from 'node:fs'
 test('runtime blocks known receipt during readCurrent before durable claim as well as external write',()=>{const s=readFileSync(new URL('../lib/content/character-promo-dispatch-runtime.ts',import.meta.url),'utf8');assert.match(s,/readCurrent:async planId=>\{[\s\S]*?assertNoKnownExternalPromo\(current.approval.snapshot\)[\s\S]*?return current/);assert.match(s,/preflightExternalWrite:async\(\)=>\{assertNoKnownExternalPromo\(snapshot\)/)})
-test('approved Zaria portrait delivery suppressed on Cafe only, not personal plans or master',()=>{const s={promoId:'5094636c-be48-4ac3-ae7b-80acfb729c13',videoSha256:'dc3317c20da4378aa290e7c4dc40ceac617a0267bc11db0444b153399edfb951',brandId:'7605217',network:'instagram',accountId:'cafesativainc'};assert.throws(()=>assertNoKnownExternalPromo(s));assert.doesNotThrow(()=>assertNoKnownExternalPromo({...s,accountId:'zaria.solenne'}))})
+test('approved Zaria portrait delivery suppressed on Cafe only, not personal plans',()=>{const s={promoId:'5094636c-be48-4ac3-ae7b-80acfb729c13',videoSha256:'dc3317c20da4378aa290e7c4dc40ceac617a0267bc11db0444b153399edfb951',brandId:'7605217',network:'instagram',accountId:'cafesativainc'};assert.throws(()=>assertNoKnownExternalPromo(s));assert.doesNotThrow(()=>assertNoKnownExternalPromo({...s,accountId:'zaria.solenne'}))})
 
 test('clean Laviche replacement suppresses exact verified bytes on both Cafe destinations, retaining marked history',()=>{const x={promoId:'copied-clean',videoSha256:'7e5ecebd41c4ed492d3b16597ac82014078cb5c74f271bb91dac7caa7a5ad1c7',brandId:'7605217',network:'facebook',accountId:'105363501666032'};assert.throws(()=>assertNoKnownExternalPromo(x));assert.throws(()=>assertNoKnownExternalPromo({...x,network:'instagram',accountId:'cafesativainc'}));assert.doesNotThrow(()=>assertNoKnownExternalPromo({...x,accountId:'laviche.cardenas'}));assert.throws(()=>assertNoKnownExternalPromo({...x,videoSha256:'ed8153e2ddd80b3099823eec24c22327cccad3eabdc4c0a039d4425b5f3a52e7'}))})
 
 test('clean Ahnika queue suppresses duplicate bytes only on verified Cafe destinations',()=>{const x={promoId:'copy',videoSha256:'5907971bbcfa87654aeb6c0be53acf3e1546f2f8e64e95be3fb97e0f54afe43f',brandId:'7605217',network:'facebook',accountId:'105363501666032'};assert.throws(()=>assertNoKnownExternalPromo(x));assert.throws(()=>assertNoKnownExternalPromo({...x,network:'instagram',accountId:'cafesativainc'}));assert.doesNotThrow(()=>assertNoKnownExternalPromo({...x,accountId:'other'}))})
+
+
+test('same promo with changed bytes is suppressed in exact destination',()=>{
+ for(const state of ['scheduled','published','unknown'])assert.equal(decide({...identity,videoSha256:'b'.repeat(64)},[{...receipt,state}]),'already_external')
+})
+test('different promo and bytes are clear, not an inferred delivery authorization',()=>{
+ assert.equal(decide({...identity,promoId:'other',videoSha256:'b'.repeat(64)},[receipt]),'clear')
+})
+test('old Zaria source master is held by promo identity despite vertical derivative receipt',()=>{
+ assert.throws(()=>assertNoKnownExternalPromo({promoId:'5094636c-be48-4ac3-ae7b-80acfb729c13',videoSha256:'b2556477e31d69c7797829a74fa0bfa553327d4672a0a582fabd7306ab282475',brandId:'7605217',network:'facebook',accountId:'105363501666032'}))
+})

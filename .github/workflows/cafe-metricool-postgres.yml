@@ -9,7 +9,15 @@ on:
       - 'scripts/prepare-cafe-metricool-authority-install.py'
       - 'tests/sql/cafe-authority-installed-baseline.json'
       - 'tests/postgres/validate_cafe_authority_install.py'
+      - 'scripts/prepare-cafe-dispatch-capability-grant.py'
+      - 'docs/proposals/cafe-dispatch-capability-grant.sql'
+      - 'tests/sql/cafe-capability-installed-baseline.json'
+      - 'tests/postgres/validate_cafe_dispatch_capability.py'
+      - 'scripts/prepare-scheduler-capability-grant.py'
+      - 'scripts/prepare-enrolled-runtime-capability-grant.py'
       - 'docs/proposals/cafe-metricool-store.sql'
+      - 'docs/proposals/cafe-metricool-external-identity-repair.sql'
+      - 'tests/postgres/validate_cafe_external_identity_repair.py'
       - 'docs/proposals/cafe-metricool-install.sql'
       - 'scripts/prepare-cafe-metricool-install.py'
       - 'tests/postgres/validate_cafe_metricool_install.py'
@@ -49,8 +57,16 @@ jobs:
         run: python3 tests/postgres/validate_cafe_metricool.py
       - name: Validate non-superuser production-like RLS installer
         run: python3 tests/postgres/validate_cafe_metricool_install.py
+      - name: Validate exact negative-only external identity repair
+        run: python3 tests/postgres/validate_cafe_external_identity_repair.py
+      - name: Validate four dispatch capabilities after negative-only repair
+        run: python3 tests/postgres/validate_cafe_dispatch_capability.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: cafe-metricool-postgres-evidence
-          path: evidence/postgres-cafe-metricool*-validation.log
+          path: |
+            evidence/postgres-cafe-metricool*-validation.log
+            evidence/postgres-cafe-external-identity-repair.log
+            evidence/postgres-cafe-dispatch-capability.log
+

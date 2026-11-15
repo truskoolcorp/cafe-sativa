@@ -118,3 +118,12 @@ test('duplicate collaborator objects in provider readback cannot confirm schedul
  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
 })
+
+test('same external promo with new master/transcode bytes blocks before claim or provider create',async()=>{
+ const f=fixture();f.s.promoId='5094636c-be48-4ac3-ae7b-80acfb729c13'
+ f.s.videoSha256='b2556477e31d69c7797829a74fa0bfa553327d4672a0a582fabd7306ab282475'
+ f.deps.store.claim=async()=>assert.fail('claim must not run')
+ f.deps.openSession=async()=>assert.fail('provider must not open')
+ await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/Externally scheduled/)
+ assert.equal(f.stats().creates,0)
+})

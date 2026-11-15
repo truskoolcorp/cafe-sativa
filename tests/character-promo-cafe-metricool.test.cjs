@@ -78,3 +78,43 @@ test('five total Unicode inline and metadata hashtags preserve exact approved ca
  m.validateCafeSchedule(f.s,f.deps.verifiedCollaborators,now)
  assert.equal(m.cafeMetricoolInfo(f.s).text,'Gallery #藝術 #École #Art_2\n\n#CafeSativa #Culture')
 })
+test('every required Instagram field must survive exact provider readback',async()=>{
+ for(const key of ['type','autoPublish','showReelOnFeed','isAiGenerated']){
+  const f=fixture(),open=f.deps.openSession
+  f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{
+   const v=await raw.call(n,a)
+   if(n==='getScheduledPosts'&&f.stats().creates)delete v[0].instagramData[key]
+   return v
+  }}}
+  assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown',key)
+  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+ }
+})
+test('missing or changed Facebook title never confirms scheduling or retries',async()=>{
+ for(const mode of ['missing','changed']){
+  const f=fixture('facebook'),open=f.deps.openSession
+  f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{
+   const v=await raw.call(n,a)
+   if(n==='getScheduledPosts'&&f.stats().creates){
+    if(mode==='missing')delete v[0].facebookData.title
+    else v[0].facebookData.title='A different title'
+   }
+   return v
+  }}}
+  assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown',mode)
+  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+ }
+})
+test('duplicate collaborator objects in provider readback cannot confirm scheduling',async()=>{
+ const f=fixture(),open=f.deps.openSession
+ f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{
+  const v=await raw.call(n,a)
+  if(n==='getScheduledPosts'&&f.stats().creates)v[0].instagramData.collaborators.push({...v[0].instagramData.collaborators[0]})
+  return v
+ }}}
+ assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown')
+ assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+ await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+})

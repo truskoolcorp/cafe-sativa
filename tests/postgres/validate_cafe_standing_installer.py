@@ -60,6 +60,13 @@ def main():
  wrong=json.loads(json.dumps(after));wrong['catalog']['functions'].append({'synthetic':'incorrect'})
  fail(installer.generate(before,wrong),'Exact reviewed after catalog mismatch')
  assert capture()==before
+ # Recollect exact synthetic expected state to diagnose any catalog instability
+ # without relaxing the byte-normalized equality guard.
+ repeated=json.loads(db.run(collection))
+ if repeated!=after:
+  differences={k:{'expectedOnly':[x for x in after['catalog'][k] if x not in repeated['catalog'][k]],'actualOnly':[x for x in repeated['catalog'][k] if x not in after['catalog'][k]],'orderChanged': sorted(map(json.dumps,after['catalog'][k]))==sorted(map(json.dumps,repeated['catalog'][k]))} for k in after['catalog'] if after['catalog'][k]!=repeated['catalog'][k]}
+  raise AssertionError('Synthetic repeated catalog differs: '+json.dumps(differences,sort_keys=True))
+ assert capture()==before
  fail(sql.replace('-- Deliberately no commit mode.',"DO $$ BEGIN RAISE EXCEPTION 'injected abort'; END $$;\n-- Deliberately no commit mode."),'injected abort')
  assert capture()==before and grants()==before_grants
  # Independent absence/denial checks, not just catalog equality.

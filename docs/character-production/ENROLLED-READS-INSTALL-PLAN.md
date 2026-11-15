@@ -91,3 +91,10 @@ Dependency identity lookup uses pg_proc/pg_namespace plus exact built-in argumen
 OIDs before temporary authority. It requires no USAGE on the private schema.
 The first PG17 CI run exposed the prior to_regprocedure permission assumption;
 this catalog-only correction still needs a successful rerun.
+
+The second CI attempt reached ACL checks and exposed an incomplete expected
+raw queue ACL. The pinned original provisioning script grants generator EXECUTE
+on raw due/pending; backend grants add service_role without removing it. Exact
+expected ACLs now retain owner + generator + service_role on these two existing
+functions only. Calendar and scheduler_current remain owner-only. Every
+dependency ACL failure now names the dependency. No ACL is changed by this fix.

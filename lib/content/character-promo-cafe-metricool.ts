@@ -59,16 +59,18 @@ export function validateCafeSchedule(s:CafeSchedule, verified:readonly CafeColla
  assert(Object.hasOwn(accounts,s.network)&&s.accountId===accounts[s.network],'Unverified Café destination')
  assert(sha(s.videoSha256)&&sha(s.contentApprovalDigest)&&s.videoPath&&!s.videoPath.includes('..'),'Exact approved content required')
  assert(Number.isFinite(now)&&Date.parse(s.scheduledAt)>now+60000&&new Date(s.scheduledAt).toISOString()===s.scheduledAt&&!promoDispatchTimeIssue(s.scheduledAt,s.timezone),'Exact future schedule required')
- assert(typeof s.caption==='string'&&s.caption.trim()&&Array.isArray(s.hashtags)&&s.hashtags.length<=10&&new Set(s.hashtags).size===s.hashtags.length&&s.hashtags.every(h=>/^[\p{L}\p{N}_]{1,80}$/u.test(h)),'Reviewed caption and relevant distinct hashtags required')
+ assert(typeof s.caption==='string'&&s.caption.trim()&&Array.isArray(s.hashtags)&&s.hashtags.length<=5&&new Set(s.hashtags).size===s.hashtags.length&&s.hashtags.every(h=>/^[\p{L}\p{N}_]{1,80}$/u.test(h)),'Reviewed caption and relevant distinct hashtags required')
  assert(Array.from(text(s)).length<=2200,'Caption exceeds adapter limit')
  assert(Array.isArray(s.collaborators)&&s.collaborators.length<=3&&new Set(s.collaborators.map(c=>c.handle)).size===s.collaborators.length,'Ambiguous collaborators')
  if(s.network==='facebook')assert(typeof s.facebookTitle==='string'&&s.facebookTitle.trim()&&Array.from(s.facebookTitle).length<=100&&s.collaborators.length===0,'Facebook title required; Instagram collaborators are not Facebook tags')
  else assert(s.facebookTitle===undefined,'Facebook metadata cannot leak to Instagram')
  for(const c of s.collaborators)assert(c.network==='instagram'&&c.characterId===s.characterId&&c.evidenceRef&&/^[a-zA-Z0-9_.]{1,30}$/.test(c.handle)&&c.handle!=='cafesativainc'&&verified.filter(v=>stable(v)===stable(c)).length===1,'Collaborator not verified for this persona and network')
 }
+/** Caption @text is plain editorial text, never a verified Facebook identity tag.
+ * Only the structured Instagram collaborators field requests invitations. */
 export function cafeMetricoolInfo(s:CafeSchedule) {
  return {text:text(s),providers:[{network:s.network}],publicationDate:{dateTime:providerLocalDate(s.scheduledAt,s.timezone),timezone:s.timezone},autoPublish:true,draft:false,
- ...(s.network==='facebook'?{facebookData:{type:'REEL',title:s.facebookTitle}}:{instagramData:{type:'REEL',autoPublish:true,showReelOnFeed:true,isAiGenerated:true,collaborators:s.collaborators.map(c=>c.handle)}})}
+ ...(s.network==='facebook'?{facebookData:{type:'REEL',title:s.facebookTitle}}:{instagramData:{type:'REEL',autoPublish:true,showReelOnFeed:true,isAiGenerated:true,collaborators:s.collaborators.map(c=>({username:c.handle,deleted:false}))}})}
 }
 function verifyBrand(data:any,s:CafeSchedule) {
  const found=rows(data)?.filter((b:any)=>String(b.id)===s.brandId)
@@ -132,3 +134,4 @@ export async function dispatchCafeMetricool(input:CafeSchedule,deps:CafeDispatch
   return {status:'submission_unknown' as const,publicationConfirmed:false}
  }
 }
+

@@ -4,6 +4,8 @@ on:
     paths:
       - 'lib/content/character-production-*.ts'
       - 'lib/content/character-promo-sources.ts'
+      - 'lib/content/character-promo-cafe-metadata.ts'
+      - 'tests/character-promo-cafe-metadata.test.mjs'
       - 'tests/character-production-*.mjs'
       - 'docs/proposals/character-production-*.sql'
       - '.github/workflows/character-production-unit.yml'
@@ -24,7 +26,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test tests/character-production-*.test.mjs
+      - run: node --test tests/character-production-*.test.mjs tests/character-promo-cafe-metadata.test.mjs
       # Server composition intentionally uses the existing Next backend and @/
       # aliases. Keep strict checking, with the actual deployment project config.
       - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false

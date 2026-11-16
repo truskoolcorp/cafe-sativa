@@ -82,3 +82,22 @@ identity, prioritize unfinished original task receipts, allow eligible unrelated
 QA items to progress, and never release or reclaim a paid/unknown claim. This is
 not permission to install a new table, grant, retry, or reactivate old slots.
 
+
+## Exact new-generation binding
+
+`createRecurringGenerationSession` selects only a current real SQL due row,
+then checks the same key and digest again before the real engine reserves its
+nonreclaimable claim. Pending original provider tasks block new generation. It
+requires receipt capture, the Dallas budget period and a cap no greater than
+$20; actual current wallet/rate/authority checks and SQL spend reservation remain
+mandatory inside the existing runtime. The adapter cannot collect media or
+publish. Unknown submission is held, never retried. Paid transport receives the
+existing wall/monotonic deadline budget from the enclosing recurring tick,
+not a fresh longer window. At actual provider dispatch it rechecks enablement,
+selected-slot expiry, Dallas month, cap and that same remaining time budget.
+
+This is also a factory only, with no instantiated manifest, route, cron, added
+grant or activation. It must be bound to the durable selector's exact item token
+before recurring activation; the current due-queue head is not a fair selector.
+Tests use actual engine/store/queue but synthetic provider boundaries and do not
+establish approved new content or a successful live generation.

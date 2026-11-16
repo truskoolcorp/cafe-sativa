@@ -68,6 +68,6 @@ def main():
  assert capture()==before
  fails(sql.replace('-- Promotion to commit',"DO $$ BEGIN RAISE EXCEPTION 'injected abort'; END $$;\n-- Promotion to commit"),'injected abort')
  assert capture()==before
- assert run("SELECT NOT pg_has_role('postgres','character_production_owner','SET') AND NOT has_schema_privilege('character_production_owner','public','CREATE') AND to_regclass('character_production.text_replenishment_budgets') IS NULL AND NOT EXISTS(SELECT 1 FROM pg_proc WHERE proname LIKE 'character_production_text_%');")=='t'
+ assert run("SELECT NOT pg_has_role('postgres','character_production_owner','SET') AND NOT has_schema_privilege('character_production_owner','public','CREATE') AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='character_production' AND c.relname='text_replenishment_budgets') AND NOT EXISTS(SELECT 1 FROM pg_proc WHERE proname LIKE 'character_production_text_%');")=='t'
  db.finish('character-text-installer')
 if __name__=='__main__':main()

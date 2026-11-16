@@ -20,7 +20,7 @@ export function createSelectedRecurringSession(d:{
 }):CafeRecurringSession {
  // Preserve reviewed account, allowlist and limits. Per-occurrence media is
  // obtained only from the selected durable snapshot, never a static fallback.
- const base={...d.manifest,images:[...d.manifest.images],configuration:{engine:{...d.manifest.configuration.engine,characters:[...d.manifest.configuration.engine.characters]},heygen:{...d.manifest.configuration.heygen,bindings:[...d.manifest.configuration.heygen.bindings],mediaOrigins:[...d.manifest.configuration.heygen.mediaOrigins],phases:d.manifest.configuration.heygen.phases?{...d.manifest.configuration.heygen.phases}:undefined}}}
+ const base={...d.manifest,exactScope:d.manifest.exactScope?{...d.manifest.exactScope}:undefined,images:[...d.manifest.images],configuration:{engine:{...d.manifest.configuration.engine,characters:[...d.manifest.configuration.engine.characters]},heygen:{...d.manifest.configuration.heygen,bindings:[...d.manifest.configuration.heygen.bindings],mediaOrigins:[...d.manifest.configuration.heygen.mediaOrigins],phases:d.manifest.configuration.heygen.phases?{...d.manifest.configuration.heygen.phases}:undefined}}}
  const bindings=createSelectedBindingReader({rpc:d.selectorRpc,signal:d.signal,enabled:d.enabled})
  let snapshotSha256:string|undefined
  let adapter:CafeRecurringSession|undefined,phase:CafeRecurringPhase|undefined,selected=false

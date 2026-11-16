@@ -1,0 +1,20 @@
+name: Café Sativa social probe safety
+on:
+  pull_request:
+    paths:
+      - 'lib/content/social-delivery.ts'
+      - 'tests/social-readonly-safety.test.cjs'
+      - '.github/workflows/social-readonly-safety.yml'
+  workflow_dispatch:
+jobs:
+  readonly-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/social-readonly-safety.test.cjs

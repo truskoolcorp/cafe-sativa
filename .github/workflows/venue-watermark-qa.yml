@@ -1,0 +1,47 @@
+name: Venue watermark QA
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/proposals/venue-*.sql'
+      - 'app/api/content/watermark-review/**'
+      - 'app/admin/content/WatermarkReview.tsx'
+      - 'tests/venue-watermark*.cjs'
+      - 'tests/sql/venue-watermark*'
+      - 'tests/sql/run-venue-watermark-ci.sh'
+      - '.github/workflows/venue-watermark-qa.yml'
+permissions:
+  contents: read
+jobs:
+  postgres-fixture:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: disposable-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actual PostgreSQL fixtures without application secrets
+        run: bash tests/sql/run-venue-watermark-ci.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Verify exact-byte gates and authenticated review boundaries
+        run: |
+          node tests/venue-watermark.cjs
+          node tests/venue-watermark-route.cjs
+          node tests/venue-variant-conflict.cjs

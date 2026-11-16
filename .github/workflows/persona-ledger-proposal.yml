@@ -1,0 +1,35 @@
+name: Persona ledger proposal (isolated SQL)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/proposals/persona-delivery-ledger.sql'
+      - 'tests/sql/persona-ledger*'
+      - 'tests/sql/run-persona-ledger-ci.sh'
+      - '.github/workflows/persona-ledger-proposal.yml'
+permissions:
+  contents: read
+jobs:
+  postgres-fixture:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: disposable-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actual PostgreSQL fixtures without application secrets
+        run: bash tests/sql/run-persona-ledger-ci.sh

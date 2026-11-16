@@ -1,0 +1,23 @@
+import{test}from'node:test';import assert from'node:assert/strict';import{cafeHeyGenPolicy,cafeHeyGenPeriod,conservativePhotoQuote,verifyCafeVideoBudget}from'../lib/content/character-production-heygen-budget.ts';
+const now=Date.parse('2026-11-14T20:00:00Z'),accountId=cafeHeyGenPolicy.accountId;
+const fixture=()=>({now,period:'2026-11',durationSeconds:9,quoteCents:35,reservedMonthCents:35,periodCapCents:2000,wallet:{accountId,balanceKind:'api_wallet',currency:'USD',balanceCents:2411,autoTopUp:false,existingCreditOnly:true,verifiedAt:now-1000,expiresAt:now+59000,unreflectedReservationsCents:35},rate:{accountId,provider:'heygen',model:'avatar_iv',mediaClass:'photo',centsPerMinute:231,verifiedAt:now-1000,expiresAt:now+10000}});
+test('Dallas calendar month winter/summer boundaries and DST are not UTC month',()=>{for(const [s,p]of [['2026-12-01T05:59:59Z','2026-11'],['2026-12-01T06:00:00Z','2026-12'],['2026-07-01T04:59:59Z','2026-06'],['2026-07-01T05:00:00Z','2026-07'],['2026-11-01T06:59:59Z','2026-11'],['2026-11-01T07:00:00Z','2026-11'],['2026-03-08T07:59:59Z','2026-03'],['2026-03-08T08:00:00Z','2026-03']])assert.equal(cafeHeyGenPeriod(Date.parse(s)),p)});
+test('photo quote rounds up at actual verified rate and bounded duration',()=>{assert.equal(conservativePhotoQuote(9,231),35);assert.equal(conservativePhotoQuote(1,231),4);assert.throws(()=>conservativePhotoQuote(8.045714,231));assert.throws(()=>conservativePhotoQuote(181,231))});
+test('existing canary35 reservation counts against exact2000 cap',()=>{const x=fixture();assert.equal(verifyCafeVideoBudget(x),true);x.reservedMonthCents=1966;assert.equal(verifyCafeVideoBudget(x),false);x.reservedMonthCents=1965;assert.equal(verifyCafeVideoBudget(x),true);x.periodCapCents=2035;assert.equal(verifyCafeVideoBudget(x),false)});
+test('premiumcredits wrongaccount wrongmodel and automatic topup cannot substitute',()=>{for(const patch of [{balanceKind:'premium_credits'},{accountId:'other'},{autoTopUp:true},{existingCreditOnly:false},{currency:'EUR'}]){const x=fixture();Object.assign(x.wallet,patch);assert.equal(verifyCafeVideoBudget(x),false)}const x=fixture();x.rate.model='avatar_v';assert.equal(verifyCafeVideoBudget(x),false)});
+test('stale future unbounded evidence and underquote fail closed',()=>{for(const patch of [{verifiedAt:now+1},{expiresAt:now},{verifiedAt:now-61000,expiresAt:now+1},{expiresAt:now+86400000}]){const x=fixture();Object.assign(x.wallet,patch);assert.equal(verifyCafeVideoBudget(x),false)}const x=fixture();x.quoteCents=34;assert.equal(verifyCafeVideoBudget(x),false)});
+test('wallet headroom subtracts unreflected/unknown reservations and never assumes refunds',()=>{const x=fixture();x.wallet.balanceCents=69;assert.equal(verifyCafeVideoBudget(x),false);x.wallet.balanceCents=70;assert.equal(verifyCafeVideoBudget(x),true);x.wallet.unreflectedReservationsCents=36;assert.equal(verifyCafeVideoBudget(x),false)});
+test('no timestamp/period/numeric coercion, no monthly rollover reset by caller',()=>{for(const patch of [{now:NaN},{now:-1},{period:'2026-12'},{reservedMonthCents:-1},{quoteCents:35.1},{periodCapCents:Infinity}])assert.equal(verifyCafeVideoBudget({...fixture(),...patch}),false)});
+test('actual provider POST boundary rechecks copied wallet TTL after preparation',async()=>{
+ const {createCafeVideoPaidAdmission}=await import('../lib/content/character-production-heygen-budget.ts');
+ const {createProductionProviderFetch}=await import('../lib/content/character-production-bounded-fetch.ts');
+ const x=fixture();let clock=now,calls=0;const guard=createCafeVideoPaidAdmission(x,()=>clock);
+ const network=createProductionProviderFetch(new AbortController().signal,async()=>{calls++;return new Response('{}')},1000,guard);
+ clock=now+60000;x.wallet.expiresAt=clock+60000;x.wallet.verifiedAt=clock;
+ await assert.rejects(network.fetch('https://api.heygen.com/v3/videos',{method:'POST'}),/budget admission denied/);assert.equal(calls,0);await network.whenSettled();
+});
+test('fresh valid admission allows only guarded fixed-host transport, not grant or retry',async()=>{
+ const {createCafeVideoPaidAdmission}=await import('../lib/content/character-production-heygen-budget.ts');const {createProductionProviderFetch}=await import('../lib/content/character-production-bounded-fetch.ts');
+ let calls=0;const network=createProductionProviderFetch(new AbortController().signal,async()=>{calls++;return new Response('{}')},1000,createCafeVideoPaidAdmission(fixture(),()=>now));
+ const response=await network.fetch('https://api.heygen.com/v3/videos',{method:'POST'});await response.text();assert.equal(calls,1);await network.whenSettled();
+});

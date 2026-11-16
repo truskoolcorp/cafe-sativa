@@ -1,0 +1,129 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),crypto=require('node:crypto')
+function load(file,modules={}){const c={exports:{},Buffer,Uint8Array,Intl,Date,URL,Object,AbortSignal,require:n=>{assert.ok(n in modules,`Unexpected import ${n}`);return modules[n]}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,c);return c.exports}
+const social=load('lib/content/social-contract.ts',{'node:crypto':crypto})
+const m=load('lib/content/character-promo-cafe-metricool.ts',{'./character-promo-known-external':load('lib/content/character-promo-known-external.ts',{'./character-promo-external-receipts.ts':load('lib/content/character-promo-external-receipts.ts')}),'node:crypto':crypto,'./social-contract':social,'./character-promo-dispatch-time':load('lib/content/character-promo-dispatch-time.ts')})
+const now=Date.parse('2026-11-20T00:00:00Z')
+function fixture(network='instagram'){
+ const c={network:'instagram',handle:'dotproject2017',characterId:'zaria-solenne',evidenceRef:'owner-verified-IG-persona-scope'}
+ const s={version:1,planId:'one',promoId:'promo-one',characterId:'zaria-solenne',brandId:'7605217',userId:'4174093',network,accountId:network==='instagram'?'cafesativainc':'105363501666032',timezone:'America/Chicago',scheduledAt:new Date(now+3600000).toISOString(),videoSha256:'a'.repeat(64),videoPath:'approved/exact.mp4',contentApprovalDigest:'b'.repeat(64),caption:'Discover the Gallery with Zaria.',hashtags:['CafeSativa','ArtAndCulture'],collaborators:network==='instagram'?[c]:[],...(network==='facebook'?{facebookTitle:'Meet Zaria in the Gallery'}:{})}
+ let state=null,creates=0,identity=null,post=null,prior=[],finishFail=false
+ const brand={id:7605217,userId:4174093,timezone:s.timezone,networksData:{facebookData:'105363501666032',instagramData:'cafesativainc'}}
+ const deps={now:()=>now,storageOrigin:'https://approved.example',verifiedCollaborators:[c],authorize:async()=>{},store:{claim:async()=>{if(state)return null;state='submitting';return 'claim'},recordIdentity:async(_p,_t,v)=>{identity=v;return true},finish:async(_p,_t,next)=>{if(finishFail)throw Error('db');state=next;return true}},media:async()=>({url:'https://approved.example/storage/v1/object/sign/cafe-sativa-content/approved/exact.mp4?token=synthetic',sha256:s.videoSha256}),verifyHostedMedia:async()=>{},openSession:async()=>({call:async(name,args)=>{if(name==='getBrandSettings')return [brand];if(name==='getScheduledPosts')return post?[post]:prior;if(name==='createScheduledPost'){creates++;assert.equal(args.blogId,'7605217');const info=JSON.parse(args.info);post={...info,providers:info.providers.map(p=>({...p,status:'PENDING'})),id:55,uuid:'18446744073709551615',media:['https://static.metricool.com/exact.mp4']};return {id:55,uuid:'18446744073709551615'}}throw Error('unexpected')}})}
+ return {s,deps,brand,getPost:()=>post,stats:()=>({state,creates,identity}),prior:v=>prior=v,failFinish:()=>finishFail=true}
+}
+test('dormant default makes no reads or claims',async()=>{const f=fixture();f.deps.authorize=async()=>assert.fail('read');assert.equal((await m.dispatchCafeMetricool(f.s,f.deps)).status,'disabled')})
+test('exact Café IG schedule binds collaborators but never claims acceptance/publication',async()=>{const f=fixture(),r=await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(r.status,'scheduled');assert.equal(r.publicationConfirmed,false);assert.equal(r.receipt.providerUuid,'18446744073709551615');assert.equal(r.receipt.collaborators[0].state,'invitation_requested');assert.equal(r.receipt.collaborators[0].acceptanceConfirmed,false);assert.equal(f.getPost().text,'Discover the Gallery with Zaria.\n\n#CafeSativa #ArtAndCulture');assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'already_claimed_or_stale');assert.equal(f.stats().creates,1)})
+test('Facebook requires its own title and cannot reuse IG collaborator tags',async()=>{const f=fixture('facebook');assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'scheduled');assert.equal(f.getPost().facebookData.title,'Meet Zaria in the Gallery');assert.equal(f.getPost().instagramData,undefined);f.s.collaborators=fixture().s.collaborators;assert.throws(()=>m.validateCafeSchedule(f.s,f.deps.verifiedCollaborators,now))})
+test('digest changes on title/caption/tag/collaborator evidence change',()=>{const f=fixture('facebook'),d=m.cafeScheduleDigest(f.s);for(const patch of [{facebookTitle:'Different'},{caption:'Different'},{hashtags:['Other']},{contentApprovalDigest:'c'.repeat(64)}])assert.notEqual(m.cafeScheduleDigest({...f.s,...patch}),d)})
+test('wrong Café brand/network/account, ambiguous tags, stale scope are rejected before claim',async()=>{for(const patch of [{brandId:'5373515'},{accountId:'truskoolcorp'},{network:'threads'},{hashtags:['One','One']},{collaborators:[{...fixture().s.collaborators[0],characterId:'ginger'}]},{collaborators:[{...fixture().s.collaborators[0],handle:'unverified'}]}]){const f=fixture();Object.assign(f.s,patch);await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}));assert.equal(f.stats().state,null)}})
+test('existing same destination/time collision blocks even with changed caption',async()=>{const f=fixture();f.prior([{publicationDate:m.cafeMetricoolInfo(f.s).publicationDate,providers:[{network:'instagram'}],text:'different'}]);assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().creates,0)})
+test('connection changes or duplicate brands block before creation',async()=>{const f=fixture();f.brand.networksData.instagramData='other';assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().creates,0)})
+test('receipt identity is saved before readback and survives uncertain readback without retry',async()=>{const f=fixture(),open=f.deps.openSession;f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{if(n==='getScheduledPosts'&&f.stats().creates)throw Error('readback');return raw.call(n,a)}}};assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().identity.providerUuid,'18446744073709551615');await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)})
+test('stripped title/collaborators, rounded UUID and transcoded media cannot produce scheduled receipt',async()=>{for(const mode of ['metadata','uuid','media']){const f=fixture(),open=f.deps.openSession;f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{const v=await raw.call(n,a);if(n==='createScheduledPost'&&mode==='uuid')v.uuid=18446744073709551615;if(n==='getScheduledPosts'&&f.stats().creates&&mode==='metadata')v[0].instagramData.collaborators=[];return v}}};if(mode==='media')f.deps.verifyHostedMedia=async()=>{throw Error('transcode')};assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().creates,1)}})
+test('final receipt persistence failure leaves claim consumed',async()=>{const f=fixture();f.failFinish();assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().state,'submitting');await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)})
+test('private media scope rejects foreign hosts and paths before session',async()=>{for(const url of ['https://attacker.example/file','https://approved.example/storage/v1/object/sign/other/approved/exact.mp4']){const f=fixture();f.deps.media=async()=>({url,sha256:f.s.videoSha256});f.deps.openSession=async()=>assert.fail('must not open');assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown')}})
+test('metadata mutation in caller after claim cannot change pinned payload',async()=>{const f=fixture(),claim=f.deps.store.claim;f.deps.store.claim=async(...args)=>{f.s.caption='mutated';f.s.collaborators[0].handle='changed';return claim(...args)};const r=await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(r.status,'submission_unknown');assert.equal(f.stats().creates,0)})
+
+test('malformed provider list cannot be mistaken for an empty collision-free window',async()=>{const f=fixture();f.prior([{id:1}]);assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().creates,0)})
+
+test('atomic reservation contract blocks concurrent different plan IDs for same slot OR media',async()=>{for(const mode of ['slot','media']){const a=fixture(),b=fixture();b.s.planId='two';if(mode==='slot')b.s.videoSha256='c'.repeat(64);else b.s.scheduledAt=new Date(now+7200000).toISOString();const keys=new Set();const claim=async i=>{const k=[i.planId,i.destinationTimeKey,i.mediaDestinationKey];if(k.some(x=>keys.has(x)))return null;k.forEach(x=>keys.add(x));return 'claim'};a.deps.store.claim=claim;b.deps.store.claim=claim;const results=await Promise.all([m.dispatchCafeMetricool(a.s,a.deps,{enabled:true}),m.dispatchCafeMetricool(b.s,b.deps,{enabled:true})]);assert.equal(results.filter(r=>r.status==='already_claimed_or_stale').length,1);assert.equal(a.stats().creates+b.stats().creates,1)}})
+test('known external media is suppressed even with copied promo and later date',async()=>{const f=fixture();f.s.videoSha256='dc3317c20da4378aa290e7c4dc40ceac617a0267bc11db0444b153399edfb951';await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/Externally scheduled/);assert.equal(f.stats().state,null)})
+test('authorization delay cannot carry a scheduled create into the past',async()=>{const f=fixture();let clock=now,calls=0;f.deps.now=()=>clock;f.deps.authorize=async()=>{if(++calls===3)clock=Date.parse(f.s.scheduledAt)};assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown');assert.equal(f.stats().creates,0)})
+
+
+test('Instagram collaborators use provider objects rather than string handles',()=>{
+ const f=fixture(),info=m.cafeMetricoolInfo(f.s)
+ assert.equal(JSON.stringify(info.instagramData.collaborators),JSON.stringify([{username:'dotproject2017',deleted:false}]))
+ assert.equal(f.s.collaborators[0].evidenceRef,'owner-verified-IG-persona-scope')
+})
+test('five hashtags accepted; six rejected before authority or claim',async()=>{
+ const f=fixture();f.s.hashtags=['One','Two','Three','Four','Five']
+ m.validateCafeSchedule(f.s,f.deps.verifiedCollaborators,now)
+ f.s.hashtags.push('Six');f.deps.authorize=async()=>assert.fail('authority must not run')
+ await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}))
+ assert.equal(f.stats().state,null)
+})
+test('string-shaped, deleted or wrong-username collaborator readback consumes claim without retry',async()=>{
+ for(const value of [['dotproject2017'],[{username:'dotproject2017',deleted:true}],[{username:'other',deleted:false}]]){
+  const f=fixture(),open=f.deps.openSession
+  f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{const v=await raw.call(n,a);if(n==='getScheduledPosts'&&f.stats().creates)v[0].instagramData.collaborators=value;return v}}}
+  assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown')
+  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+ }
+})
+test('Facebook caption mentions remain plain text with no fabricated identity tags',()=>{
+ const f=fixture('facebook');f.s.caption='See @dotproject2017.'
+ const info=m.cafeMetricoolInfo(f.s)
+ assert.ok(info.text.startsWith(f.s.caption));assert.equal(info.facebookData.tags,undefined)
+ assert.equal(info.instagramData,undefined)
+})
+
+test('inline hashtags and metadata hashtags share the final five-tag limit',async()=>{
+ const f=fixture();f.s.caption='Gallery #Inline';f.s.hashtags=['One','Two','Three','Four','Five']
+ f.deps.authorize=async()=>assert.fail('authority must not run')
+ await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/five distinct hashtags/)
+ assert.equal(f.stats().state,null);assert.equal(f.s.caption,'Gallery #Inline')
+})
+test('casefold duplicate hashtags across inline caption and metadata are rejected before authorization',async()=>{
+ for(const [caption,hashtags] of [['Gallery #Art',['art']],['#ART #art',[]],['Gallery',['ART','art']],['#ÉCOLE',['école']],['#Straße',['STRASSE']]]){
+  const f=fixture();f.s.caption=caption;f.s.hashtags=hashtags
+  f.deps.authorize=async()=>assert.fail('authority must not run')
+  await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/five distinct hashtags/)
+  assert.equal(f.stats().state,null);assert.equal(f.s.caption,caption)
+ }
+})
+test('five total Unicode inline and metadata hashtags preserve exact approved caption',()=>{
+ const f=fixture();f.s.caption='Gallery #藝術 #École #Art_2';f.s.hashtags=['CafeSativa','Culture']
+ m.validateCafeSchedule(f.s,f.deps.verifiedCollaborators,now)
+ assert.equal(m.cafeMetricoolInfo(f.s).text,'Gallery #藝術 #École #Art_2\n\n#CafeSativa #Culture')
+})
+test('every required Instagram field must survive exact provider readback',async()=>{
+ for(const key of ['type','autoPublish','showReelOnFeed','isAiGenerated']){
+  const f=fixture(),open=f.deps.openSession
+  f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{
+   const v=await raw.call(n,a)
+   if(n==='getScheduledPosts'&&f.stats().creates)delete v[0].instagramData[key]
+   return v
+  }}}
+  assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown',key)
+  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+ }
+})
+test('missing or changed Facebook title never confirms scheduling or retries',async()=>{
+ for(const mode of ['missing','changed']){
+  const f=fixture('facebook'),open=f.deps.openSession
+  f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{
+   const v=await raw.call(n,a)
+   if(n==='getScheduledPosts'&&f.stats().creates){
+    if(mode==='missing')delete v[0].facebookData.title
+    else v[0].facebookData.title='A different title'
+   }
+   return v
+  }}}
+  assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown',mode)
+  assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+  await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+ }
+})
+test('duplicate collaborator objects in provider readback cannot confirm scheduling',async()=>{
+ const f=fixture(),open=f.deps.openSession
+ f.deps.openSession=async()=>{const raw=await open();return {call:async(n,a)=>{
+  const v=await raw.call(n,a)
+  if(n==='getScheduledPosts'&&f.stats().creates)v[0].instagramData.collaborators.push({...v[0].instagramData.collaborators[0]})
+  return v
+ }}}
+ assert.equal((await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true})).status,'submission_unknown')
+ assert.equal(f.stats().identity.providerUuid,'18446744073709551615')
+ await m.dispatchCafeMetricool(f.s,f.deps,{enabled:true});assert.equal(f.stats().creates,1)
+})
+
+test('same external promo with new master/transcode bytes blocks before claim or provider create',async()=>{
+ const f=fixture();f.s.promoId='5094636c-be48-4ac3-ae7b-80acfb729c13'
+ f.s.videoSha256='b2556477e31d69c7797829a74fa0bfa553327d4672a0a582fabd7306ab282475'
+ f.deps.store.claim=async()=>assert.fail('claim must not run')
+ f.deps.openSession=async()=>assert.fail('provider must not open')
+ await assert.rejects(m.dispatchCafeMetricool(f.s,f.deps,{enabled:true}),/Externally scheduled/)
+ assert.equal(f.stats().creates,0)
+})

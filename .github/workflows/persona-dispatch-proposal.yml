@@ -1,0 +1,51 @@
+name: Persona caller-bound dispatch (isolated SQL)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/proposals/persona-*.sql'
+      - 'tests/sql/persona-dispatch*'
+      - 'tests/sql/persona-null-schedule*'
+      - 'tests/sql/persona-generation-match-tests.sql'
+      - 'tests/sql/persona-production-schedule-overlay.sql'
+      - 'lib/content/character-promo-controls.ts'
+      - 'lib/content/character-promo-material.ts'
+      - 'tests/sql/persona-ledger-fixture.sql'
+      - 'tests/sql/persona-gates-seed.sql'
+      - 'tests/sql/persona-plan-controls-ready-seed.sql'
+      - 'supabase/migrations/20261020154000_character_canon_spoken_promos.sql'
+      - 'supabase/migrations/20261020173000_character_promo_qa_checks.sql'
+      - 'supabase/migrations/20261021103000_decouple_promo_script_approval_from_audio.sql'
+      - 'tests/sql/run-persona-dispatch-ci.sh'
+      - '.github/workflows/persona-dispatch-proposal.yml'
+permissions:
+  contents: read
+jobs:
+  postgres-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: disposable-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Run actual PostgreSQL fixtures without application secrets
+        run: bash tests/sql/run-persona-dispatch-ci.sh

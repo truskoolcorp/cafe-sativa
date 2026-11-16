@@ -1,0 +1,15 @@
+const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require('node:assert/strict');
+const c={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/concierge/conversation-access.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,c);
+const check=c.exports.conversationMatchesRequester;
+const guest={user_id:null,session_id:'guest-session',host_agent:'laviche',ended_at:null};
+const requester={userId:null,sessionId:'guest-session',host:'laviche'};
+assert.equal(check(guest,requester),true);
+assert.equal(check(null,requester),false);
+assert.equal(check(guest,{...requester,sessionId:'other-session'}),false);
+assert.equal(check(guest,{...requester,sessionId:null}),false);
+assert.equal(check(guest,{...requester,host:'ginger'}),false);
+assert.equal(check({...guest,ended_at:'2026-10-11'},requester),false);
+assert.equal(check({...guest,user_id:'owner'},requester),false);
+assert.equal(check({...guest,user_id:'owner'},{userId:'owner',sessionId:null,host:'laviche'}),true);
+assert.equal(check({...guest,user_id:'owner'},{userId:'other',sessionId:'guest-session',host:'laviche'}),false);
+console.log('PASS: conversation memory is scoped to its owner/session and host; closed and missing conversations denied');

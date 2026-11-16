@@ -1,0 +1,115 @@
+name: Persona runtime proposals (isolated SQL)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/persona-runtime-proposal.yml'
+      - 'docs/proposals/persona-delivery-ledger.sql'
+      - 'docs/proposals/persona-approval-gates.sql'
+      - 'docs/proposals/persona-owner-revocation.sql'
+      - 'docs/proposals/persona-plan-authoring.sql'
+      - 'docs/proposals/persona-qa-observation.sql'
+      - 'supabase/migrations/20261020154000_character_canon_spoken_promos.sql'
+      - 'supabase/migrations/20261020173000_character_promo_qa_checks.sql'
+      - 'supabase/migrations/20261021103000_decouple_promo_script_approval_from_audio.sql'
+      - 'tests/sql/persona-ledger-fixture.sql'
+      - 'tests/sql/persona-gates-seed.sql'
+      - 'tests/sql/persona-plan-authoring-tests.sql'
+      - 'tests/sql/persona-authoring-claim-seed.sql'
+      - 'tests/sql/persona-qa-observation-tests.sql'
+      - 'tests/sql/run-persona-authoring-ci.sh'
+      - 'tests/sql/run-persona-qa-ci.sh'
+      - 'tests/sql/run-persona-timestamp-single.py'
+      - 'tests/sql/run-persona-authoring-single.py'
+      - 'tests/sql/persona-timestamp-reader.cjs'
+      - 'lib/content/character-promo-time.ts'
+      - 'lib/content/character-promo-sources.ts'
+      - 'lib/content/character-promo-material.ts'
+      - 'lib/content/character-promo-review.ts'
+      - 'lib/content/character-promo-delivery.ts'
+      - 'lib/content/character-promo-audio.ts'
+      - 'lib/content/character-promo-store.ts'
+      - 'package.json'
+      - 'package-lock.json'
+permissions:
+  contents: read
+jobs:
+  caption-time-authoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: disposable-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated authoring assertions and real concurrent transactions
+        run: bash tests/sql/run-persona-authoring-ci.sh
+  exact-hash-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: disposable-fixture-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated qa assertions and real concurrent transactions
+        run: bash tests/sql/run-persona-qa-ci.sh
+  timestamp-reader-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: disposable-fixture-only
+      PGOPTIONS: -c timezone=UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install TypeScript reader test dependencies
+        run: npm ci --ignore-scripts
+      - name: Round-trip actual SQL microseconds through actual TypeScript and next gates
+        run: python tests/sql/run-persona-timestamp-single.py --hosted-ci .persona-timestamp-ci

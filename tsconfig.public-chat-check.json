@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.json","include":["next-env.d.ts","lib/content/public-chat-attestation*.ts","app/api/public/chat-readiness/v1/route.ts"],"exclude":["node_modules"],"compilerOptions":{"incremental":false}}

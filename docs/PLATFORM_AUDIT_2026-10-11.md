@@ -1,0 +1,65 @@
+# Café Sativa platform refinement checkpoint
+
+Owner authorization: Keith instructed autonomous fixes, refinement and completion
+on 10 October 2026 at 19:41 Chicago. This is an implementation checkpoint, not a
+claim that character videos or the measured physical venue are finished.
+
+| Finding | Change | Validation / limit |
+| --- | --- | --- |
+| Old website room covers differed from approved masters | Public heroes, venue cards, feature posters and admin cards now use the approved registry | Approved/active/version/hash checks, owned public bucket, no substitute on unavailable or ambiguous data |
+| Public host thumbnails were standalone legacy images | Ask portraits now come from the exact current approved GLYPH primary | Restricted to Laviche/Ginger/Ahnika; current live readiness and checksum verified; neutral icon on outage |
+| Ask context could drift from current character records | Replies use current GLYPH narrative plus approved website features and live events | Missing canon holds the reply; unverified products/bookings are not announced |
+| A configured voice could differ from the master | Speech checks the current canonical ID before a paid request | Existing IDs preserved; mismatch produces a clear hold; GET health check sends no audio request |
+| Daily social processing could miss a newly approved release | Dedicated delivery worker runs every 15 minutes | Queued claims and ambiguous-state holds retained; receipt reads limited to hourly, recent window |
+| Old scheduled receipts could starve new ones | Oldest checked receipts reconciled first; automatic reconciliation stops seven days after release | Disappearance is never recorded as publication |
+| Some room previews had no honest category | Main Lounge, Courtyard and Cold Stoned use a separate Venue tour feed | Community stays its actual long-table setting; no invented mapping |
+| Initial reference library was incomplete | Approved public masters get one initial preview plan; six named categories and lounge have weekly templates | Staff/control/restrooms are excluded; first takes stay in QA |
+| Multiple jobs could charge for one master | Asset-level atomic claim permits one automatic paid take per master | Transaction test rolled back; duplicate claims denied; $25 monthly cap remains atomic |
+| Existing take awaiting review could cause paid duplication | Worker skips held masters and replaced-master drafts while serving eligible rooms | Approved footage reused first; no automatic paid retries |
+| Dashboard depended on historical Airtable availability | Current workflows load independently; website drafts appear in overview | Partial history failure no longer hides current work |
+| Approval handoff was unclear | Clip review links to caption/release review; direct draft links and prominent tabs | Device-local date picker with Chicago readback |
+| Dashboard claimed no character references despite GLYPH | Status names the actual GLYPH source; master cards show ready/held counts | No static snapshot used to authorize production |
+| Legacy avatar APIs relied on a browser email check | Trusted server admin checks and bounded speech; hardcoded video fallback IDs removed | Video creation held until provider identity and session ownership can be verified; Ask audio stays separate |
+
+## Unfinished work and required evidence
+
+- Character episode production needs an approved composite scene keyframe,
+  approved script, exact cast/voice records and a provider path verified end to end.
+  A portrait plus an empty room is not an approved combined scene.
+- Chef V remains tentative; record her actual production consent before rendering
+  her likeness or voice. Do not manufacture a booking or rights approval.
+- Recover existing narrative sources for Carmela, Corey, Loredona and Nico, preserving
+  their latest registry identity; never generate a replacement biography. Anya and
+  Loredona voice registration still needs the actual selected/saved voice evidence.
+- The Gallery clip requires full accuracy review; metadata checks alone do not
+  establish faithful motion, art details or realism.
+- The first newly approved social clip needs a real create-and-retrieve scheduling
+  receipt. Unit tests and OAuth schema checks do not establish publication success.
+- LiveKit duplex operation and conversation-memory worker integration still need
+  authenticated end-to-end verification before activation.
+- Actual ticket/merch payment, membership entitlements, refunds, delivery monitoring
+  and recovery need transaction-specific validation. No purchase was made by this audit.
+- The physical property, measured dimensions and exact opening date are unconfirmed;
+  the references establish virtual concepts, not building-code compliance.
+- The old malformed Zap remains outside the operating website pipeline.
+
+No new subscription was purchased. Generation budget reservations are conservative
+limits, not a provider invoice. Private connection credentials remain server-only.
+
+## Production verification
+
+Commit 0dda45f26d7171f0727c22dcbc969c205b68eb08 deployed READY on the existing domain. Live checks returned ten approved public room covers, three current host portraits, and configured/canonical voice matches for Laviche, Ginger and Ahnika. The social worker rejects unauthenticated calls. Six text-only programming introductions were editorially verified and published under Keith’s explicit autonomous platform instruction, with delegated authorization recorded rather than individual manual approval claimed. Clips retain their separate QA gates.
+
+## Payment correction
+
+Stripe checkout fulfillment ignores unpaid sessions and supports delayed-payment success. Membership access uses current provider subscription status, and failed database writes return a retryable error. Partial ticket refunds no longer invalidate the entire ticket. Mocked event tests pass; real checkout, refunds and gallery inventory transactions still require end-to-end verification. Official basis: https://docs.stripe.com/checkout/fulfillment.md?payment-ui=stripe-hosted.
+
+## Current background jobs and connection limitation
+
+Eight missing public-room previews are planned, with Stage generating and Gallery awaiting QA. The live budget currently reserves $3 of $25. The website introductions return HTTP 200 in all six categories. The payment correction deployed READY at commit a8be271602c0c07c537c5b75fb2986dbdd26defe.
+
+The recurring social worker is configured but its connection check currently fails. Existing three provider schedules remain recorded; refreshed receipts and actual publication are not established. Safe stage/error-code diagnostics identify the failure without token exposure. The current browser lacks an authenticated administrator session, so the dashboard connection test/reconnect remains access-dependent. Do not equate dispatch_enabled with a healthy connection.
+
+## Follow-up at 22:52 Chicago
+
+The real worker diagnostics establish OAuth invalid_grant (HTTP 400), not a guessed credential or publishing error. Reconnect the existing dedicated Metricool authorization from an authenticated content-admin session; automatic refresh is held until then. Provider schedules were not deleted or resubmitted. Dashboard and API readiness no longer label an errored connection as healthy. Sign-in reads submitted form values, honors the administrator return destination, and rejects external/backslash redirects. Generation collection records task HTTP/storage failures without a paid resubmission.

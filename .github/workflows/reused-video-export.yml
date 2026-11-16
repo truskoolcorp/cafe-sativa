@@ -1,0 +1,21 @@
+name: Reused canonical video export
+on:
+  pull_request:
+    paths:
+      - 'lib/content/video-variants.ts'
+      - 'lib/content/video-formats.ts'
+      - 'tests/video-reuse-export.cjs'
+      - '.github/workflows/reused-video-export.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node tests/video-reuse-export.cjs

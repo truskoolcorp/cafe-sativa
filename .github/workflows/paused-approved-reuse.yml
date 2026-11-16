@@ -1,0 +1,27 @@
+name: Paused approved media reuse
+on:
+  pull_request:
+    paths:
+      - 'lib/content/worker.ts'
+      - 'lib/content/reuse-approved.ts'
+      - 'lib/content/policy.ts'
+      - 'tests/content-worker.cjs'
+      - 'tests/paused-approved-reuse.cjs'
+      - '.github/workflows/paused-approved-reuse.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node tests/paused-approved-reuse.cjs --race-regressions
+      - run: node tests/content-worker.cjs --paused
+      - run: node tests/content-worker.cjs --paused --no-key
+      - run: node tests/content-worker.cjs --collect-only
+      - run: node tests/content-worker.cjs

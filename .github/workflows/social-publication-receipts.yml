@@ -1,0 +1,23 @@
+name: Social published receipt regression
+on:
+  pull_request:
+    paths:
+      - 'lib/content/social-contract.ts'
+      - 'lib/content/social-delivery.ts'
+      - 'app/admin/SocialConnectionPanel.tsx'
+      - 'tests/social-publication-receipts.test.cjs'
+      - '.github/workflows/social-publication-receipts.yml'
+  workflow_dispatch:
+jobs:
+  receipts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/social-publication-receipts.test.cjs tests/social-readonly-safety.test.cjs
+      - run: npx tsc --noEmit

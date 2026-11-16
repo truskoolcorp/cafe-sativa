@@ -1,0 +1,41 @@
+-- Real SQL lifecycle with no fabricated date. All identities and content are fixtures.
+update public.cs_character_promo_delivery_plans set status='blocked_assets',scheduled_at=null,caption=null;
+update public.cs_character_promo_drafts set voice_approved_at=null,video_qa_approved_at=null,publication_approved_at=null;
+update public.cs_character_promo_drafts set video_asset_path='character-promos/keith/00000000-0000-0000-0000-000000000010/d619321d7155e4766c8fa561be9b0040b37acf441434f7e069b82d6b46ee5174.mp4';
+update public.cs_character_promo_qa_checks set video_sha256='d619321d7155e4766c8fa561be9b0040b37acf441434f7e069b82d6b46ee5174';
+create table null_schedule_export(key text primary key,value jsonb);
+insert into null_schedule_export select 'plan',to_jsonb(p) from public.cs_character_promo_delivery_plans p;
+insert into null_schedule_export select 'draft',to_jsonb(d) from public.cs_character_promo_drafts d;
+insert into null_schedule_export select 'actor',to_jsonb('00000000-0000-0000-0000-000000000001'::text);
+insert into null_schedule_export select 'qa',jsonb_agg(to_jsonb(q) order by check_name) from public.cs_character_promo_qa_checks q;
+insert into null_schedule_export select 'controls',public.cs_read_character_promo_plan_controls('00000000-0000-0000-0000-000000000020');
+select assert_ok(value#>'{cohort,0,scheduledAt}'='null'::jsonb,'control read preserves null') from null_schedule_export where key='controls';
+do $$ begin
+ begin
+ update public.cs_character_promo_delivery_plans set status='ready_for_delivery';
+ raise exception 'schedule guard missing';
+ exception when check_violation then null; end;
+end $$;
+insert into null_schedule_export select 'withdrawReview',public.cs_review_character_promo_plan_control('00000000-0000-0000-0000-000000000020','withdraw','00000000-0000-0000-0000-000000000001');
+select assert_ok(value#>'{snapshot,expectedCohort,0,plan,scheduled_at}'='null'::jsonb,'withdraw review preserves null') from null_schedule_export where key='withdrawReview';
+insert into null_schedule_export select 'withdrawReceipt',public.cs_save_character_promo_plan_control(value->'snapshot',value->>'digest','00000000-0000-0000-0000-000000000001') from null_schedule_export where key='withdrawReview';
+select assert_ok(value->>'action'='withdraw' and value#>'{cohort,0,scheduledAt}'='null'::jsonb and value->>'dispatched'='false','withdraw confirmed without fabricated schedule or dispatch') from null_schedule_export where key='withdrawReceipt';
+select assert_ok((select scheduled_at is null and status='blocked_assets' from public.cs_character_promo_delivery_plans),'source still null and blocked after withdraw');
+insert into null_schedule_export select 'restoreReview',public.cs_review_character_promo_plan_control('00000000-0000-0000-0000-000000000020','restore','00000000-0000-0000-0000-000000000001');
+select assert_ok(value#>'{snapshot,expectedCohort,0,plan,scheduled_at}'='null'::jsonb,'restore review preserves null') from null_schedule_export where key='restoreReview';
+insert into null_schedule_export select 'restoreReceipt',public.cs_save_character_promo_plan_control(value->'snapshot',value->>'digest','00000000-0000-0000-0000-000000000001') from null_schedule_export where key='restoreReview';
+select assert_ok(value->>'action'='restore' and value#>'{cohort,0,scheduledAt}'='null'::jsonb and value->>'dispatched'='false','restore confirmed without fabricated schedule or dispatch') from null_schedule_export where key='restoreReceipt';
+select assert_ok((select scheduled_at is null and status='blocked_assets' from public.cs_character_promo_delivery_plans),'source still null and blocked after restore');
+select assert_ok(not public.cs_approve_character_promo('00000000-0000-0000-0000-000000000020',repeat('d',64),jsonb_set(s,'{scheduledAt}','null'),clock_timestamp(),'00000000-0000-0000-0000-000000000001'),'null schedule final approval denied') from fixture_snapshot;
+select assert_ok(not public.cs_preflight_character_promo_dispatch('00000000-0000-0000-0000-000000000001',0,'00000000-0000-0000-0000-000000000020',repeat('d',64),jsonb_set(s,'{scheduledAt}','null'),null),'null schedule preflight denied') from fixture_snapshot;
+insert into null_schedule_export select 'authoringReview',public.cs_review_character_promo_plan_edit('00000000-0000-0000-0000-000000000020','Explicit fixture caption','2099-01-01T12:00:00.000Z','00000000-0000-0000-0000-000000000001');
+select assert_ok(value#>'{snapshot,expected,plan,scheduled_at}'='null'::jsonb,'authoring CAS binds real null previous schedule') from null_schedule_export where key='authoringReview';
+select assert_ok((select scheduled_at is null from public.cs_character_promo_delivery_plans),'authoring review does not assign date');
+insert into null_schedule_export select 'authoringReceipt',public.cs_save_character_promo_plan_edit(value->'snapshot',value->>'digest','00000000-0000-0000-0000-000000000001') from null_schedule_export where key='authoringReview';
+select assert_ok(value is not null,'explicit caption/time save succeeds') from null_schedule_export where key='authoringReceipt';
+select assert_ok(scheduled_at='2099-01-01T12:00:00.000Z'::timestamptz and caption='Explicit fixture caption' and status='blocked_assets','only explicit authored future time assigned; remains blocked') from public.cs_character_promo_delivery_plans;
+select assert_ok((select count(*)=0 from cs_promo_private.approvals) and (select count(*)=0 from cs_promo_private.attempts),'controls and authoring never grant consent or claim');
+select assert_ok(not public.cs_approve_character_promo('00000000-0000-0000-0000-000000000020',repeat('d',64),s,clock_timestamp(),'00000000-0000-0000-0000-000000000001'),'authoring alone cannot approve') from fixture_snapshot;
+select assert_ok(not public.cs_preflight_character_promo_dispatch('00000000-0000-0000-0000-000000000001',0,'00000000-0000-0000-0000-000000000020',repeat('d',64),s,null),'authoring alone cannot dispatch') from fixture_snapshot;
+insert into null_schedule_export select 'after',jsonb_build_object('plan',(select to_jsonb(p) from public.cs_character_promo_delivery_plans p),'draft',(select to_jsonb(d) from public.cs_character_promo_drafts d),'qa',(select jsonb_agg(to_jsonb(q) order by check_name) from public.cs_character_promo_qa_checks q));
+select jsonb_object_agg(key,value) as boundary_export from null_schedule_export;

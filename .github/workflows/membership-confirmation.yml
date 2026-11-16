@@ -1,0 +1,28 @@
+name: Membership confirmation
+on:
+  pull_request:
+    paths:
+      - 'app/api/membership/confirm/**'
+      - 'app/api/create-checkout-session/**'
+      - 'app/membership/**'
+      - 'lib/sync-membership.ts'
+      - 'lib/membership-prices.ts'
+      - 'tests/membership-confirm.test.cjs'
+      - 'tests/membership-checkout.cjs'
+      - 'tests/membership-sync.test.cjs'
+      - '.github/workflows/membership-confirmation.yml'
+  push:
+    branches: [main]
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/membership-confirm.test.cjs tests/membership-sync.test.cjs
+      - run: node tests/membership-checkout.cjs

@@ -20,7 +20,9 @@ Three owner-scoped SQL functions read one scheduled attempt, record its positive
 receipt, and prove both exact Café destination plans have receipts. Recording
 is tied to existing plan/token/digest/Metricool ID/UUID/destination/schedule.
 External old-intro dedup receipts cannot satisfy it. Unknown writes are not
-retried. Context and writer runtime EXECUTE would be new capabilities; terminal
+retried. A later independently verified poll may differ only in observation time;
+all attempt, destination and evidence fields must remain identical, and the original
+stored observation is never overwritten. Context and writer runtime EXECUTE would be new capabilities; terminal
 EXECUTE to character_production_owner would be an additional cross-owner path.
 No grants, role membership, table access, positive data or installation is included.
 Any service_role capability also exposes its known indirect Storage-admin path.

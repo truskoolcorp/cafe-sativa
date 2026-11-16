@@ -2,6 +2,8 @@
 const nextConfig = {
   experimental: {
     outputFileTracingIncludes: {
+      '/api/content/private-qa-worker': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg','./node_modules/@ffprobe-installer/linux-x64/ffprobe'],
+      '/api/internal/character-production/enrolled/qa': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg','./node_modules/@ffprobe-installer/linux-x64/ffprobe'],
       '/api/content/pilot': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
       '/api/content/social/delivery': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],
       '/api/content/site': ['./node_modules/@ffmpeg-installer/linux-x64/ffmpeg'],

@@ -1,0 +1,2 @@
+export type TechnicalMediaResult={videoSha256:string;audioSha256:string;actualDurationSeconds:number;audioDurationSeconds:number;decodedAudioIdentical:boolean;pcmHashes:string[];checks:Record<string,'pass'|'needs_review'>;qaApproved:false;publicationApproved:false}
+export function evaluateTechnicalMedia(input:{video:Uint8Array;videoSha256:string;audio:Uint8Array;audioSha256:string},runtime:{signal:AbortSignal;ffmpeg:string;ffprobe:string;timeoutMs?:number}):Promise<TechnicalMediaResult>

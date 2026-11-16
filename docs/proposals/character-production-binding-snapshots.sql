@@ -43,9 +43,11 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE selected jsonb; s character_production.binding_snapshots;
 BEGIN
  selected:=public.character_production_recurring_selected(p_enrollment,p_token);
- IF selected IS NULL OR selected->>'phase' NOT IN ('generate','collect') THEN RETURN NULL; END IF;
+ IF selected IS NULL OR selected->>'phase' NOT IN ('generate','collect','qa') THEN RETURN NULL; END IF;
  SELECT * INTO s FROM character_production.binding_snapshots WHERE slot_key=selected->>'key' AND slot_digest=selected->>'digest';
  IF NOT FOUND THEN RETURN NULL; END IF;
+ -- QA additionally retains exact pending_qa job, pristine enrolled draft and
+ -- unconsumed original ingestion eligibility from recurring_selected.
  -- Existing selected reader verifies the exact enrolled slot, enabled authority
  -- and original submitted job token/task/binding for collection. Never read a
  -- replacement manifest or select another pending job.
@@ -58,3 +60,4 @@ DO $$ DECLARE r record; own oid:='character_production_owner'::regrole; BEGIN
  LOOP IF r.owner<>own OR EXISTS(SELECT 1 FROM aclexplode(r.acl) WHERE grantee<>own) THEN RAISE EXCEPTION 'Owner-only binding source required'; END IF; END LOOP;
 END $$;
 ROLLBACK;
+

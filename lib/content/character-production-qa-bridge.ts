@@ -14,7 +14,7 @@ const MIN=16,MAX=35*1024*1024
 const hash=/^[a-f0-9]{64}$/,keyPattern=/^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,239}$/
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 type Manifest={state:'copy'|'committed';key:string;digest:string;sha:string;bytes:number;characterId:string;promoId:string;expectedUpdatedAt:string;sourceBucket:string;sourcePath:string;destinationBucket:string;destinationPath:string}
-function manifest(value:unknown,key:string,digest:string):Manifest {
+export function validateQaManifest(value:unknown,key:string,digest:string):Manifest {
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Invalid QA manifest')
  const m=value as Manifest
  if(!['copy','committed'].includes(m.state)||m.key!==key||m.digest!==digest||typeof m.sha!=='string'||!hash.test(m.sha)||
@@ -50,7 +50,7 @@ export function createCharacterProductionQaBridge(rpc:ProductionRpc,storage:QaBr
    phase('prepare')
    const prepared=await call('prepare',{p_key:key,p_digest:digest})
    if(prepared===null)return {status:'held' as const}
-   const m=manifest(prepared,key,digest)
+   const m=validateQaManifest(prepared,key,digest)
    phase('source_policy');await privateBucket(m.sourceBucket);phase('destination_policy');await privateBucket(m.destinationBucket)
    if(m.state==='committed') {
     phase('destination_read');await read(m.destinationBucket,m.destinationPath,m)

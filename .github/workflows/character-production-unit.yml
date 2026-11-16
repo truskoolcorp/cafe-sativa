@@ -49,6 +49,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: chmod u+x node_modules/@ffprobe-installer/linux-x64/ffprobe
       - run: python3 -m unittest discover -s tests/scripts -p test_cafe_standing_install.py
       - run: node --test tests/character-production-zaria-text-limit.test.cjs tests/character-production-fresh-speech*.test.cjs tests/character-production-replenishment*.test.cjs tests/character-production-selected-*.test.cjs tests/character-production-recurring-*-server.test.cjs tests/character-promo-cafe-*.test.cjs tests/character-production-*.test.mjs tests/character-promo-external-receipts.test.mjs
       # Server composition intentionally uses the existing Next backend and @/

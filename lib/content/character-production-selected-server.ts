@@ -56,7 +56,7 @@ export function createSelectedRecurringSession(d:{
     snapshotSha256=original.snapshotSha256
     manifest={...base,images:[snapshot.image],configuration:{engine:{...base.configuration.engine,characters:[slot.characterId]},heygen:{...h,bindings:[imageApprovedAvatar(snapshot.image)]}}}
    }
-   adapter=phase==='collect'?createRecurringCollectionSession(signal,manifest,selection):phase==='generate'?createRecurringGenerationSession(signal,manifest,d.budget,selection):createRecurringQaSession(signal,selection)
+   adapter=phase==='collect'?createRecurringCollectionSession(signal,manifest,selection):phase==='generate'?createRecurringGenerationSession(signal,manifest,d.budget,selection):createRecurringQaSession(signal,selection,{item:structuredClone(item),rpc:d.selectorRpc})
    const actual=await adapter.next(signal);check(signal)
    if(actual!==phase)throw Error('Selected phase no longer eligible')
    return phase

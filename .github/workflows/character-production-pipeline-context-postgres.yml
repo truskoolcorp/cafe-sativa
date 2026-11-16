@@ -1,0 +1,71 @@
+name: Dormant pipeline context PostgreSQL 17
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app/api/internal/character-production/pipeline/route.ts'
+      - '.github/workflows/character-production-pipeline-context-postgres.yml'
+      - 'docs/proposals/character-production-first-admission.sql'
+      - 'docs/proposals/character-production-pipeline-context.sql'
+      - 'docs/proposals/cafe-standing-publication-authority.sql'
+      - 'lib/content/character-production-*.ts'
+      - 'tests/character-production-pipeline-*.test.cjs'
+      - 'docs/proposals/character-production-preparation-context.sql'
+      - 'docs/proposals/character-production-replenishment.sql'
+      - 'tests/postgres/*.py'
+      - 'scripts/prepare-*-install.py'
+      - 'tests/postgres/validate_pipeline_context.py'
+      - 'docs/proposals/character-production-fresh-speech-source.sql'
+      - 'docs/proposals/character-production-scheduler-principal.sql'
+      - 'docs/proposals/character-production-enrolled-*.sql'
+      - 'docs/proposals/character-production-qa-*.sql'
+      - 'docs/proposals/character-production-planner*.sql'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_replenishment
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d character_ci_replenishment"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_replenishment
+      PG_TEST_SERVER: '1'
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked JavaScript dependencies
+        run: npm ci --ignore-scripts
+      - name: Verify dormant pipeline composition
+        run: node --test tests/character-production-pipeline-*.test.cjs
+      - name: Strict TypeScript validation
+        run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false
+      - name: Install official PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Verify actual pipeline selection with first admission and scoped planner
+        run: python3 tests/postgres/validate_pipeline_context.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: character-production-pipeline-context-postgres-evidence
+          path: evidence/postgres-*-validation.log

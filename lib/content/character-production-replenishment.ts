@@ -27,7 +27,7 @@ export function parseFreshEditorial(raw:unknown,source:ReplenishmentSource):Fres
  for(const m of prose.matchAll(/@([a-zA-Z0-9_.]+)/g))if(!source.verifiedHandles.includes(m[1]))throw Error('Unverified mention')
  return structuredClone(x)
 }
-export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>number;load:()=>Promise<ReplenishmentSource>;store:ReplenishmentStore;complete:(request:{model:typeof REPLENISHMENT_MODEL;max_tokens:1024;system:string;messages:{role:'user';content:string}[]},signal:AbortSignal)=>Promise<unknown>}){
+export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>number;load:()=>Promise<ReplenishmentSource>;store:ReplenishmentStore;complete:(request:{model:typeof REPLENISHMENT_MODEL;max_tokens:1024;system:string;messages:{role:'user';content:string}[]},signal:AbortSignal,dispatchGuard:()=>void)=>Promise<unknown>}){
  let used=false
  return {async produce(cadenceKey:string,lease:ReplenishmentLease,signal:AbortSignal){
   if(used)throw Error('Attempt consumed');used=true
@@ -44,11 +44,12 @@ export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>n
   if(![lease.inputMicroUsdPerToken,lease.outputMicroUsdPerToken].every(x=>Number.isSafeInteger(x)&&x>0)||Math.ceil((inputBound*lease.inputMicroUsdPerToken+1024*lease.outputMicroUsdPerToken)/10000)>lease.maxCostCents)throw Error('Insufficient verified worst-case text quote')
   const token=await d.store.claim({key:cadenceKey,sourceDigest,source:structuredClone(source),lease:structuredClone(frozenLease)});checked();if(!token)return {status:'already_claimed' as const}
   // No second completion on parse failure, timeout, lost receipt or source change.
-  const current=await d.load();checked()
+  const current=structuredClone(await d.load());checked()
   if(replenishmentDigest({...current,observedAt:0})!==sourceDigest||!Number.isSafeInteger(current.observedAt)||current.observedAt>d.now()||d.now()-current.observedAt>60000||!await d.store.authorize({key:cadenceKey,token,sourceDigest,lease:structuredClone(frozenLease)}))throw Error('Fresh claim/source authority unavailable')
-  const dispatchAt=checked(),dispatchDay=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(dispatchAt)
-  if(current.observedAt>dispatchAt||dispatchAt-current.observedAt>60000||cadenceKey!==`daily:${dispatchDay}:${source.characterId}`)throw Error('Dispatch source or cadence expired')
-  const response=await d.complete(request,signal);checked()
+  const dispatchGuard=()=>{const dispatchAt=checked(),dispatchDay=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(dispatchAt)
+  if(current.observedAt>dispatchAt||dispatchAt-current.observedAt>60000||cadenceKey!==`daily:${dispatchDay}:${source.characterId}`)throw Error('Dispatch source or cadence expired')}
+  dispatchGuard()
+  const response=await d.complete(request,signal,dispatchGuard);checked()
   const r=response as {id?:string;stop_reason?:string;content?:{type:string;text:string}[];usage?:{input_tokens:number;output_tokens:number}}
   if(!r||!text(r.id,200)||r.stop_reason!=='end_turn'||r.content?.length!==1||r.content[0].type!=='text'||!text(r.content[0].text,10000)||!Number.isSafeInteger(r.usage?.input_tokens)||r.usage!.input_tokens<=0||!Number.isSafeInteger(r.usage?.output_tokens)||r.usage!.output_tokens<=0||r.usage!.output_tokens>1024)throw Error('Model receipt unconfirmed')
   const output=parseFreshEditorial(JSON.parse(r.content[0].text),source)

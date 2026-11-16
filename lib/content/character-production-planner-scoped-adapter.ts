@@ -1,8 +1,10 @@
+import {createHash} from 'node:crypto'
+import {verifyBindingSnapshot} from './character-production-binding-snapshot.ts'
 import {isDeepStrictEqual} from 'node:util'
 import type {ProductionServerRpcClient} from './character-production-server-rpc.ts'
 import type {PlannerInput} from './character-production-planner.ts'
 import {productionSlotDigest} from './character-production-engine.ts'
-type Candidate=Readonly<{ordinal:number;input:PlannerInput}>
+type Candidate=Readonly<{ordinal:number;input:PlannerInput;snapshotText?:string}>
 /** Reviewed immutable enrollment only, never request data. This adapter is not
  * authentication. SQL scoped wrappers resolve the enrolled actor on every call.
  * The application must authenticate cron before constructing this dormant adapter.
@@ -10,6 +12,7 @@ type Candidate=Readonly<{ordinal:number;input:PlannerInput}>
 export function createScopedPlannerAdapter(db:ProductionServerRpcClient,enrollment:string,manifestSha256:string,records:readonly Candidate[]):ProductionServerRpcClient{
  if(!/^[a-f0-9-]{36}$/.test(enrollment)||!/^[a-f0-9]{64}$/.test(manifestSha256)||records.length>32)throw Error('Invalid scoped enrollment')
  const candidates=structuredClone(records)
+ for(const c of candidates)if(c.snapshotText!==undefined)verifyBindingSnapshot(c.snapshotText,createHash('sha256').update(c.snapshotText).digest('hex'),c.input.slot)
  if(new Set(candidates.map(c=>c.ordinal)).size!==candidates.length||candidates.some(c=>!Number.isInteger(c.ordinal)||c.ordinal<0||c.ordinal>31))throw Error('Invalid candidate ordinal')
  return {rpc(name,args){return {abortSignal(signal){return {async retry(enabled:false){
   if(enabled!==false||signal.aborted)throw Error('Scoped planner cancelled or retry rejected')
@@ -29,7 +32,15 @@ export function createScopedPlannerAdapter(db:ProductionServerRpcClient,enrollme
    ?isDeepStrictEqual(args,{p_id:c.input.draftId,p_slot:c.input.slot,p_digest:productionSlotDigest(c.input.slot),p_theme:c.input.theme})
    :name==='character_production_plan'&&isDeepStrictEqual({...args,p_plan:undefined},{p_slot:c.input.slot,p_digest:productionSlotDigest(c.input.slot),p_policy_id:c.input.policyId,p_policy_revision:c.input.policyRevision,p_actor:c.input.actorId,p_plan:undefined})&&!!args.p_plan&&isDeepStrictEqual({...args.p_plan as object,validation:undefined},{version:1,draftId:c.input.draftId,scheduledAt:c.input.scheduledAt,theme:c.input.theme,validation:undefined}))
   if(!candidate)throw Error('Candidate scope rejected')
-  const target=name==='character_production_plan'?'character_production_scheduler_plan':'character_production_scheduler_reconciled'
-  return db.rpc(target,{p_enrollment:enrollment,p_ordinal:candidate.ordinal,...(target==='character_production_scheduler_plan'?{p_validation:(args.p_plan as Record<string,unknown>).validation}:{})}).abortSignal(signal).retry(false)
+  const planning=name==='character_production_plan',bound=planning&&candidate.snapshotText!==undefined
+  if(bound&&(args.p_plan as {validation:{evidenceRef:string}}).validation.evidenceRef!=='binding-snapshot-sha256:'+createHash('sha256').update(candidate.snapshotText!).digest('hex'))throw Error('Bound validation evidence mismatch')
+  const target=planning?(bound?'character_production_scheduler_plan_bound':'character_production_scheduler_plan'):'character_production_scheduler_reconciled'
+  const result=await db.rpc(target,{p_enrollment:enrollment,p_ordinal:candidate.ordinal,...(planning?{p_validation:(args.p_plan as Record<string,unknown>).validation}:{}),...(bound?{p_snapshot:candidate.snapshotText}:{})}).abortSignal(signal).retry(false)
+  if(signal.aborted)throw Error('Scoped bound outcome held')
+  if(!bound||result.error||result.data===null)return result
+  const receipt=result.data as Record<string,unknown>
+  if(Object.keys(receipt).sort().join(',')!=='digest,draftId,key,replayed,snapshotSha256'||receipt.snapshotSha256!==createHash('sha256').update(candidate.snapshotText!).digest('hex'))throw Error('Bound receipt unconfirmed')
+  const {snapshotSha256:_,...legacy}=receipt
+  return {data:legacy,error:null}
  }}}}}}
 }

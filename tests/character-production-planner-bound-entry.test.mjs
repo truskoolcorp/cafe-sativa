@@ -1,0 +1,35 @@
+import {createPlannerEntry} from '../lib/content/character-production-planner-entry.ts'
+import {productionSlotDigest} from '../lib/content/character-production-engine.ts'
+import test from 'node:test';import assert from 'node:assert/strict';import {createHash} from 'node:crypto'
+import {createTrustedPlannerComposition} from '../lib/content/character-production-planner-trusted-composition.ts'
+import {imageApprovedAvatar} from '../lib/content/character-production-canonical-image.ts'
+import {heyGenBindingRevision} from '../lib/content/character-production-provider-heygen.ts'
+const hash=x=>createHash('sha256').update(x).digest('hex'),image=Buffer.from([137,80,78,71,13,10,26,10,1,2,3,4]),sound=Buffer.from('ID3abcdefghijklmnop'),now=Date.parse('2026-11-14T22:00:00Z'),id='77777777-7777-4777-8777-777777777777',actor='88888888-8888-4888-8888-888888888888',account='d61468fdf18c4b478f27857337ddd1ea'
+const proof={characterId:'zaria-solenne',canonicalRevision:'a'.repeat(64),portraitSha256:hash(image),imageBytes:image.length,mime:'image/png',audio:{characterId:'zaria-solenne',canonicalRevision:'a'.repeat(64),portraitSha256:hash(image),avatarId:'canonical-image-zaria',voiceId:'Bree',voiceModel:'eleven_v4',scriptSha256:hash('hello'),audioSha256:hash(sound),audioBytes:sound.length,mime:'audio/mpeg',provider:'elevenlabs',synthesisReceiptId:'existing-receipt'}}
+function setup(edit=()=>{},change=()=>{}){
+ const calls=[],heygen={linkId:'approved-provider-link',model:'avatar_iv',aspectRatio:'16:9'},slot={key:'planned-test',characterId:'zaria-solenne',script:'hello',canonicalRevision:proof.canonicalRevision,portraitSha256:proof.portraitSha256,voiceId:'Bree',providerBindingRevision:heyGenBindingRevision(heygen,imageApprovedAvatar(proof)),provider:'heygen',model:'avatar_iv',durationSeconds:8,authorizationId:'reviewed-policy',authorizationExpiresAt:now+60000,period:'2026-11',quoteCents:35,periodCapCents:2000}
+ const manifest={enabled:true,deadlineMs:1000,heygen,expectedUsername:account,images:[{image:proof,themes:['gallery'],rightsEvidenceRef:'approved:1',quoteEvidenceRef:'rate:1',quoteCents:35,durationSeconds:8,quoteObservedAt:now-1,quoteExpiresAt:now+60000}],candidates:[{slot,policyId:id,policyRevision:1,draftId:'99999999-9999-4999-8999-999999999999',scheduledAt:new Date(now+30000).toISOString(),theme:'gallery'}]};edit(manifest)
+ const sources={db:{rpc:(name,args)=>{calls.push(name);return {abortSignal:signal=>({retry:async x=>{assert.equal(x,false);return {error:null,data:name==='character_production_planned_draft'?false:name==='character_production_planning_policy'?{observedAt:now,policy:{id,revision:1,enabled:true,expiresAt:now+60000,ownerEvidenceRef:'owner:approval',characters:['zaria-solenne'],themes:['gallery'],capCents:2000,accountId:account}}:{key:args.p_slot.key,digest:args.p_digest,draftId:args.p_plan.draftId,replayed:false}}}})}}},images:{read:async()=>image,sign:()=>{throw Error('must not sign')}},audio:{read:async()=>sound,sign:()=>{throw Error('must not sign')}},readAccount:async()=>({data:{username:account}}),readCanon:async()=>({verifiedAt:new Date(now).toISOString()}),normalizeCanon:()=>({live:true,production_ready:true,rights_status:'approved',voice_status:'canonical',character_id:'zaria-solenne',revision_sha256:proof.canonicalRevision,portrait_sha256:proof.portraitSha256,voice_id:'Bree'}),resolveActor:async()=>{calls.push('actor');return actor}};change(sources)
+ const runtime=createTrustedPlannerComposition(manifest,()=>now,()=>{calls.push('open');return sources});return {calls,manifest,runtime,sources}
+}
+
+function boundCase(mode){
+ const x=setup(),c=x.manifest.candidates[0],slot=c.slot,token='11111111-1111-4111-8111-111111111111',textAttemptKey='daily:2026-11-14:zaria-solenne'
+ const snapshot={version:1,account:{...x.manifest.heygen,expectedUsername:account},image:proof,speech:{key:'fresh-zaria-'+hash(JSON.stringify([textAttemptKey,token,hash(slot.script)])),claimSha256:'c'.repeat(64),receiptSha256:'d'.repeat(64),scopeId:id,textAttemptKey,textAttemptToken:token,textSourceDigest:'e'.repeat(64)}}
+ const snapshotText=JSON.stringify(snapshot);x.manifest.images[0].snapshotText=snapshotText
+ const enrollment={id:'11111111-1111-4111-8111-111111111111',manifestSha256:'f'.repeat(64),ordinals:[0],manifest:x.manifest},writes=[]
+ const policy={id,revision:1,enabled:true,expiresAt:now+60000,ownerEvidenceRef:'owner:approval',characters:['zaria-solenne'],themes:['gallery'],capCents:2000,accountId:account}
+ const context={enrollmentId:enrollment.id,manifestSha256:enrollment.manifestSha256,actorId:actor,policy:{policy,observedAt:now},candidates:[{ordinal:0,slot,digest:productionSlotDigest(slot),draftId:c.draftId,theme:c.theme,scheduledAt:c.scheduledAt}]}
+ const db={rpc:(name,args)=>({abortSignal:signal=>({retry:async retry=>{assert.equal(retry,false);signal.throwIfAborted();if(name==='character_production_scheduler_context')return {data:mode==='revoke'?null:context,error:null};if(name==='character_production_scheduler_reconciled')return {data:false,error:null};assert.equal(name,'character_production_scheduler_plan_bound');assert.deepEqual(Object.keys(args).sort(),['p_enrollment','p_ordinal','p_snapshot','p_validation']);assert.equal(args.p_snapshot,snapshotText);assert.equal(args.p_validation.evidenceRef,'binding-snapshot-sha256:'+hash(snapshotText));writes.push(args);return {data:{key:slot.key,digest:productionSlotDigest(slot),draftId:c.draftId,replayed:false,snapshotSha256:mode==='badreceipt'?'0'.repeat(64):hash(snapshotText)},error:null}}})})}
+ if(mode==='image')x.sources.images.read=async()=>Buffer.from('bad')
+ if(mode==='audio')x.sources.audio.read=async()=>Buffer.from('bad')
+ if(mode==='canon')x.sources.normalizeCanon=()=>({live:false})
+ if(mode==='quote'){x.manifest.images[0].quoteObservedAt=now-100;x.manifest.images[0].quoteExpiresAt=now-1}
+ if(mode==='account')x.sources.readAccount=async()=>({data:{username:'other'}})
+ if(mode==='snapshot')x.manifest.images[0].snapshotText=snapshotText.replace('existing-receipt','other-receipt')
+ const entry=createPlannerEntry(enrollment,{enabled:()=>true,authorize:()=>true,open:()=>db,create:(manifest,resolveActor,open)=>createTrustedPlannerComposition(manifest,()=>now,signal=>({...x.sources,db:open(signal),resolveActor}))})
+ return {entry,writes,signal:new AbortController().signal}
+}
+test('actual enrolled entry → scoped validator → atomic bound RPC, no caller actor authority',async()=>{const f=boundCase();assert.equal((await f.entry.run('cron',f.signal)).status,'planned');assert.equal(f.writes.length,1)})
+for(const mode of ['image','audio','canon','account','revoke','quote','snapshot'])test('bound planning preserves original validation: '+mode,async()=>{const f=boundCase(mode);assert.notEqual((await f.entry.run('cron',f.signal)).status,'planned');assert.equal(f.writes.length,0)})
+test('mismatching bound receipt is held rather than claimed successful',async()=>{const f=boundCase('badreceipt');assert.equal((await f.entry.run('cron',f.signal)).status,'held');assert.equal(f.writes.length,1)})

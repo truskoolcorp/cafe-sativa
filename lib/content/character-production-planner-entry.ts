@@ -1,3 +1,4 @@
+import {plannerSnapshotForSlot} from './character-production-planner-image-binding.ts'
 import type {ProductionServerRpcClient} from './character-production-server-rpc.ts'
 import type {TrustedPlannerManifest} from './character-production-planner-trusted-composition.ts'
 import {createScopedPlannerAdapter} from './character-production-planner-scoped-adapter.ts'
@@ -28,7 +29,7 @@ export function createPlannerEntry(enrollment:ReviewedPlannerEnrollment,deps:Pla
    if(life.signal.aborted||bootstrap.error)return {status:'blocked'}
    const context=bootstrap.data as {actorId?:unknown}|null
    if(!context||typeof context.actorId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(context.actorId))return {status:'blocked'}
-   const actor=context.actorId,adapter=createScopedPlannerAdapter(db,reviewed.id,reviewed.manifestSha256,reviewed.manifest.candidates.map((input,i)=>({ordinal:reviewed.ordinals[i],input:{...input,actorId:actor}})))
+   const actor=context.actorId,adapter=createScopedPlannerAdapter(db,reviewed.id,reviewed.manifestSha256,reviewed.manifest.candidates.map((input,i)=>({ordinal:reviewed.ordinals[i],input:{...input,actorId:actor},snapshotText:plannerSnapshotForSlot(reviewed.manifest.images,input.slot)})))
    // Establish complete immutable context binding before media/provider sources open.
    const policy=await adapter.rpc('character_production_planning_policy',{p_id:reviewed.manifest.candidates[0].policyId}).abortSignal(life.signal).retry(false)
    if(life.signal.aborted||policy.error||!policy.data)return {status:'blocked'}

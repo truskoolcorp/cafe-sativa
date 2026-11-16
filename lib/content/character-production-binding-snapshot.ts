@@ -1,9 +1,9 @@
 import {createHash} from 'node:crypto'
-import {productionSlotDigest,type ProductionSlot} from './character-production-engine'
-import {canonicalImageDigest,imageApprovedAvatar,type CanonicalImageBinding} from './character-production-canonical-image'
-import {heyGenBindingRevision} from './character-production-provider-heygen'
-import type {SelectedItem} from './character-production-selected-session'
-import type {ProductionRpc} from './character-production-store'
+import {productionSlotDigest,type ProductionSlot} from './character-production-engine.ts'
+import {canonicalImageDigest,imageApprovedAvatar,type CanonicalImageBinding} from './character-production-canonical-image.ts'
+import {heyGenBindingRevision} from './character-production-provider-heygen.ts'
+import type {SelectedItem} from './character-production-selected-session.ts'
+import type {ProductionRpc} from './character-production-store.ts'
 export type BindingSnapshot={version:1;account:{linkId:string;model:'avatar_iv';aspectRatio:'9:16'|'16:9';expectedUsername:string};image:CanonicalImageBinding;speech:{key:string;claimSha256:string;receiptSha256:string;scopeId:string;textAttemptKey:string;textAttemptToken:string;textSourceDigest:string}}
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex')
 const hex=(s:unknown)=>typeof s==='string'&&/^[a-f0-9]{64}$/.test(s)

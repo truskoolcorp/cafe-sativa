@@ -62,3 +62,21 @@ the three text-generation capabilities. No table access is needed or proposed.
 Private scope provisioning and enabling the new flag are separate material steps,
 not authorized by merging source or supplying a text-generation budget. No live
 installation, scope enrollment, route/cron, provider call or activation occurs here.
+
+## Original occurrence recovery (fresh claims only)
+
+Before a fresh synthesis, the existing insert-only claim.json now additionally
+stores `freshBinding`: original full operation plus original scope ID and exact
+text attempt key/token/source digest. Existing claim hash commits this snapshot
+into the original provider and final receipts. No path or storage grant changes.
+Older finite claim format/digest remains unchanged; fresh-key operations without
+provenance are rejected before I/O. Missing old snapshots are never invented.
+
+`verifyFreshIncludedSpeechReceipt` is read-only. Given the exact trusted saved
+text identity, it recovers ORIGINAL operation from the permanent claim, validates
+its identity/digest and reads the full original receipt+audio chain. Renewed
+scope/expiry is not substituted for the original receipt identity. It returns
+`currentAuthorityVerified:false`: separate current authorization and current
+canon/budget/scene checks are still mandatory before any further paid production.
+Historical read recovery may require owner-accessible exact saved text evidence;
+the daily runtime source RPC deliberately does not list or reopen prior days.

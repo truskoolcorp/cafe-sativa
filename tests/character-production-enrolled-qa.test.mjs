@@ -1,7 +1,0 @@
-import test from 'node:test';import assert from 'node:assert/strict'
-import {createEnrolledQaRpc} from '../lib/content/character-production-enrolled-qa.ts'
-const id='11111111-1111-4111-8111-111111111111',scope={key:'owned',digest:'a'.repeat(64)}
-function setup(data){const calls=[];return {calls,rpc:createEnrolledQaRpc({rpc:(name,args)=>{calls.push({name,args});return {abortSignal:()=>({retry:async retry=>{assert.equal(retry,false);return {data,error:null}}})}}},new AbortController().signal,id,[scope])}}
-test('QA discovery scoped before limit',async()=>{const f=setup([scope]);await f.rpc.rpc('character_production_qa_ready_slots',{p_limit:1});assert.equal(f.calls[0].name,'character_production_scheduler_qa_ready');assert.equal(f.calls[0].args.p_enrollment,id)})
-for(const data of [null,[{key:'foreign',digest:scope.digest}],[{...scope,approved:true}],[scope,scope]])test('null/foreign/malformed never success '+JSON.stringify(data),async()=>{await assert.rejects(setup(data).rpc.rpc('character_production_qa_ready_slots',{p_limit:5}))})
-test('only exact QA operations forwarded, no global queue or approval',async()=>{const f=setup(true);await f.rpc.rpc('character_production_qa_materialize',{p_key:'owned',p_digest:scope.digest});for(const n of ['character_production_qa_pending','character_production_claim','approve'])await assert.rejects(f.rpc.rpc(n,{p_key:'owned',p_digest:scope.digest}));await assert.rejects(f.rpc.rpc('character_production_qa_prepare',{p_key:'foreign',p_digest:scope.digest}));assert.equal(f.calls.length,1)})

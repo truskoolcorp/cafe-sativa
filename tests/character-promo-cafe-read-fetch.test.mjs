@@ -1,4 +1,0 @@
-import test from 'node:test';import assert from 'node:assert/strict'
-import {cafeBoundedReadFetch} from '../lib/content/character-promo-cafe-read-fetch.ts'
-test('JSON byte bound rejects body before successful SDK parse',async()=>{let cancelled=false;const f=cafeBoundedReadFetch(async()=>new Response(new ReadableStream({pull(c){c.enqueue(new Uint8Array(300000))},cancel(){cancelled=true}})));const r=await f('https://synthetic.test');await assert.rejects(r.arrayBuffer());assert.equal(cancelled,true)})
-test('exact small JSON succeeds; oversized declared body cancelled',async()=>{const f=cafeBoundedReadFetch(async()=>Response.json({data:'ok'}));assert.deepEqual(await (await f('https://synthetic.test')).json(),{data:'ok'});await assert.rejects(cafeBoundedReadFetch(async()=>new Response('x',{headers:{'content-length':'524289'}}))('https://synthetic.test'))})

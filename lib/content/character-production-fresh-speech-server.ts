@@ -42,7 +42,7 @@ export function createFreshSpeechOperation(deadlineMs=85000){
     // Native fetch only: awaited fresh scope/canon checks happen inside the
     // provider's actual POST boundary, followed by local deadline rechecks.
     provider=createIncludedOperationProvider(operation,process.env.ELEVENLABS_API_KEY??'',signal,fetch,validate,active)
-    return runIncludedSpeechOperation(operation,{signal,now:Date.now,canon:validate,quota:()=>gate(()=>provider!.quota()),store,synthesize:()=>gate(()=>provider!.synthesize()),measureDuration:b=>gate(async()=>measureIncludedMp3Duration(b))})
+    return runIncludedSpeechOperation(operation,{freshSourceScope:{scopeId:original.scopeId,textAttemptKey:original.attempt.key,textAttemptToken:original.attempt.token,textSourceDigest:original.attempt.source_digest},signal,now:Date.now,canon:validate,quota:()=>gate(()=>provider!.quota()),store,synthesize:()=>gate(()=>provider!.synthesize()),measureDuration:b=>gate(async()=>measureIncludedMp3Duration(b))})
    })()
    return await work
   },

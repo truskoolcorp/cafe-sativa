@@ -1,7 +1,0 @@
-'use client'
-import {useState} from 'react'
-export default function OriginalQaObservations(){
- const [busy,setBusy]=useState(false),[message,setMessage]=useState('')
- async function record(){if(busy)return;setBusy(true);setMessage('Verifying exact private media and current canonical evidence…');try{const r=await fetch('/api/admin/character-promotions/original-qa-observations',{method:'POST',cache:'no-store'});const b=await r.json();setMessage(r.ok&&b.status==='observations_recorded'?'Nine AI-assisted observations recorded: eight pass; lip sync still needs review. No final QA approval or publication.':'Not confirmed. Some observations may have been saved. Reload current checks before attempting again.')}catch{setMessage('Result unconfirmed. Reload current checks before attempting again.')}finally{setBusy(false)}}
- return <main className="mx-auto max-w-2xl p-8"><h1>Original Zaria technical observations</h1><p>Imports the already performed AI-assisted inspection of the exact original 7.98-second output. This does not claim personal owner review. Lip sync remains needs review; no final approval or publishing occurs.</p><p>Source provenance remains manual original-output recovery, not proof of automated ingestion.</p><button disabled={busy} onClick={record} className="my-6 rounded border px-4 py-2">{busy?'Verifying…':'Record existing technical observations'}</button><p role="status">{message}</p><a href="/admin/character-promotions">Return to promotion drafts</a></main>
-}

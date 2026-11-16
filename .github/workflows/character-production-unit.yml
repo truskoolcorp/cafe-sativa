@@ -31,6 +31,8 @@ on:
       - 'tests/character-production-preparation-server.test.cjs'
       - 'app/admin/private-preparation-test/**'
       - 'app/admin/private-text-recovery/**'
+      - 'app/admin/finite-nov17-test/**'
+      - 'app/api/admin/character-promotions/finite-nov17-test/**'
       - 'app/api/admin/character-promotions/private-text-recovery/**'
       - 'app/api/admin/character-promotions/private-preparation-test/**'
       - 'app/api/admin/character-promotions/private-preparation-diagnostics/**'

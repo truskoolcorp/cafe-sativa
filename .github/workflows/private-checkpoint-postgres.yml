@@ -1,0 +1,53 @@
+name: Private checkpoint and finite Nov17 PostgreSQL 17
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/private-checkpoint-postgres.yml'
+      - 'docs/proposals/character-production-text-*.sql'
+      - 'docs/proposals/character-production-finite-test-nov17*.sql'
+      - 'tests/postgres/validate_text_*.py'
+      - 'tests/postgres/validate_finite_test_nov17.py'
+      - 'tests/postgres/validate_ledger.py'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        script: [validate_text_checkpoint.py, validate_finite_test_nov17.py]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_checkpoint
+          POSTGRES_USER: supabase_admin
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U supabase_admin -d character_ci_checkpoint"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: supabase_admin
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_checkpoint
+      PG_TEST_SERVER: '1'
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install official PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Rehearse isolated checkpoint and finite controls
+        run: python3 tests/postgres/${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: private-checkpoint-${{ matrix.script }}
+          path: evidence/postgres-*-validation.log

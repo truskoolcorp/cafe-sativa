@@ -14,7 +14,12 @@ type Snapshot={scopeId:string;attempt:SavedTextAttempt;authority:FreshSpeechAuth
 /** Dormant exact daily Zaria operation. No caller-selected authority, key, voice,
  * model, budget, script, RPC or public post. RPC grant is separately reviewed;
  * no direct private-table fallback or implied authority from a text budget. */
-export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedFreshTextIdentity,currentPreparation?:()=>Promise<void>,allowed:()=>boolean=()=>true){
+export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedFreshTextIdentity,currentPreparation?:()=>Promise<void>,allowed:()=>boolean=()=>true){return createSpeechOperation(deadlineMs,expected,currentPreparation,allowed,false)}
+export function createFiniteNov17SpeechOperation(deadlineMs:number,expected:PersistedFreshTextIdentity,currentPreparation:()=>Promise<void>,allowed:()=>boolean){
+ if(expected.textAttemptKey!=='daily:2026-11-17:zaria-solenne')throw Error('Exact finite speech identity required')
+ return createSpeechOperation(deadlineMs,expected,currentPreparation,()=>allowed()&&process.env.CS_CHARACTER_FINITE_NOV17_TEST_ENABLED==='true'&&Date.now()>=Date.parse('2026-11-17T06:00:00Z')&&Date.now()<Date.parse('2026-11-18T06:00:00Z'),true)
+}
+function createSpeechOperation(deadlineMs:number,expected:PersistedFreshTextIdentity|undefined,currentPreparation:(()=>Promise<void>)|undefined,allowed:()=>boolean,finite:boolean){
  if(!Number.isSafeInteger(deadlineMs)||deadlineMs<1000||deadlineMs>85000)throw Error('Invalid speech deadline')
  const identity=expected?structuredClone(expected):undefined
  const enabled=()=>allowed()&&process.env.CS_CHARACTER_FRESH_INCLUDED_SPEECH_ENABLED==='true'
@@ -30,7 +35,7 @@ export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedF
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(Date.now()),part=(t:string)=>parts.find(p=>p.type===t)!.value
     const key=`daily:${part('year')}-${part('month')}-${part('day')}:zaria-solenne`
     const read=async():Promise<Snapshot>=>{
-     active();await currentPreparation?.();const r=await db.rpc('character_production_fresh_speech_source',{p_key:key}).abortSignal(signal).retry(false);active()
+     active();await currentPreparation?.();const r=await db.rpc(finite?'character_production_finite_test_speech_source':'character_production_fresh_speech_source',{p_key:key}).abortSignal(signal).retry(false);active()
      if(r.error||!r.data||typeof r.data!=='object'||Object.keys(r.data).sort().join(',')!=='attempt,authority,scopeId'||! /^[a-f0-9-]{36}$/.test(r.data.scopeId)||r.data.attempt?.key!==key)throw Error('Current fresh speech source unavailable')
      return structuredClone(r.data) as Snapshot
     }

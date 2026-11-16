@@ -62,7 +62,7 @@ def main():
  own=lambda s:db.run('SET ROLE cafe_metricool_owner; SELECT '+s)
  terminal=lambda:own('public.cs_cafe_publication_terminal('+q(D)+')')
  assert terminal()=='f'
- db.run("INSERT INTO public.cs_character_promo_drafts(id,character_id,spoken_script,status,updated_at) VALUES('"+D+"','synthetic-persona','Fixture only','script_approved',clock_timestamp())")
+ db.run("INSERT INTO public.cs_character_promo_drafts(id,character_id,promo_key,specialty,title,spoken_script,visual_brief,duration_seconds,status,updated_at) VALUES('"+D+"','synthetic-persona','receipt-fixture-only','fixture','Fixture title','Fixture only','Synthetic fixture',10,'draft',clock_timestamp())")
  schedule=db.run("SELECT to_char(clock_timestamp()-interval '1 minute','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')")
  for n,(network,account) in enumerate([('facebook','105363501666032'),('instagram','cafesativainc')]):
   db.run("INSERT INTO public.cs_character_promo_delivery_plans(id,promo_id,character_id,network,account_id,scheduled_at,status,caption) VALUES("+q(P[n])+','+q(D)+",'synthetic-persona',"+q(network)+','+q(account)+','+q(schedule)+",'ready_for_delivery','Fixture')")

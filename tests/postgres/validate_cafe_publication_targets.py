@@ -102,7 +102,19 @@ def main():
  target_insert="INSERT INTO cafe_metricool_private.publication_targets(promo_id,scope_id,enrollment_id,manifest_sha256,slot_digest,generation_due_at,publish_at,created_at) VALUES("+q(draft)+",'"+S+"','"+E+"',repeat('a',64),{digest},"+q(plan['scheduledAt'])+",{publish},"+q(plan['scheduledAt'])+"::timestamptz-interval '1 minute');"
  no_target(target_insert.format(digest=q('f'*64),publish="clock_timestamp()+interval '10 minutes'"))
  no_target(target_insert.format(digest=q(digest),publish=q(plan['scheduledAt'])+"::timestamptz+interval '.001 seconds'"))
- target=rpc(resolve);assert target,'valid reviewed QA must resolve a future target'
+ target=rpc(resolve)
+ if not target:
+  # Disposable-only diagnostic: retain every predicate, replace NULL exits by
+  # numbered exceptions inside a transaction that always rolls back. Never
+  # install this diagnostic function in production or bypass a failed guard.
+  definition=db.run("SELECT pg_get_functiondef('public.cs_resolve_cafe_publication_target(uuid)'::regprocedure)")
+  parts=definition.split('RETURN NULL;')
+  diagnostic=parts[0]
+  for index,part in enumerate(parts[1:],1):
+   diagnostic+="RAISE EXCEPTION 'timing diagnostic guard "+str(index)+"';"+part
+  result=subprocess.run(db.command(),input='BEGIN; '+diagnostic+' SET ROLE service_role; SELECT '+resolve+'; ROLLBACK;',text=True,capture_output=True)
+  raise AssertionError('valid reviewed QA target unavailable: '+result.stderr)
+
  assert rpc(resolve)==target,'same immutable target on repeat'
  db.check("(SELECT publish_at>clock_timestamp()+interval '5 minutes' AND generation_due_at<clock_timestamp() FROM cafe_metricool_private.publication_targets WHERE promo_id="+q(draft)+")",'generation and publication clocks separated')
  assert json.loads(db.run("SELECT public.cs_cafe_generation_membership("+q(draft)+")"))['slotDigest']==digest

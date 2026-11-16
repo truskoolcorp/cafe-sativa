@@ -84,7 +84,7 @@ BEGIN
  IF (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.account) k) IS DISTINCT FROM ARRAY['aspectRatio','expectedUsername','linkId','model']::text[]
  OR c.account->>'model' IS DISTINCT FROM 'avatar_iv' OR c.account->>'expectedUsername' IS DISTINCT FROM p.account_id
  OR NOT coalesce(c.account->>'aspectRatio' IN('9:16','16:9'),false) OR NOT coalesce(c.account->>'linkId'~'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$',false)
- OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.image) k) IS DISTINCT FROM CASE WHEN c.image?'approvedScene' THEN ARRAY['approvedScene','avatarId','canonicalRevision','imageBytes','mime','portraitSha256']::text[] ELSE ARRAY['avatarId','canonicalRevision','imageBytes','mime','portraitSha256']::text[] END
+ OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.image) k) IS DISTINCT FROM (CASE WHEN c.image?'approvedScene' THEN ARRAY['approvedScene','avatarId','canonicalRevision','imageBytes','mime','portraitSha256']::text[] ELSE ARRAY['avatarId','canonicalRevision','imageBytes','mime','portraitSha256']::text[] END)
  OR NOT coalesce(c.image->>'avatarId'~'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,239}$',false)
  OR NOT coalesce(c.image->>'canonicalRevision'~'^[a-f0-9]{64}$' AND c.image->>'portraitSha256'~'^[a-f0-9]{64}$',false)
  OR NOT coalesce(c.image->>'mime' IN('image/png','image/jpeg'),false)

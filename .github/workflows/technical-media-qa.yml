@@ -24,7 +24,6 @@ jobs:
       - run: npm ci --ignore-scripts
       # Exact package postinstall only, after installing the locked official blob.
       - run: chmod u+x node_modules/@ffprobe-installer/linux-x64/ffprobe
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: node --test tests/character-production-technical-media.test.mjs
         env:
           QA_TEST_FFMPEG: ${{ github.workspace }}/node_modules/@ffmpeg-installer/linux-x64/ffmpeg

@@ -45,6 +45,8 @@ def exercise(state):
  own=lambda s:db.run('SET ROLE cafe_metricool_owner; SELECT '+s)
  for n,(network,account) in enumerate([('facebook','105363501666032'),('instagram','cafesativainc')]):
   db.run("INSERT INTO public.cs_character_promo_delivery_plans(id,promo_id,character_id,network,account_id,scheduled_at,status,caption) VALUES("+q(plans[n])+','+q(ctx['draftId'])+",'zaria-solenne',"+q(network)+','+q(account)+','+q(schedule)+",'ready_for_delivery','Synthetic successor fixture')")
+ # Both immutable plans must exist before either original attempt claims source.
+ for n,(network,account) in enumerate([('facebook','105363501666032'),('instagram','cafesativainc')]):
   snapshot=dict(brandId='7605217',network=network,accountId=account,scheduledAt=schedule)
   db.run("INSERT INTO cafe_metricool_private.approvals VALUES("+q(plans[n])+','+j(snapshot)+",repeat('a',64),"+q(str(n+1)*64)+','+q(str(n+3)*64)+",'{}','"+first.ACT+"',clock_timestamp(),clock_timestamp()+interval '1 hour',false)")
   db.run("INSERT INTO cafe_metricool_private.attempts(plan_id,digest,destination_time_key,media_destination_key,token,state,provider_id,provider_uuid,receipt) VALUES("+q(plans[n])+",repeat('a',64),"+q(str(n+1)*64)+','+q(str(n+3)*64)+','+q(tokens[n])+",'scheduled',"+q('synthetic-'+str(n))+','+q('synthetic-uuid-'+str(n))+",'{}')")

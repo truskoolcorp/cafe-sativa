@@ -1,5 +1,6 @@
 import 'server-only'
 import {createHash} from 'node:crypto'
+import {createCafeSuccessorOperation} from './character-production-successor-server'
 import {createCafePreparationOperation} from './character-production-preparation-server'
 import {createCafeFirstAdmissionOperation} from './character-production-first-admission-server'
 import {createFreshSpeechReceiptReader,type PersistedFreshTextIdentity,type FreshReceiptStorage} from './character-production-fresh-speech-receipt-store'
@@ -44,10 +45,21 @@ export function createCafePipelineEntry(input:CafePipelineConfig){
   request.signal.addEventListener('abort',onAbort,{once:true})
   if(request.signal.aborted)onAbort()
   const signal=life.signal
-  let connection:CafePipelineConnection|undefined,child:{whenSettled():Promise<void>}|undefined,receipt:ReturnType<typeof createFreshSpeechReceiptReader>|undefined
+  let successor:ReturnType<typeof createCafeSuccessorOperation>|undefined,connection:CafePipelineConnection|undefined,child:{whenSettled():Promise<void>}|undefined,receipt:ReturnType<typeof createFreshSpeechReceiptReader>|undefined
   const check=()=>{signal.throwIfAborted();if(!enabled())throw Error('Pipeline admission disabled')}
   const task=Promise.resolve().then(async()=>{
    try{
+    check()
+    if(process.env.CS_CHARACTER_SUCCESSOR_ENABLED==='true'){
+     successor=createCafeSuccessorOperation()
+     const transition=await successor.run(signal)
+     await successor.whenSettled();check()
+     const status=phaseStatus(transition,['disabled','held_successor','current_occurrence','held_successor_outcome','successor_prepared'])
+     if(status==='successor_prepared')return reply(status,200,'successor')
+     if(status==='held_successor_outcome')return reply(status,503,'successor')
+     // No configured successor scope does not revoke existing original work.
+     // Only an observed no-advance result permits opening the current context.
+    }
     check();connection=open(signal,enabled)
     const read=async()=>{
      check();const r=await connection!.db.rpc('character_production_pipeline_context',{}).abortSignal(signal).retry(false);check()
@@ -96,7 +108,7 @@ export function createCafePipelineEntry(input:CafePipelineConfig){
   })
   const drained=task.then(async()=>{
    life.abort()
-   const results=await Promise.allSettled([...(receipt?[receipt.whenSettled()]:[]),...(child?[child.whenSettled()]:[]),...(connection?[connection.whenSettled()]:[])])
+   const results=await Promise.allSettled([...(successor?[successor.whenSettled()]:[]),...(receipt?[receipt.whenSettled()]:[]),...(child?[child.whenSettled()]:[]),...(connection?[connection.whenSettled()]:[])])
    if(results.every(r=>r.status==='fulfilled'))busy=false
   })
   // Register before the first task microtask or any early timeout response.

@@ -23,3 +23,16 @@ for(const mode of ['revoked','aborted','freshness','lease','midnight','allowed']
  assert.equal(outbound,mode==='allowed'?1:0);assert.equal(saved,mode==='allowed'?1:0)
  if(mode==='allowed')assert.equal(r.v.status,'awaiting_audio_binding_and_qa');else assert.ok(r.e)
 })
+test('actual bounded transport rechecks authority after its deferred preparation',async()=>{
+ const bounded=load('lib/content/character-production-bounded-fetch.ts',{}, {fetch,AbortController,Request,Response,ReadableStream,setTimeout,clearTimeout,Promise})
+ let enabled=true,outbound=0,network
+ class SDK{constructor(options){this.messages={create:async()=>options.fetch('https://api.anthropic.com/v1/messages')}}}
+ const provider=load('lib/content/character-production-replenishment-provider.ts',{'@anthropic-ai/sdk':{default:SDK},'./character-production-replenishment':core},{process:{env:{ANTHROPIC_API_KEY:'fixture'}},fetch})
+ const controller=new AbortController()
+ const complete=provider.createReplenishmentCompletion(guard=>{
+  network=bounded.createProductionFetch(controller.signal,async()=>{guard();outbound++;return new Response(null)})
+  return (input,init)=>{const pending=network.fetch(input,init);enabled=false;return pending}
+ })
+ await assert.rejects(complete({model:core.REPLENISHMENT_MODEL,max_tokens:1024,system:'fixture',messages:[]},controller.signal,()=>{if(!enabled)throw Error('revoked')}))
+ await network.whenSettled();assert.equal(outbound,0)
+})

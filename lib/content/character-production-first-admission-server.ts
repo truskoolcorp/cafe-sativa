@@ -83,7 +83,8 @@ export function createCafeFirstAdmissionOperation(){
    await current();const text=JSON.stringify(manifest)
    const result=await db.rpc('character_production_first_admit',{p_occurrence:c.occurrenceId,p_manifest_text:text}).abortSignal(signal).retry(false);check()
    if(result.error||!result.data)return {status:'held_admission_outcome' as const}
-   const record=result.data as Accepted;if(record.manifest!==text)throw Error('Admission manifest changed')
+   const record=result.data as Accepted&{currentAuthority?:boolean};if(record.manifest!==text)throw Error('Admission manifest changed')
+   if(record.currentAuthority!==true)return {status:'original_enrollment_retained' as const,enrollment:accepted(record),currentAuthorityVerified:false as const}
    return {status:'first_enrollment_admitted' as const,enrollment:accepted(record),planned:false as const,paidProviderCalls:0 as const}
   })();return await work
  },async whenSettled(){closing=true;const done=await Promise.allSettled(work?[work]:[]);while(pending.size)await Promise.allSettled([...pending]);const drains=await Promise.allSettled([recovery?.whenSettled(),...mediaDrains.map(d=>d()),network?.whenSettled()]);if([...done,...drains].some(x=>x.status==='rejected'))throw Error('First admission settled with failure')}}

@@ -1,5 +1,5 @@
 """Isolated PG17 rehearsal: original preparation context only, never providers/live."""
-import concurrent.futures,json,hashlib,subprocess
+import concurrent.futures,json,hashlib,subprocess,threading
 import validate_ledger as db
 import validate_planner_install as foundation
 from validate_enrolled_reads_install import verbatim_run
@@ -72,8 +72,23 @@ def suite():
  IF c->'identity'='null'::jsonb OR c->'identity'->>'textAttemptToken' IS DISTINCT FROM token::text OR c->>'textKey' IS DISTINCT FROM k OR public.character_production_preparation_claim((c->>'occurrenceId')::uuid,'speech') THEN RAISE EXCEPTION 'historical original identity/replay'; END IF;
  END $$;"""
  db.run('BEGIN; SET ROLE character_production_owner; '+history+' ROLLBACK;')
- with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool: contexts=list(pool.map(lambda _:read(),range(2)))
- c=contexts[0];assert c and c==contexts[1] and c['active'] is True and c['identity'] is None
+ # A different lane already owning today's unique key must yield NULL, not
+ # an adopted occurrence or a unique-key exception. This is fixture-only setup.
+ conflict=lane.split("; INSERT INTO character_production.preparation_binding")[0].replace(L,OTHER)+";"
+ db.run("BEGIN; SET ROLE character_production_owner; "+conflict+" INSERT INTO character_production.preparation_occurrences(lane_id,text_key) VALUES('"+OTHER+"','daily:'||to_char(clock_timestamp() AT TIME ZONE 'America/Chicago','YYYY-MM-DD')||':zaria-solenne'); DO $$ BEGIN IF "+CTX+" IS NOT NULL OR EXISTS(SELECT 1 FROM character_production.preparation_occurrences WHERE lane_id='"+L+"') THEN RAISE EXCEPTION 'other lane occurrence adopted'; END IF; END $$; ROLLBACK;")
+ # Synchronize first admission, then repeatedly exercise concurrent recovery.
+ # No reset, deletion or fabricated new key between rounds.
+ for round_index in range(8):
+  barrier=threading.Barrier(8)
+  def simultaneous_read(_):
+   barrier.wait(timeout=30)
+   return read()
+  with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool: contexts=list(pool.map(simultaneous_read,range(8)))
+  c=contexts[0]
+  assert c and all(item==c for item in contexts) and c['active'] is True and c['identity'] is None
+  if round_index==0: original_occurrence=c['occurrenceId']
+  assert c['occurrenceId']==original_occurrence
+  db.check('(SELECT count(*)=1 FROM character_production.preparation_occurrences)','concurrent original context stable')
  key=c['textKey'];occ=c['occurrenceId']
  assert key==owner("SELECT 'daily:'||to_char(clock_timestamp() AT TIME ZONE 'America/Chicago','YYYY-MM-DD')||':zaria-solenne'")
  db.check('(SELECT count(*)=1 FROM character_production.preparation_occurrences)','one original context')

@@ -100,9 +100,11 @@ BEGIN
  active:=active AND (c.quote->>'observedAt')::numeric<=extract(epoch FROM stamp)*1000 AND (c.quote->>'expiresAt')::numeric>extract(epoch FROM stamp)*1000 AND (c.quote->>'expiresAt')::numeric<=(c.quote->>'observedAt')::numeric+86400000;
  IF r.occurrence_id IS NULL THEN
   IF active IS DISTINCT FROM true OR expiry<=stamp+interval '5 minutes' OR EXISTS(SELECT 1 FROM character_production.scheduler_binding) THEN RETURN NULL; END IF;
-  INSERT INTO character_production.first_admission_records(occurrence_id,lane_id,generation_at) VALUES(o.id,c.lane_id,date_trunc('milliseconds',stamp+interval '5 minutes')) ON CONFLICT(occurrence_id) DO NOTHING;
+  INSERT INTO character_production.first_admission_records(occurrence_id,lane_id,generation_at) VALUES(o.id,c.lane_id,date_trunc('milliseconds',stamp+interval '5 minutes')) ON CONFLICT DO NOTHING;
   SELECT * INTO r FROM character_production.first_admission_records WHERE occurrence_id=o.id FOR UPDATE;
  END IF;
+ -- Any unique collision must reconcile to this exact original occurrence/lane.
+ IF r.occurrence_id IS DISTINCT FROM o.id OR r.lane_id IS DISTINCT FROM c.lane_id THEN RETURN NULL; END IF;
  active:=active AND r.generation_at>stamp AND r.generation_at<expiry;
  IF EXISTS(SELECT 1 FROM character_production.scheduler_binding b WHERE b.enrollment_id<>r.enrollment_id OR NOT b.enabled) THEN active:=false; END IF;
  RETURN jsonb_build_object('active',coalesce(active,false),'occurrenceId',o.id,'identity',prep->'identity','actorId',l.actor_id,'policyId',p.id,'policyRevision',p.revision,'period',p.period,'capCents',p.cap_cents,'expiresAt',floor(extract(epoch FROM expiry)*1000)::bigint,'theme',c.theme,'ownerEvidenceRef',p.owner_evidence->>'evidenceRef','generationAt',to_char(r.generation_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'draftId',r.draft_id,'enrollmentId',r.enrollment_id,'image',c.image,'account',c.account,'quote',c.quote,'rightsEvidenceRef',c.rights_evidence_ref,'accepted',CASE WHEN r.manifest_text IS NOT NULL THEN jsonb_build_object('id',r.enrollment_id,'manifestSha256',r.manifest_sha256,'ordinals',jsonb_build_array(0),'manifest',r.manifest_text) END);

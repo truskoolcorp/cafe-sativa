@@ -1,7 +1,7 @@
 """Isolated PG17 first-admission contract. Synthetic media proofs, no providers.
 Real text/preparation/planner/scheduler functions; never install into live DB.
 """
-import concurrent.futures,copy,hashlib,json,subprocess
+import concurrent.futures,copy,hashlib,json,subprocess,threading
 import validate_ledger as db
 import validate_planner_install as foundation
 from validate_enrolled_reads_install import verbatim_run
@@ -73,9 +73,19 @@ def suite():
   except RuntimeError as e:
    if 'could not obtain lock' not in str(e):raise
    return None
- with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool: cs=list(pool.map(lambda _:contender(context),range(2)))
- assert any(cs),cs
- ctx=context();assert ctx and all(x is None or x==ctx for x in cs) and ctx['active'] is True and ctx['accepted'] is None
+ # Existing NOWAIT policy lock may reject contenders; successful/reconciled
+ # reads must always retain the same allocated IDs/time, with no reset.
+ for round_index in range(8):
+  barrier=threading.Barrier(8)
+  def concurrent_context(_):
+   barrier.wait(timeout=30)
+   return contender(context)
+  with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool: cs=list(pool.map(concurrent_context,range(8)))
+  assert any(cs),cs
+  ctx=context();assert ctx and all(x is None or x==ctx for x in cs) and ctx['active'] is True and ctx['accepted'] is None
+  if round_index==0: original_context=ctx
+  assert ctx==original_context
+  db.check('(SELECT count(*)=1 FROM character_production.first_admission_records)','one immutable admission allocation')
  assert ctx['occurrenceId']==occ and ctx['identity']['textAttemptToken']==token
  # Synthetic native proof mirrors existing verified binding shapes, not evidence
  # that a provider produced audio. The trusted JS layer must verify real bytes.

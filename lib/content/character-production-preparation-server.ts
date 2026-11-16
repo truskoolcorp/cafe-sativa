@@ -1,3 +1,4 @@
+import {probeTextReceipt} from './character-production-text-receipt-probe'
 import 'server-only'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {createProductionFetch} from './character-production-bounded-fetch'
@@ -27,11 +28,15 @@ function createPreparationOperation(allowed:()=>boolean,recovery:boolean){
    const read=async():Promise<Context|null>=>{check();const r=await db.rpc(recovery?'character_production_private_recovery_context':'character_production_preparation_context',{}).abortSignal(signal).retry(false);check();if(r.error)throw Error('Preparation context unavailable');if(r.data===null)return null;const c=r.data as Context;if(!c||Object.keys(c).sort().join(',')!=='active,identity,lease,occurrenceId,sourceScope,speechStarted,textKey,textStarted,textState'||! /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(c.occurrenceId)||!/^daily:\d{4}-\d{2}-\d{2}:zaria-solenne$/.test(c.textKey)||typeof c.active!=='boolean'||typeof c.textStarted!=='boolean'||typeof c.speechStarted!=='boolean')throw Error('Exact preparation context required');return structuredClone(c)}
    const original=await read();if(!original)return {status:'unconfigured' as const}
    const current=async()=>{const c=await read();if(!c?.active||c.occurrenceId!==original.occurrenceId||c.textKey!==original.textKey||c.textKey!==`daily:${day()}:zaria-solenne`||JSON.stringify([c.sourceScope,c.lease,c.identity])!==JSON.stringify([original.sourceScope,original.lease,original.identity]))throw Error('Preparation authority or identity changed');check()}
-   const claim=async(phase:'text'|'speech')=>{await current();const r=await db.rpc(recovery?'character_production_private_recovery_claim':'character_production_preparation_claim',recovery?{p_occurrence:original.occurrenceId}:{p_occurrence:original.occurrenceId,p_phase:phase}).abortSignal(signal).retry(false);check();if(r.error)throw Error('Preparation phase claim unknown');return r.data===true}
+   const claim=async(phase:'text'|'speech')=>{await current();if(phase==='text'&&(process.env.CS_CHARACTER_TEXT_REPLENISHMENT_ENABLED!=='true'||process.env.CS_CHARACTER_TEXT_RECEIPT_EVIDENCE_ENABLED!=='true'))throw Error('Text preparation disabled');const r=await db.rpc(recovery?'character_production_private_recovery_claim':'character_production_preparation_claim',recovery?{p_occurrence:original.occurrenceId}:{p_occurrence:original.occurrenceId,p_phase:phase}).abortSignal(signal).retry(false);check();if(r.error)throw Error('Preparation phase claim unknown');return r.data===true}
    if(recovery&&original.identity)return {status:'held_original_text' as const}
    if(!original.identity){
     if(original.textStarted||original.textState!==null)return {status:'held_original_text' as const}
     if(!original.active||!original.sourceScope||!original.lease||original.textKey!==`daily:${day()}:zaria-solenne`)return {status:'held_authority' as const}
+    if(original.textKey==='daily:2026-11-16:zaria-solenne')return {status:'held_original_text' as const}
+    if(process.env.CS_CHARACTER_TEXT_REPLENISHMENT_ENABLED!=='true'||process.env.CS_CHARACTER_TEXT_RECEIPT_EVIDENCE_ENABLED!=='true')return {status:'held_text_disabled' as const}
+    const receiptReady=await probeTextReceipt(args=>db.rpc('character_production_text_receipt',args).abortSignal(signal).retry(false));check()
+    if(!receiptReady)return {status:'held_receipt_unavailable' as const}
     if(!await claim('text'))return {status:'held_original_text' as const}
     const operation=createReplenishmentOperation({scope:original.sourceScope,lease:original.lease,deadlineMs:80000,expectedKey:original.textKey,current});child=operation
     const result=await operation.run(signal);await operation.whenSettled();check();return {status:'text_phase_finished' as const,result}

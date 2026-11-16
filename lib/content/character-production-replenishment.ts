@@ -1,3 +1,4 @@
+import {createTextReceiptCompletion,type TextReceiptEvidence,TextReceiptError} from './character-production-text-receipt-evidence'
 import {createHash} from 'node:crypto'
 /** Draft replenishment only. Never fabricates speech/media approvals or a ready
  * ProductionSlot. A changed script requires new verified audio/binding evidence. */
@@ -28,11 +29,12 @@ export function parseFreshEditorial(raw:unknown,source:Pick<ReplenishmentSource,
  for(const m of prose.matchAll(/@([a-zA-Z0-9_.]+)/g))if(!source.verifiedHandles.includes(m[1]))throw Error('Unverified mention')
  return structuredClone(x)
 }
-export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>number;load:()=>Promise<ReplenishmentSource>;store:ReplenishmentStore;complete:(request:{model:typeof REPLENISHMENT_MODEL;max_tokens:1024;system:string;messages:{role:'user';content:string}[]},signal:AbortSignal,dispatchGuard:()=>void)=>Promise<unknown>}){
+export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>number;load:()=>Promise<ReplenishmentSource>;store:ReplenishmentStore;receipt?:{ready(signal:AbortSignal):Promise<boolean>;persist(identity:{key:string;token:string;sourceDigest:string},evidence:TextReceiptEvidence,signal:AbortSignal):Promise<boolean>};complete:(request:{model:typeof REPLENISHMENT_MODEL;max_tokens:1024;system:string;messages:{role:'user';content:string}[]},signal:AbortSignal,dispatchGuard:()=>void)=>Promise<unknown>}){
  let used=false
  return {async produce(cadenceKey:string,lease:ReplenishmentLease,signal:AbortSignal){
   if(used)throw Error('Attempt consumed');used=true
   const checked=()=>{signal.throwIfAborted();const now=d.now();if(!d.enabled()||!Number.isSafeInteger(now)||!lease.id||!lease.rateEvidence||lease.model!==REPLENISHMENT_MODEL||lease.expiresAt<=now||lease.period!==period(now)||!Number.isSafeInteger(lease.maxCostCents)||lease.maxCostCents<=0||!Number.isSafeInteger(lease.monthlyCapCents)||lease.monthlyCapCents<lease.maxCostCents)throw Error('Separate text budget required');return now}
+  if(cadenceKey==='daily:2026-11-16:zaria-solenne')throw new TextReceiptError('frozen_attempt')
   const frozenLease=structuredClone(lease);lease=frozenLease;checked()
   if(!/^[a-z0-9][a-z0-9:/_-]{0,159}$/.test(cadenceKey))throw Error('Invalid cadence key')
   const source=structuredClone(await d.load()),now=checked()
@@ -43,6 +45,8 @@ export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>n
   const request={model:REPLENISHMENT_MODEL,max_tokens:1024 as const,system:REPLENISHMENT_PROMPT+(source.characterId==='zaria-solenne'&&source.roomKey==='gallery'?' For this Zaria Gallery draft, spokenScript must contain at most 250 Unicode code points, including spaces and punctuation. Aim for a complete natural 8–20 second spoken concept within that limit. Do not return truncated sentences.':''),messages:[{role:'user' as const,content:JSON.stringify(source)}]}
   const inputBound=Buffer.byteLength(JSON.stringify(request),'utf8')+8192
   if(![lease.inputMicroUsdPerToken,lease.outputMicroUsdPerToken].every(x=>Number.isSafeInteger(x)&&x>0)||Math.ceil((inputBound*lease.inputMicroUsdPerToken+1024*lease.outputMicroUsdPerToken)/10000)>lease.maxCostCents)throw Error('Insufficient verified worst-case text quote')
+  if(d.receipt&&!await d.receipt.ready(signal))throw new TextReceiptError('receipt_persistence_unconfirmed')
+  checked()
   const token=await d.store.claim({key:cadenceKey,sourceDigest,source:structuredClone(source),lease:structuredClone(frozenLease)});checked();if(!token)return {status:'already_claimed' as const}
   // No second completion on parse failure, timeout, lost receipt or source change.
   const current=structuredClone(await d.load());checked()
@@ -50,7 +54,8 @@ export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>n
   const dispatchGuard=()=>{const dispatchAt=checked(),dispatchDay=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(dispatchAt)
   if(current.observedAt>dispatchAt||dispatchAt-current.observedAt>60000||cadenceKey!==`daily:${dispatchDay}:${source.characterId}`)throw Error('Dispatch source or cadence expired')}
   dispatchGuard()
-  const response=await d.complete(request,signal,dispatchGuard);checked()
+  const completion=d.receipt?createTextReceiptCompletion({attemptKey:cadenceKey,complete:d.complete,persist:(evidence,s)=>d.receipt!.persist({key:cadenceKey,token,sourceDigest},evidence,s)}):undefined
+  const response=await (completion?completion.complete(request,signal,dispatchGuard):d.complete(request,signal,dispatchGuard));checked()
   const r=response as {id?:string;stop_reason?:string;content?:{type:string;text:string}[];usage?:{input_tokens:number;output_tokens:number}}
   if(!r||!text(r.id,200)||r.stop_reason!=='end_turn'||r.content?.length!==1||r.content[0].type!=='text'||!text(r.content[0].text,10000)||!Number.isSafeInteger(r.usage?.input_tokens)||r.usage!.input_tokens<=0||!Number.isSafeInteger(r.usage?.output_tokens)||r.usage!.output_tokens<=0||r.usage!.output_tokens>1024)throw Error('Model receipt unconfirmed')
   const output=parseFreshEditorial(JSON.parse(r.content[0].text),source)

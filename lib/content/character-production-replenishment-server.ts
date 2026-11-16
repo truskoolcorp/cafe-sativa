@@ -1,3 +1,4 @@
+import {probeTextReceipt} from './character-production-text-receipt-probe'
 import 'server-only'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {createProductionFetch} from './character-production-bounded-fetch'
@@ -17,11 +18,12 @@ export function createReplenishmentOperation(config:{scope:ReplenishmentSourceSc
  let consumed=false,closing=false,work:Promise<unknown>|undefined
  let providerNetwork:ReturnType<typeof createProductionFetch>|undefined
  let network:ReturnType<typeof createProductionFetch>|undefined,sources:ReturnType<typeof openReplenishmentSources>|undefined
- const enabled=()=>process.env.CS_CHARACTER_TEXT_REPLENISHMENT_ENABLED==='true'
+ const enabled=()=>process.env.CS_CHARACTER_TEXT_REPLENISHMENT_ENABLED==='true'&&process.env.CS_CHARACTER_TEXT_RECEIPT_EVIDENCE_ENABLED==='true'
  return {
   async run(parent:AbortSignal){
    if(consumed||closing||parent.aborted||!enabled())return {status:'disabled' as const}
    consumed=true
+   const deadlineAt=Date.now()+deadline
    const signal=AbortSignal.any([parent,AbortSignal.timeout(deadline)])
    work=(async()=>{
     signal.throwIfAborted();await current?.();network=createProductionFetch(signal);const db=createAdminClient(network.fetch)
@@ -32,10 +34,27 @@ export function createReplenishmentOperation(config:{scope:ReplenishmentSourceSc
      signal.throwIfAborted();return result
     }})
     const complete=createReplenishmentCompletion(guard=>{
-     providerNetwork=createProductionFetch(signal,async(input,init)=>{await current?.();init?.signal?.throwIfAborted();guard();return fetch(input,init)})
+     providerNetwork=createProductionFetch(signal,async(input,init)=>{await current?.();init?.signal?.throwIfAborted();if(!enabled()||deadlineAt-Date.now()<25000)throw Error('Text dispatch deadline or capability unavailable');guard();return fetch(input,init)})
      return providerNetwork.fetch
     })
-    const operation=createFreshCandidateReplenisher({enabled,now:Date.now,load:()=>sources!.load(),store,complete})
+    // Negative probe exercises the exact installed receipt signature/permission.
+    // Reviewed SQL rejects all-null metadata before any mutation. Missing RPC,
+    // missing grant, transport error or unexpected result holds before claim.
+    const receipt={
+     async ready(s:AbortSignal){
+      s.throwIfAborted();if(!enabled())return false
+      const ready=await probeTextReceipt(args=>db.rpc('character_production_text_receipt',args).abortSignal(s).retry(false))
+      s.throwIfAborted();return enabled()&&ready
+     },
+     async persist(identity:{key:string;token:string;sourceDigest:string},e:import('./character-production-text-receipt-evidence').TextReceiptEvidence,s:AbortSignal){
+      s.throwIfAborted();if(!enabled())return false
+      // Evidence is not authority: no fresh lease/source lookup after dispatch.
+      // Original deadline and tracked transport still apply, never detached.
+      const r=await db.rpc('character_production_text_receipt',{p_key:identity.key,p_token:identity.token,p_digest:identity.sourceDigest,p_provider_id:e.providerId,p_request_id:e.requestId,p_model:e.model,p_stop_reason:e.stopReason,p_input_tokens:e.inputTokens,p_output_tokens:e.outputTokens,p_response_sha256:e.responseSha256}).abortSignal(s).retry(false)
+      s.throwIfAborted();return !r.error&&r.data===true
+     },
+    }
+    const operation=createFreshCandidateReplenisher({enabled,now:Date.now,load:()=>sources!.load(),store,complete,receipt})
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(Date.now())
     const part=(type:string)=>parts.find(p=>p.type===type)!.value
     const key=`daily:${part('year')}-${part('month')}-${part('day')}:${scope.characterId}`

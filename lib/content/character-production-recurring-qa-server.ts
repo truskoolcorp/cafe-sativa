@@ -11,6 +11,7 @@ export function createRecurringQaSession(signal:AbortSignal,selection?:Pick<Retu
  let session:ReturnType<typeof openPrivateQaSession>|undefined
  let selected=false,read=false,used=false
  const enabled=()=>process.env.CS_CHARACTER_QA_BRIDGE_ENABLED==='true'
+ const check=()=>{signal.throwIfAborted();if(!enabled())throw Error('QA disabled')}
  const runner=createRecurringPrivateQa({enabled,limit:1,open:()=>{
   signal.throwIfAborted()
   if(!session)throw Error('QA session not selected')
@@ -20,10 +21,10 @@ export function createRecurringQaSession(signal:AbortSignal,selection?:Pick<Retu
   async next(callSignal){
    signal.throwIfAborted();callSignal.throwIfAborted()
    if(callSignal!==signal||!enabled()||read)throw Error('QA selection unavailable')
-   read=true;const backend=openPrivateQaSession(signal)
-   session=selection?{...backend,rpc:{async rpc(name,args){
-    signal.throwIfAborted();const result=name==='character_production_qa_ready_slots'?{data:[await selection.readQa()],error:null}:await backend.rpc.rpc(name,args);signal.throwIfAborted();return result
-   }}}:backend
+   read=true;const backend=openPrivateQaSession(signal,check)
+   session={...backend,rpc:{async rpc(name,args){
+    check();const result=name==='character_production_qa_ready_slots'&&selection?{data:[await selection.readQa()],error:null}:await backend.rpc.rpc(name,args);check();return result
+   }},bridge:{async ingest(key,digest){check();const result=await backend.bridge.ingest(key,digest);check();return result}}}
    const result=await session.rpc.rpc('character_production_qa_ready_slots',{p_limit:1})
    signal.throwIfAborted()
    if(result.error||!Array.isArray(result.data)||result.data.length>1)throw Error('QA queue unconfirmed')

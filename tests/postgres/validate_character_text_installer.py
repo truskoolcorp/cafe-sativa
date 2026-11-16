@@ -16,7 +16,11 @@ def fails(sql,label):
 def main():
  assert os.environ.get('PG_DISPOSABLE_TEST_CONFIRM')=='yes' and os.environ.get('PG_TEST_SERVER')=='1'
  assert os.environ.get('PGHOST') in ['127.0.0.1','localhost','::1']
- run("""DO $$ BEGIN IF current_setting('server_version_num')::int NOT BETWEEN 170000 AND 179999 OR to_regnamespace('character_production') IS NOT NULL OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_admin') THEN RAISE EXCEPTION 'Fresh isolated PG17 required'; END IF; END $$;
+ assert os.environ.get('PGUSER')=='ci_bootstrap'
+ run("""DO $$ BEGIN IF current_user<>'ci_bootstrap' OR current_user<>session_user OR NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname='postgres') OR current_setting('server_version_num')::int NOT BETWEEN 170000 AND 179999 OR to_regnamespace('character_production') IS NOT NULL OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_admin') THEN RAISE EXCEPTION 'Fresh isolated PG17 required'; END IF; END $$;
+ -- Bootstrap stays superuser. Rehearsal uses a separate genuine login session.
+ CREATE ROLE postgres LOGIN NOSUPERUSER INHERIT CREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD 'synthetic-ci-only';
+ DO $$ BEGIN EXECUTE format('ALTER DATABASE %I OWNER TO postgres',current_database()); END $$;
  CREATE ROLE supabase_admin SUPERUSER NOLOGIN;
  CREATE ROLE character_production_owner NOLOGIN NOINHERIT;
  CREATE ROLE service_role NOLOGIN INHERIT BYPASSRLS;
@@ -33,8 +37,9 @@ def main():
  RESET ROLE;
  REVOKE CREATE ON SCHEMA public FROM PUBLIC;
  GRANT USAGE ON SCHEMA public TO character_production_owner,service_role,anon,authenticated;
- ALTER ROLE postgres NOSUPERUSER CREATEROLE;
  """)
+ os.environ['PGUSER']='postgres'
+ assert run("SELECT current_user='postgres' AND session_user='postgres' AND NOT rolsuper AND rolcreaterole FROM pg_roles WHERE rolname=current_user;")=='t'
  before=capture()
  source=(db.ROOT/'docs/proposals/character-production-replenishment.sql').read_text()
  body=source.split('\nBEGIN;',1)[1].rsplit('\nROLLBACK;',1)[0]

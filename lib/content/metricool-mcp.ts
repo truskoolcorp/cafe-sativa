@@ -4,14 +4,14 @@ export class MetricoolHttpError extends Error {
   constructor(readonly status:number) { super('Metricool MCP HTTP request failed'); this.name='MetricoolHttpError' }
 }
 // Shared narrow MCP transport. Callers control read-only proof versus separately gated dispatch; no automatic refresh or retry.
-export async function metricoolSession(token:string,signal?:AbortSignal) {
+export async function metricoolSession(token:string,signal?:AbortSignal,fetcher:typeof fetch=fetch) {
   let session:string|null=null
   const deadline=Date.now()+25000
   async function rpc(id:number|null,method:string,params:unknown) {
     const headers:Record<string,string>={'Authorization':`Bearer ${token}`,'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2025-06-18'}
     if(session)headers['Mcp-Session-Id']=session
     if(signal?.aborted||Date.now()>=deadline)throw new Error('Metricool read deadline expired')
-    const response=await fetch(METRICOOL_MCP,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',...(id===null?{}:{id}),method,params}),cache:'no-store',redirect:'error',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.max(1,deadline-Date.now()))]):AbortSignal.timeout(Math.max(1,deadline-Date.now()))})
+    const response=await fetcher(METRICOOL_MCP,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',...(id===null?{}:{id}),method,params}),cache:'no-store',redirect:'error',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.max(1,deadline-Date.now()))]):AbortSignal.timeout(Math.max(1,deadline-Date.now()))})
     if(!response.ok)throw new MetricoolHttpError(response.status)
     session=response.headers.get('mcp-session-id') || session
     if(id===null){await response.body?.cancel();return null}

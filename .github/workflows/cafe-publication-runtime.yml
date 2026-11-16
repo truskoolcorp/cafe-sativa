@@ -1,0 +1,24 @@
+name: Café publication runtime
+on:
+  pull_request:
+    paths:
+      - 'lib/content/character-production-publication-*.ts'
+      - 'lib/content/character-promo-cafe-dispatch-server.ts'
+      - 'lib/content/metricool-mcp.ts'
+      - 'tests/character-production-publication-*.test.cjs'
+      - 'tests/character-promo-cafe-dispatch-server.test.cjs'
+      - 'docs/proposals/cafe-publication-next.sql'
+      - '.github/workflows/cafe-publication-runtime.yml'
+  workflow_dispatch:
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/character-production-publication-route.test.cjs tests/character-production-publication-runtime.test.cjs tests/character-promo-cafe-dispatch-server.test.cjs
+      - run: npx tsc --noEmit --pretty false

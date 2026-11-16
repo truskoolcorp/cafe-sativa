@@ -45,9 +45,11 @@ BEGIN
  SELECT * INTO o FROM character_production.preparation_occurrences WHERE lane_id=l.id;
  IF o.id IS NULL THEN
   IF active IS DISTINCT FROM true OR NOT b.enabled OR b.expires_at<=stamp OR b.period<>to_char(stamp AT TIME ZONE 'America/Chicago','YYYY-MM') THEN RETURN NULL; END IF;
-  INSERT INTO character_production.preparation_occurrences(lane_id,text_key) VALUES(l.id,'daily:'||to_char(stamp AT TIME ZONE 'America/Chicago','YYYY-MM-DD')||':zaria-solenne') ON CONFLICT(lane_id) DO NOTHING;
+  INSERT INTO character_production.preparation_occurrences(lane_id,text_key) VALUES(l.id,'daily:'||to_char(stamp AT TIME ZONE 'America/Chicago','YYYY-MM-DD')||':zaria-solenne') ON CONFLICT DO NOTHING;
   SELECT * INTO o FROM character_production.preparation_occurrences WHERE lane_id=l.id;
  END IF;
+ -- A competing unique text_key may belong to another lane. Never adopt it.
+ IF o.id IS NULL OR o.lane_id IS DISTINCT FROM l.id THEN RETURN NULL; END IF;
  SELECT * INTO a FROM character_production.text_replenishment_attempts WHERE key=o.text_key;
  IF a.key IS NOT NULL AND (a.budget_id<>l.budget_id OR a.source_snapshot->>'characterId' IS DISTINCT FROM 'zaria-solenne' OR a.source_snapshot->>'roomKey' IS DISTINCT FROM 'gallery') THEN RETURN NULL; END IF;
  IF o.text_started AND a.created_at>=o.created_at AND a.state='awaiting_audio_binding_and_qa' AND a.provider_id IS NOT NULL AND jsonb_typeof(a.output->'spokenScript')='string' THEN

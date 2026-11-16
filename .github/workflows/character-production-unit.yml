@@ -25,6 +25,7 @@ on:
       - 'tests/character-production-recurring-*-server.test.cjs'
       - 'tests/character-production-selected-*.test.cjs'
       - 'tests/character-production-replenishment*.test.cjs'
+      - 'tests/character-production-zaria-text-limit.test.cjs'
       - 'tests/character-production-fresh-speech*.test.cjs'
       - 'docs/proposals/character-production-*.sql'
       - '.github/workflows/character-production-unit.yml'
@@ -49,7 +50,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: python3 -m unittest discover -s tests/scripts -p test_cafe_standing_install.py
-      - run: node --test tests/character-production-fresh-speech*.test.cjs tests/character-production-replenishment*.test.cjs tests/character-production-selected-*.test.cjs tests/character-production-recurring-*-server.test.cjs tests/character-promo-cafe-*.test.cjs tests/character-production-*.test.mjs tests/character-promo-external-receipts.test.mjs
+      - run: node --test tests/character-production-zaria-text-limit.test.cjs tests/character-production-fresh-speech*.test.cjs tests/character-production-replenishment*.test.cjs tests/character-production-selected-*.test.cjs tests/character-production-recurring-*-server.test.cjs tests/character-promo-cafe-*.test.cjs tests/character-production-*.test.mjs tests/character-promo-external-receipts.test.mjs
       # Server composition intentionally uses the existing Next backend and @/
       # aliases. Keep strict checking, with the actual deployment project config.
       - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false

@@ -34,7 +34,7 @@ export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedF
      if(r.error||!r.data||typeof r.data!=='object'||Object.keys(r.data).sort().join(',')!=='attempt,authority,scopeId'||! /^[a-f0-9-]{36}$/.test(r.data.scopeId)||r.data.attempt?.key!==key)throw Error('Current fresh speech source unavailable')
      return structuredClone(r.data) as Snapshot
     }
-    const original=await read();if(identity&&(identity.textAttemptKey!==original.attempt.key||identity.textAttemptToken!==original.attempt.token||identity.textSourceDigest!==original.attempt.source_digest||identity.scriptSha256!==createHash('sha256').update(original.attempt.output.spokenScript).digest('hex')))throw Error('Original preparation identity changed');const fingerprint=replenishmentDigest(original)
+    const original=await read(),script=(original.attempt.output as {spokenScript?:unknown}|null)?.spokenScript;if(identity&&(identity.textAttemptKey!==original.attempt.key||identity.textAttemptToken!==original.attempt.token||identity.textSourceDigest!==original.attempt.source_digest||typeof script!=='string'||identity.scriptSha256!==createHash('sha256').update(script).digest('hex')))throw Error('Original preparation identity changed');const fingerprint=replenishmentDigest(original)
     const current=async()=>{const v=await read();if(replenishmentDigest(v)!==fingerprint)throw Error('Speech source or authority changed');if(Date.now()>=v.authority.expiresAt)throw Error('Speech authority expired')}
     const canon=async()=>{active();const body=await liveGlyphCharacters(signal);active();return normalizePromoCanon(body,'zaria-solenne',new Date().toISOString())}
     const operation=bindFreshIncludedSpeech(original.attempt,await canon(),original.authority,Date.now())

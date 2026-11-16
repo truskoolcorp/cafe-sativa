@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/preparation-context-postgres.yml'
+      - 'lib/content/character-production-preparation-server.ts'
+      - 'lib/content/character-production-fresh-speech-server.ts'
+      - 'lib/content/character-production-replenishment-server.ts'
+      - 'tests/character-production-preparation-server.test.cjs'
+      - 'tests/character-production-fresh-speech-server.test.cjs'
+      - 'tests/character-production-replenishment-server.test.cjs'
       - 'docs/proposals/character-production-replenishment.sql'
       - 'tests/postgres/validate_preparation_context.py'
       - 'docs/proposals/character-production-preparation-context.sql'

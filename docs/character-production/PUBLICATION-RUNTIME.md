@@ -12,6 +12,8 @@ New authority candidates require current generation membership, actual hash-boun
 
 The runtime currently snapshots a finite semantic lease. This is suitable only for a reviewed finite run, not indefinitely recurring editorial review after lease expiry/exhaustion. Sustainable review needs a separately authorized per-occurrence lease source. It must not re-use stale authority or increase spending.
 
+CS_CAFE_PUBLICATION_RUNTIME_ENABLED is an admission gate, not a universal immediate kill switch. Already-admitted semantic/authority work remains governed by its own finite lease, stage flags, capability checks and abort signal. Dispatch additionally propagates the gate to native I/O; this stronger dispatch behavior must not be represented as covering every stage.
+
 Native dispatch fetch checks both the operation flag and upstream runtime gate immediately before network I/O. Existing callers of metricoolSession retain their default fetch behavior. RPC capability openers must also enforce abort/revocation at their native transport and expose original-operation settlement.
 
 ## Still required

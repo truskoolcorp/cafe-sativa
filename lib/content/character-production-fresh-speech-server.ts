@@ -1,0 +1,51 @@
+import 'server-only'
+import {createAdminClient} from '@/lib/supabase/admin'
+import {createProductionFetch} from './character-production-bounded-fetch'
+import {liveGlyphCharacters} from './glyph-live'
+import {normalizePromoCanon} from './character-promo-sources'
+import {replenishmentDigest} from './character-production-replenishment'
+import {bindFreshIncludedSpeech,type SavedTextAttempt,type FreshSpeechAuthority} from './character-production-fresh-speech-binding'
+import {runIncludedSpeechOperation} from './character-production-included-speech-operation'
+import {createIncludedOperationStore,createIncludedOperationProvider} from './character-production-included-speech-operation-io'
+import {measureIncludedMp3Duration} from './character-production-speech-duration'
+type Snapshot={scopeId:string;attempt:SavedTextAttempt;authority:FreshSpeechAuthority}
+/** Dormant exact daily Zaria operation. No caller-selected authority, key, voice,
+ * model, budget, script, RPC or public post. RPC grant is separately reviewed;
+ * no direct private-table fallback or implied authority from a text budget. */
+export function createFreshSpeechOperation(deadlineMs=85000){
+ if(!Number.isSafeInteger(deadlineMs)||deadlineMs<1000||deadlineMs>85000)throw Error('Invalid speech deadline')
+ const enabled=()=>process.env.CS_CHARACTER_FRESH_INCLUDED_SPEECH_ENABLED==='true'
+ let consumed=false,closing=false,work:Promise<unknown>|undefined,network:ReturnType<typeof createProductionFetch>|undefined,provider:ReturnType<typeof createIncludedOperationProvider>|undefined
+ return {
+  async run(parent:AbortSignal){
+   if(consumed||closing||parent.aborted||!enabled())return {status:'disabled' as const}
+   consumed=true
+   const signal=AbortSignal.any([parent,AbortSignal.timeout(deadlineMs)])
+   work=(async()=>{
+    const active=()=>{signal.throwIfAborted();if(!enabled())throw Error('Fresh speech disabled')}
+    active();network=createProductionFetch(signal);const db=createAdminClient(network.fetch)
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(Date.now()),part=(t:string)=>parts.find(p=>p.type===t)!.value
+    const key=`daily:${part('year')}-${part('month')}-${part('day')}:zaria-solenne`
+    const read=async():Promise<Snapshot>=>{
+     active();const r=await db.rpc('character_production_fresh_speech_source',{p_key:key}).abortSignal(signal).retry(false);active()
+     if(r.error||!r.data||typeof r.data!=='object'||Object.keys(r.data).sort().join(',')!=='attempt,authority,scopeId'||! /^[a-f0-9-]{36}$/.test(r.data.scopeId)||r.data.attempt?.key!==key)throw Error('Current fresh speech source unavailable')
+     return structuredClone(r.data) as Snapshot
+    }
+    const original=await read(),fingerprint=replenishmentDigest(original)
+    const current=async()=>{const v=await read();if(replenishmentDigest(v)!==fingerprint)throw Error('Speech source or authority changed');if(Date.now()>=v.authority.expiresAt)throw Error('Speech authority expired')}
+    const canon=async()=>{active();const body=await liveGlyphCharacters(signal);active();return normalizePromoCanon(body,'zaria-solenne',new Date().toISOString())}
+    const operation=bindFreshIncludedSpeech(original.attempt,await canon(),original.authority,Date.now())
+    const validate=async()=>{await current();const checked=bindFreshIncludedSpeech(original.attempt,await canon(),original.authority,Date.now());if(replenishmentDigest(checked)!==replenishmentDigest(operation))throw Error('Speech binding changed');await current();active()}
+    const base=createIncludedOperationStore(operation,db.storage,signal)
+    const gate=async<T>(action:()=>Promise<T>)=>{await current();const value=await action();await current();return value}
+    const store={preflight:()=>gate(()=>base.preflight()),claim:(b:Uint8Array)=>gate(()=>base.claim(b)),readClaim:()=>gate(()=>base.readClaim()),providerReceipt:(b:Uint8Array)=>gate(()=>base.providerReceipt(b)),readProviderReceipt:()=>gate(()=>base.readProviderReceipt()),audio:(b:Uint8Array,h:string)=>gate(()=>base.audio(b,h)),readAudio:(h:string,n:number)=>gate(()=>base.readAudio(h,n)),receipt:(b:Uint8Array)=>gate(()=>base.receipt(b)),readReceipt:()=>gate(()=>base.readReceipt())}
+    // Native fetch only: awaited fresh scope/canon checks happen inside the
+    // provider's actual POST boundary, followed by local deadline rechecks.
+    provider=createIncludedOperationProvider(operation,process.env.ELEVENLABS_API_KEY??'',signal,fetch,validate,active)
+    return runIncludedSpeechOperation(operation,{signal,now:Date.now,canon:validate,quota:()=>gate(()=>provider!.quota()),store,synthesize:()=>gate(()=>provider!.synthesize()),measureDuration:b=>gate(async()=>measureIncludedMp3Duration(b))})
+   })()
+   return await work
+  },
+  async whenSettled(){closing=true;const done=await Promise.allSettled(work?[work]:[]);const drained=await Promise.allSettled([network?.whenSettled(),provider?.whenSettled()]);if([...done,...drained].some(r=>r.status==='rejected'))throw Error('Fresh speech settled with failure')},
+ }
+}

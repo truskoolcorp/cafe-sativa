@@ -34,3 +34,31 @@ property, not add unchecked asynchronous preparation after the guard.
   receipts into the fresh production slot. No reuse of old intro audio.
 - No route, cron, scope row, grant or provider call accompanies this source.
   Private speech output still requires video, QA and publication authority.
+
+## Concrete dormant source/operation
+
+`character-production-fresh-speech-source.sql` proposes two owner-only private
+relations: immutable included-speech scopes and one named Zaria binding. Binding
+removal/disable/retarget revokes old scope. A scope requires an actual content
+admin, attributable owner-message references, explicit expiry at most31days,
+and disabled default. No rows are supplied. One public security-definer read
+RPC returns only today's exact saved Zaria attempt and current speech authority;
+no listing, arbitrary persona/model/script, resets or scope writes.
+
+`createFreshSpeechOperation` derives today's Dallas key, loads this RPC through
+existing service_role transport, reads live GLYPH and binds exact receipt.
+Each stage rereads current authority and immutable source fingerprint. Permanent
+claim, original provider receipt, byte hashes and measured audio use existing
+operation/storage code. Awaited final POST checks re-read authority/canon; a final
+synchronous enabled/deadline guard executes at native fetch. Database revocation
+is observed at the last read, not claimed atomic with the external provider.
+The operation is single-use, finite, defaults disabled, drains original work,
+independent GLYPH work and provider/storage transports before releasing admission.
+
+New access approval would need exactly
+`public.character_production_fresh_speech_source(text)` EXECUTE for service_role,
+including Storage admin's existing indirect SET ROLE path. This is additional to
+the three text-generation capabilities. No table access is needed or proposed.
+Private scope provisioning and enabling the new flag are separate material steps,
+not authorized by merging source or supplying a text-generation budget. No live
+installation, scope enrollment, route/cron, provider call or activation occurs here.

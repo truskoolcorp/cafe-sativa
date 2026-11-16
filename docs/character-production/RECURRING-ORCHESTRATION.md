@@ -58,3 +58,27 @@ outstanding. QA queue head starvation from existing frozen drafts remains an
 operational limitation; do not activate recurrence until durable backoff or
 reviewed eligibility handling is available. Database mocks exercise the real
 runner, but do not prove live eligible content, grants or storage-copy success.
+
+## Original provider-task collection binding
+
+`createRecurringCollectionSession` uses the existing production composition with
+no paid-dispatch budget and a collection-only RPC allowlist. It selects from the
+actual pending-task store, re-reads through the real engine, and collects at most
+one original provider task per tick. It never invokes the coordinator that could
+submit new work. Private output stays behind the existing broker's current exact
+authorization and byte readback. A queue disappearing is idle, not publication.
+Revocation, malformed records and uncertain provider/storage receipts hold.
+
+This factory is not registered and does not instantiate or extend the expired
+canary manifest. Its deployment alone enables nothing. Tests exercise the real
+engine, store and broker with synthetic provider/storage boundaries; no live run
+or media QA is claimed. Runtime grants, approved current manifest, the other
+phase adapters and durable fair selection remain separate requirements.
+
+Durable fairness cannot be implemented by a process-local cursor: production's
+current scheduler tables have no per-item next-check/hold cursor. The next
+reviewed database proposal must bind backoff to exact enrollment, phase and item
+identity, prioritize unfinished original task receipts, allow eligible unrelated
+QA items to progress, and never release or reclaim a paid/unknown claim. This is
+not permission to install a new table, grant, retry, or reactivate old slots.
+

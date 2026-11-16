@@ -63,9 +63,12 @@ def main():
  terminal=lambda:own('public.cs_cafe_publication_terminal('+q(D)+')')
  assert terminal()=='f'
  db.run("INSERT INTO public.cs_character_promo_drafts(id,character_id,promo_key,specialty,title,spoken_script,visual_brief,duration_seconds,status,updated_at) VALUES('"+D+"','synthetic-persona','receipt-fixture-only','fixture','Fixture title','Fixture only','Synthetic fixture',10,'draft',clock_timestamp())")
+ db.check("NOT has_table_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','UPDATE') AND has_column_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','id','UPDATE')",'lock-only column privilege')
+ fail("SET ROLE cafe_metricool_owner; UPDATE public.cs_character_promo_drafts SET id=id WHERE id="+q(D), 'row-level security')
  schedule=db.run("SELECT to_char(clock_timestamp()-interval '1 minute','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')")
  for n,(network,account) in enumerate([('facebook','105363501666032'),('instagram','cafesativainc')]):
   db.run("INSERT INTO public.cs_character_promo_delivery_plans(id,promo_id,character_id,network,account_id,scheduled_at,status,caption) VALUES("+q(P[n])+','+q(D)+",'synthetic-persona',"+q(network)+','+q(account)+','+q(schedule)+",'ready_for_delivery','Fixture')")
+ for n,(network,account) in enumerate([('facebook','105363501666032'),('instagram','cafesativainc')]):
   snapshot=dict(brandId='7605217',network=network,accountId=account,scheduledAt=schedule)
   db.run("INSERT INTO cafe_metricool_private.approvals VALUES("+q(P[n])+','+j(snapshot)+",repeat('a',64),"+q(str(n+1)*64)+','+q(str(n+3)*64)+",'{}','"+planner.ACT+"',clock_timestamp(),clock_timestamp()+interval '1 hour',false)")
   db.run("INSERT INTO cafe_metricool_private.attempts(plan_id,digest,destination_time_key,media_destination_key,token,state,provider_id,provider_uuid,receipt) VALUES("+q(P[n])+",repeat('a',64),"+q(str(n+1)*64)+','+q(str(n+3)*64)+','+q(T[n])+",'scheduled',"+q('synthetic-post-'+str(n))+','+q('synthetic-uuid-'+str(n))+",'{}')")
@@ -100,13 +103,11 @@ def main():
  later=copy.deepcopy(r);later['observedAt']=db.run('SELECT clock_timestamp()')
  assert later['observedAt']!=r['observedAt'];assert own(call(0,later,e))=='t'
  assert db.run('SELECT receipt::text FROM cafe_metricool_private.publication_receipts WHERE plan_id='+q(P[0]))==before_receipt,'later positive poll retains original receipt'
- db.check("NOT has_table_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','UPDATE') AND has_column_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','id','UPDATE')",'lock-only column privilege')
- fail("SET ROLE cafe_metricool_owner; UPDATE public.cs_character_promo_drafts SET id=id WHERE id="+q(D), 'row-level security')
  assert terminal()=='f','one platform cannot complete pair'
  rr=copy.deepcopy(r);rr['destinationId']='999';assert own(call(0,rr,e))=='f'
  r1,e1=observation(1);assert own(call(1,r1,e1))=='t';assert terminal()=='t'
  fail("SET ROLE cafe_metricool_owner; UPDATE cafe_metricool_private.publication_receipts SET digest=repeat('f',64);",'immutable')
- db.run("BEGIN; INSERT INTO public.cs_character_promo_delivery_plans(id,promo_id,character_id,network,account_id,scheduled_at,status,caption) VALUES('55555555-5555-4555-8555-555555555555',"+q(D)+",'synthetic-persona','facebook','105363501666032',"+q(schedule)+",'ready_for_delivery','Extra unattempted'); SET ROLE cafe_metricool_owner; DO $$ BEGIN IF public.cs_cafe_publication_terminal("+q(D)+") THEN RAISE EXCEPTION 'extra unattempted plan hidden'; END IF; END $$; ROLLBACK;")
+ fail("INSERT INTO public.cs_character_promo_delivery_plans(id,promo_id,character_id,network,account_id,scheduled_at,status,caption) VALUES('55555555-5555-4555-8555-555555555555',"+q(D)+",'synthetic-persona','youtube','fixture',"+q(schedule)+",'ready_for_delivery','Extra unattempted');",'Café claimed source frozen')
  assert own("public.cs_cafe_publication_terminal('5094636c-be48-4ac3-ae7b-80acfb729c13')")=='f','legacy external introduction cannot supply positive app receipt'
  db.finish('publication-reconciliation')
 if __name__=='__main__':

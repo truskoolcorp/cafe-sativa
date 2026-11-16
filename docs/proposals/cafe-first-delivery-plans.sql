@@ -24,7 +24,7 @@ BEGIN
  OR a.source_snapshot->>'voiceId' IS DISTINCT FROM r.slot->>'voiceId'
  OR a.source_snapshot->>'portraitSha256' IS DISTINCT FROM r.slot->>'portraitSha256'
  OR NOT coalesce(length(btrim(a.provider_id)) BETWEEN 1 AND 200 AND a.input_tokens>=1 AND a.output_tokens BETWEEN 1 AND 1024,false) THEN RETURN NULL; END IF;
- RETURN jsonb_build_object('draftId',p_draft,'slotDigest',r.digest,'snapshotSha256',b.snapshot_sha256,'textKey',a.key,'textToken',a.token,'textDigest',a.source_digest,'editorial',a.output,'verifiedHandles',a.source_snapshot->'verifiedHandles');
+ RETURN jsonb_build_object('draftId',p_draft,'slotDigest',r.digest,'snapshotSha256',b.snapshot_sha256,'textKey',a.key,'textToken',a.token,'textDigest',a.source_digest,'editorial',a.output,'characterId',a.source_snapshot->>'characterId','roomKey',a.source_snapshot->>'roomKey','verifiedHandles',a.source_snapshot->'verifiedHandles');
 END $$;
 REVOKE ALL ON FUNCTION public.character_production_draft_editorial(uuid) FROM PUBLIC;
 DO $$ DECLARE r record; BEGIN

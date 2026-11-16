@@ -26,7 +26,7 @@ export function createCafeInitialStandingOperation(draftId:string,input:Omit<Caf
    for(const raw of prepared.editorial){
     const r=raw as {planId:string;plan:Record<string,unknown>;draft:Record<string,unknown>}
     if(!r.plan||!r.draft||r.planId!==r.plan.id||r.draft.id!==draftId)throw Error('Exact persisted pair required')
-    metadata.set(r.planId,cafeEditorialFromPlan(r.plan,r.draft,raw))
+    metadata.set(r.planId,cafeEditorialFromPlan(r.plan,r.draft,raw,config.verifiedCollaborators))
    }
    if(metadata.size!==2)throw Error('Exact pair required')
    source=createCafeSourceReader({signal,metadata,verifiedCollaborators:config.verifiedCollaborators})

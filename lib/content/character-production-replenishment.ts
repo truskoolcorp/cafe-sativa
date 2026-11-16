@@ -18,10 +18,11 @@ export const replenishmentDigest=(x:unknown)=>createHash('sha256').update(stable
 const text=(x:unknown,max:number):x is string=>typeof x==='string'&&x.trim().length>0&&x.length<=max&&!/[\u0000-\u0008\u000b-\u001f\u007f]/.test(x)
 const hash=(s:string)=>/^[a-f0-9]{64}$/.test(s)
 const period=(at:number)=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit'}).formatToParts(at).filter(p=>p.type==='year'||p.type==='month').sort((a,b)=>a.type==='year'?-1:1).map(p=>p.value).join('-')
-export function parseFreshEditorial(raw:unknown,source:ReplenishmentSource):FreshEditorial{
+export function parseFreshEditorial(raw:unknown,source:Pick<ReplenishmentSource,'verifiedHandles'|'characterId'|'roomKey'>):FreshEditorial{
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Invalid editorial')
  const x=raw as FreshEditorial
  if(Object.keys(x).sort().join('|')!==['title','spokenScript','visualBrief','facebookTitle','caption','hashtags','collaborators'].sort().join('|')||!text(x.title,100)||!text(x.spokenScript,600)||!text(x.visualBrief,1000)||!text(x.facebookTitle,100)||!text(x.caption,1800)||!Array.isArray(x.hashtags)||x.hashtags.length>5||!x.hashtags.every(h=>/^[\p{L}\p{N}_]{1,40}$/u.test(h))||new Set(x.hashtags.map(h=>h.toLowerCase())).size!==x.hashtags.length||!Array.isArray(x.collaborators)||x.collaborators.length>3||new Set(x.collaborators).size!==x.collaborators.length||x.collaborators.some(h=>!source.verifiedHandles.includes(h)))throw Error('Invalid editorial scope')
+ if(source.characterId==='zaria-solenne'&&source.roomKey==='gallery'&&Array.from(x.spokenScript).length>250)throw Error('Zaria included speech limit exceeded')
  const prose=[x.title,x.spokenScript,x.visualBrief,x.facebookTitle,x.caption].join('\n')
  if(/\b(coffee|espresso|cappuccino|latte|barista)\b|https?:|www\.|#|as an? (ai|bot)/iu.test(prose))throw Error('Out-of-scope or generic editorial')
  for(const m of prose.matchAll(/@([a-zA-Z0-9_.]+)/g))if(!source.verifiedHandles.includes(m[1]))throw Error('Unverified mention')
@@ -39,7 +40,7 @@ export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>n
   const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(now)
   if(cadenceKey!==`daily:${day}:${source.characterId}`)throw Error('Exact daily persona cadence required')
   const sourceDigest=replenishmentDigest({...source,observedAt:0})
-  const request={model:REPLENISHMENT_MODEL,max_tokens:1024 as const,system:REPLENISHMENT_PROMPT,messages:[{role:'user' as const,content:JSON.stringify(source)}]}
+  const request={model:REPLENISHMENT_MODEL,max_tokens:1024 as const,system:REPLENISHMENT_PROMPT+(source.characterId==='zaria-solenne'&&source.roomKey==='gallery'?' For this Zaria Gallery draft, spokenScript must contain at most 250 Unicode code points, including spaces and punctuation. Aim for a complete natural 8–20 second spoken concept within that limit. Do not return truncated sentences.':''),messages:[{role:'user' as const,content:JSON.stringify(source)}]}
   const inputBound=Buffer.byteLength(JSON.stringify(request),'utf8')+8192
   if(![lease.inputMicroUsdPerToken,lease.outputMicroUsdPerToken].every(x=>Number.isSafeInteger(x)&&x>0)||Math.ceil((inputBound*lease.inputMicroUsdPerToken+1024*lease.outputMicroUsdPerToken)/10000)>lease.maxCostCents)throw Error('Insufficient verified worst-case text quote')
   const token=await d.store.claim({key:cadenceKey,sourceDigest,source:structuredClone(source),lease:structuredClone(frozenLease)});checked();if(!token)return {status:'already_claimed' as const}

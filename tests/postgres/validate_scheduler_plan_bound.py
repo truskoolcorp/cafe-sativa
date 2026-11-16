@@ -36,7 +36,7 @@ def suite():
  bad=copy.deepcopy(p['validation']);bad['slotDigest']='f'*64
  assert own('SELECT '+call(validation=bad))==''
  db.check(empty,'wrong validation cannot write')
- for mutation in ["UPDATE character_production.planning_policies SET enabled=false", "UPDATE character_production.scheduler_binding SET enabled=false", "UPDATE auth.users SET raw_app_meta_data='{}' WHERE id='"+planner.ACT+"'"]:
+ for mutation in ["UPDATE character_production.planning_policies SET enabled=false,revision=revision+1", "UPDATE character_production.scheduler_binding SET enabled=false", "UPDATE auth.users SET raw_app_meta_data='{}' WHERE id='"+planner.ACT+"'"]:
   db.run("BEGIN; "+mutation+"; SET ROLE character_production_owner; DO $$ BEGIN IF "+call()+" IS NOT NULL THEN RAISE EXCEPTION 'revoked scope accepted'; END IF; END $$; ROLLBACK;")
   db.check(empty,'revoked authority cannot write')
  own('BEGIN; SELECT '+call()+'; ROLLBACK;')

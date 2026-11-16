@@ -65,6 +65,7 @@ DECLARE standing character_production.successor_standing;root character_producti
 BEGIN
  IF current_setting('transaction_isolation')<>'read committed' THEN RETURN NULL; END IF;
  SELECT lane_id INTO bound FROM character_production.preparation_binding WHERE name='zaria-gallery-preparation';
+ IF (SELECT count(*) FROM character_production.successor_standing s WHERE s.root_lane=bound OR EXISTS(SELECT 1 FROM character_production.successor_edges e WHERE e.standing_id=s.id AND e.next_lane=bound))<>1 THEN RETURN NULL; END IF;
  SELECT s.* INTO standing FROM character_production.successor_standing s WHERE s.root_lane=bound OR EXISTS(SELECT 1 FROM character_production.successor_edges e WHERE e.standing_id=s.id AND e.next_lane=bound) FOR UPDATE OF s NOWAIT;
  IF standing.id IS NULL THEN RETURN NULL; END IF;
  stamp:=clock_timestamp();today:=(stamp AT TIME ZONE 'America/Chicago')::date;
@@ -80,6 +81,11 @@ BEGIN
  -- Incomplete or current-day original remains the sole work item, never replay.
  IF rec.manifest_text IS NULL OR occ.text_key>='daily:'||today::text||':zaria-solenne' THEN RETURN jsonb_build_object('status','current_occurrence','context',public.character_production_preparation_context()); END IF;
  IF rec.occurrence_id IS DISTINCT FROM occ.id THEN RETURN NULL; END IF;
+ -- Actual predecessor planning history, not merely old text, must be prior-day.
+ IF NOT EXISTS(SELECT 1 FROM character_production.planning_records r WHERE r.promo_id=rec.draft_id AND r.policy_id=pol.id AND r.policy_revision=pol.revision AND r.slot_key='first:'||occ.id::text AND r.dallas_day<today)
+ OR EXISTS(SELECT 1 FROM character_production.planning_records WHERE dallas_day=today)
+ OR (SELECT count(*) FROM character_production.planning_records WHERE policy_id=pol.id)>=pol.max_slots
+ OR (SELECT coalesce(sum(quote_cents),0) FROM character_production.planning_records WHERE policy_id=pol.id)+(cfg.quote->>'cents')::bigint>pol.cap_cents THEN RETURN NULL; END IF;
  IF EXISTS(SELECT 1 FROM character_production.successor_edges WHERE prior_lane=bound OR (standing_id=standing.id AND day=today)) THEN RETURN NULL; END IF;
  IF NOT EXISTS(SELECT 1 FROM character_production.scheduler_binding b JOIN character_production.scheduler_enrollments e ON e.id=b.enrollment_id JOIN character_production.scheduler_candidates c ON c.enrollment_id=e.id WHERE b.name='cafe-character-planner' AND b.enrollment_id=rec.enrollment_id AND b.enabled AND e.enabled AND c.ordinal=0 AND c.draft_id=rec.draft_id) THEN RETURN NULL; END IF;
  IF NOT has_function_privilege(current_user,'public.cs_cafe_publication_terminal(uuid)','EXECUTE') THEN RETURN NULL; END IF;

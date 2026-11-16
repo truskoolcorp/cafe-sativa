@@ -67,6 +67,9 @@ def exercise(state):
  assert own("public.cs_cafe_publication_terminal('ffffffff-ffff-4fff-8fff-ffffffffffff')")=='f'
  # Revoked standing must not transition. Transaction rollback preserves original.
  db.run("BEGIN; SET ROLE character_production_owner; UPDATE character_production.successor_standing SET enabled=false WHERE id='"+S+"'; DO $$ BEGIN IF "+RPC+" IS NOT NULL THEN RAISE EXCEPTION 'revoked succession'; END IF; END $$; ROLLBACK;")
+ # A separate already allocated current-day history blocks before any new text.
+ # Synthetic fixture record is inserted once and rolled back, never edited.
+ db.run("BEGIN; SET ROLE character_production_owner; INSERT INTO character_production.approved_slots(key,slot,digest,enabled) SELECT 'synthetic:today-block',jsonb_set(slot,'{key}','\"synthetic:today-block\"'),digest,false FROM character_production.approved_slots WHERE key='first:"+occ+"'; INSERT INTO character_production.planning_records(slot_key,policy_id,policy_revision,digest,slot,plan,promo_id,scheduled_at,dallas_day,quote_cents) SELECT 'synthetic:today-block',policy_id,policy_revision,digest,jsonb_set(slot,'{key}','\"synthetic:today-block\"'),plan,gen_random_uuid(),clock_timestamp(),(clock_timestamp() AT TIME ZONE 'America/Chicago')::date,quote_cents FROM character_production.planning_records WHERE promo_id='"+ctx['draftId']+"'; DO $$ BEGIN IF "+RPC+" IS NOT NULL OR EXISTS(SELECT 1 FROM character_production.successor_edges) OR NOT EXISTS(SELECT 1 FROM character_production.scheduler_enrollments WHERE id='"+ctx['enrollmentId']+"' AND enabled) THEN RAISE EXCEPTION 'current day guard failed'; END IF; END $$; ROLLBACK;")
  result=json.loads(advance());assert result['status']=='successor_prepared' and result['priorOccurrenceId']==occ and result['occurrenceId']!=occ
  nextctx=result['context'];assert nextctx['occurrenceId']==result['occurrenceId'] and nextctx['identity'] is None and not nextctx['textStarted'] and not nextctx['speechStarted']
  assert nextctx['textKey']==owner("SELECT 'daily:'||to_char(clock_timestamp() AT TIME ZONE 'America/Chicago','YYYY-MM-DD')||':zaria-solenne'")
@@ -79,6 +82,9 @@ def exercise(state):
  nextlane=owner("SELECT lane_id FROM character_production.preparation_occurrences WHERE id='"+nextctx['occurrenceId']+"'")
  assert owner("SELECT character_production.successor_admission_prior('"+nextlane+"')")=='t'
  assert owner("SELECT character_production.successor_admission_prior('"+L+"')")=='f'
+ # Owner misconfiguration cannot choose arbitrarily between overlapping scopes.
+ db.run("BEGIN; SET ROLE character_production_owner; INSERT INTO character_production.successor_standing SELECT 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',l.id,to_jsonb(l),to_jsonb(c),ARRAY['Sentinel_"+'b'*32+"'],clock_timestamp()-interval '1 minute',clock_timestamp()+interval '30 minutes',true FROM character_production.preparation_lanes l JOIN character_production.first_admission_config c ON c.lane_id=l.id WHERE l.id='"+nextlane+"'; DO $$ BEGIN IF "+RPC+" IS NOT NULL THEN RAISE EXCEPTION 'ambiguous standing selected'; END IF; END $$; ROLLBACK;")
+
  # Genuine second text claim/save, original manifest generation, first_admit
  # and scoped planner. Synthetic media proofs remain fixture-only.
  nextkey=nextctx['textKey'];newscript='Synthetic successor asks what detail catches your eye.';lease=nextctx['lease']
@@ -105,25 +111,53 @@ def exercise(state):
  db.check("NOT (SELECT enabled FROM character_production.preparation_lanes WHERE id='"+nextlane+"')",'standing revoke cascades only descendants')
  db.finish('successor')
 
+def seed_history(state):
+ # This fixture INSERTS a complete historical original once. It does not call
+ # today's planner then rewrite its immutable day. PR187 separately exercises
+ # genuine first admission; below we exercise genuine successor admission.
+ owner=first.owner;L=first.L;B=first.B;P=first.P;h=state['history']
+ key='daily:'+h['day']+':zaria-solenne';occ=str(uuid.uuid4());enrollment=str(uuid.uuid4());draft=str(uuid.uuid4())
+ tsource={'characterId':'zaria-solenne','roomKey':'gallery','voiceId':'5zneNR4v1Uw5AjIZ9Un4','canonicalRevision':'b'*64,'portraitSha256':'c'*64};script='Synthetic historical original.'
+ owner("INSERT INTO character_production.preparation_occurrences(lane_id,id,text_key,text_started,speech_started,created_at) VALUES('"+L+"','"+occ+"',"+q(key)+",true,true,"+q(h['approved'])+"::timestamptz)")
+ token=owner("INSERT INTO character_production.text_replenishment_attempts(key,budget_id,source_snapshot,source_digest,created_at,state,output,provider_id,input_tokens,output_tokens) VALUES("+q(key)+",'"+B+"',"+j(tsource)+",repeat('a',64),"+q(h['approved'])+"::timestamptz+interval '1 second','awaiting_audio_binding_and_qa',"+j({'spokenScript':script})+",'synthetic:historical',100,20) RETURNING token")
+ expiry=int(owner("SELECT floor(extract(epoch FROM expires_at)*1000)::bigint FROM character_production.preparation_lanes WHERE id='"+L+"'"))
+ ctx=dict(occurrenceId=occ,draftId=draft,enrollmentId=enrollment,generationAt=h['scheduled'],expiresAt=expiry,period=state['clock']['period'],capCents=2000)
+ code=inspect.getsource(first.suite);a=code.index(' # Synthetic native proof mirrors');b=code.index(' def admit(',a)
+ env=dict(first.__dict__,**state);env.update(ctx=ctx,occ=occ,key=key,token=token,script=script,tsource=tsource)
+ exec(textwrap.dedent(code[a:b]),env)
+ serialized=env['serialized'];slot=env['slot'];digest=first.hasharray(list(slot.values()))
+ validation=dict(brand='cafe-sativa',accountId=state['account']['expectedUsername'],slotDigest=digest,canonicalRevision=slot['canonicalRevision'],providerBindingRevision=env['bd'],theme='gallery-art',rightsApproved=True,sourceBound=True,evidenceRef='synthetic:historical',observedAt=h['approved'])
+ plan=dict(version=1,draftId=draft,scheduledAt=h['scheduled'],theme='gallery-art',validation=validation)
+ candidate=dict(ordinal=0,slot=slot,digest=digest,draftId=draft,theme='gallery-art',scheduledAt=h['scheduled'])
+ owner("INSERT INTO character_production.first_admission_records(occurrence_id,lane_id,enrollment_id,draft_id,generation_at,created_at,manifest_text,manifest_sha256) VALUES('"+occ+"','"+L+"','"+enrollment+"','"+draft+"',"+q(h['scheduled'])+","+q(h['approved'])+","+q(serialized)+","+q(first.sha(serialized))+")")
+ owner("INSERT INTO character_production.scheduler_enrollments SELECT '"+enrollment+"',id,revision,'"+first.ACT+"',to_jsonb(p),"+j([candidate])+","+q(first.sha(serialized))+",'synthetic:historical',"+q(h['approved'])+"::timestamptz,to_timestamp("+str(expiry)+"/1000.0),true FROM character_production.planning_policies p WHERE id='"+P+"'; INSERT INTO character_production.scheduler_candidates VALUES('"+enrollment+"',0,"+j(slot)+","+q(digest)+",'"+draft+"','gallery-art',"+q(h['scheduled'])+"); INSERT INTO character_production.scheduler_binding VALUES('cafe-character-planner','"+enrollment+"',true)")
+ owner("INSERT INTO character_production.approved_slots VALUES("+q(slot['key'])+","+j(slot)+","+q(digest)+",true); INSERT INTO character_production.schedules(key,digest,scheduled_at,not_after,enabled) VALUES("+q(slot['key'])+","+q(digest)+","+q(h['scheduled'])+",to_timestamp("+str(expiry)+"/1000.0),true)")
+ owner("INSERT INTO character_production.planning_records(slot_key,policy_id,policy_revision,digest,slot,plan,promo_id,scheduled_at,dallas_day,quote_cents,created_at) VALUES("+q(slot['key'])+",'"+P+"',1,"+q(digest)+","+j(slot)+","+j(plan)+",'"+draft+"',"+q(h['scheduled'])+","+q(h['day'])+",35,"+q(h['approved'])+")")
+ assert owner("SELECT public.character_production_new_blank_draft('"+draft+"',"+j(slot)+","+q(digest)+",'gallery-art')")
+ env.update(validation=validation,ctx=ctx,occ=occ)
+ exercise(env)
+
+def replace_once(source,old,new):
+ assert source.count(old)==1,old
+ return source.replace(old,new)
+
 def suite():
- # Reuse genuine first-admission setup, validation, manifest, and scheduler_plan.
- # Replace ONLY creation of today's text with explicitly historical original
- # fixture rows + actual save. No existing immutable timestamp is changed.
+ # Actual first-admission setup only; history is inserted once by seed_history.
  source=inspect.getsource(first.suite)
- end=source.index(' fail("SET ROLE character_production_owner; UPDATE character_production.first_admission_records SET generation_at=')
- source=source[:end]+' exercise(locals())\n'
- start=source.index(" prep=json.loads(owner('SELECT public.character_production_preparation_context()'))")
- stop=source.index(' def contender(fn):',start)
- historical=''' tsource={'characterId':'zaria-solenne','roomKey':'gallery','voiceId':'5zneNR4v1Uw5AjIZ9Un4','canonicalRevision':'b'*64,'portraitSha256':'c'*64};script='Synthetic prior-day original, never a provider call.'
- key='daily:2000-01-01:zaria-solenne'
- occ=owner("INSERT INTO character_production.preparation_occurrences(lane_id,text_key,text_started,created_at) VALUES('"+L+"',"+q(key)+",true,'2000-01-01T12:00:00Z') RETURNING id")
- token=owner("INSERT INTO character_production.text_replenishment_attempts(key,budget_id,source_snapshot,source_digest,created_at) VALUES("+q(key)+",'"+B+"',"+q(raw(tsource))+"::jsonb,repeat('a',64),'2000-01-01T12:00:01Z') RETURNING token")
- assert owner("SELECT public.character_production_text_save("+','.join([q(key),q(token),q('a'*64),q(raw({'spokenScript':script}))+'::jsonb',q('synthetic:original-receipt'),'100','20'])+")")=='t'
-'''
- source=source[:start]+historical+source[stop:]
- namespace=dict(first.__dict__,exercise=exercise)
- exec(source,namespace)
- namespace['suite']()
+ end=source.index(' # Explicit synthetic historical original rows')
+ source=source[:end]
+ source=replace_once(source,"ARRAY['gallery-art'],1,45,2000", "ARRAY['gallery-art'],2,45,2000")
+ source=replace_once(source,"clock_timestamp()-interval '1 minute',date_trunc('milliseconds',clock_timestamp()+interval '1 hour'),true); INSERT INTO character_production.preparation_binding", "clock_timestamp()-interval '2 days',date_trunc('milliseconds',clock_timestamp()+interval '1 hour'),true); INSERT INTO character_production.preparation_binding")
+ marker=" quote={'cents':35"
+ pos=source.index(marker)
+ history=""" history=json.loads(db.run(\"SELECT jsonb_build_object('day',((clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1)::text,'approved',to_char((((clock_timestamp() AT TIME ZONE 'America/Chicago')::date::timestamp-interval '10 minutes') AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC','YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"'),'scheduled',to_char((((clock_timestamp() AT TIME ZONE 'America/Chicago')::date::timestamp-interval '5 minutes') AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC','YYYY-MM-DD\\\"T\\\"HH24:MI:SS.MS\\\"Z\\\"'),'observedMs',floor(extract(epoch FROM (((clock_timestamp() AT TIME ZONE 'America/Chicago')::date::timestamp-interval '10 minutes') AT TIME ZONE 'America/Chicago'))*1000)::bigint)\"))\n"""
+ source=source[:pos]+history+source[pos:]
+ source=replace_once(source,"'observedAt':clock['now'],'expiresAt':clock['now']+3600000", "'observedAt':history['observedMs'],'expiresAt':history['observedMs']+86400000")
+ source=replace_once(source,'rate_evidence,expires_at,enabled) VALUES','rate_evidence,expires_at,enabled,reserved_cents) VALUES')
+ source=replace_once(source,"'synthetic:rate',date_trunc('milliseconds',clock_timestamp()+interval '1 hour'),true)","'synthetic:rate',date_trunc('milliseconds',clock_timestamp()+interval '1 hour'),true,10)")
+ source+=' seed_history(locals())\n'
+ namespace=dict(first.__dict__,seed_history=seed_history)
+ exec(source,namespace);namespace['suite']()
 
 if __name__=='__main__':
  original=db.run;db.run=verbatim_run

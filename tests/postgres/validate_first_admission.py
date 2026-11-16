@@ -20,6 +20,13 @@ def fail(s,label):
 def suite():
  foundation.suite();auth=foundation.auth_snapshot()
  db.check("current_setting('server_version_num')::integer BETWEEN 170000 AND 179999",'PG17')
+ # PostgreSQL ARE repetition bounds stop at 255. Evidence references allow500
+ # via explicit length plus unbounded character class, never {1,500}.
+ for n,expected in [(0,False),(499,True),(500,True),(501,False)]:
+  expr="length(repeat('x',"+str(n)+")) BETWEEN 1 AND 500 AND repeat('x',"+str(n)+")~'^[A-Za-z0-9_.:/-]+$'"
+  db.check('('+expr+') IS '+('TRUE' if expected else 'FALSE'),'reference boundary '+str(n))
+ db.check("NOT (length('bad reference') BETWEEN 1 AND 500 AND 'bad reference'~'^[A-Za-z0-9_.:/-]+$')",'reference character scope')
+
  for name,table in [('character-production-replenishment.sql','text_replenishment_attempts'),('character-production-fresh-speech-source.sql','included_speech_scopes'),('character-production-preparation-context.sql','preparation_lanes'),('character-production-scheduler-principal.sql','scheduler_enrollments'),('character-production-first-admission.sql','first_admission_config')]:
   source=(db.ROOT/'docs/proposals'/name).read_text();assert source.rstrip().endswith(('ROLLBACK;','COMMIT;'))
   tail='ROLLBACK;' if source.rstrip().endswith('ROLLBACK;') else 'COMMIT;'

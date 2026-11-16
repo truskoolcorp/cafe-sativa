@@ -78,7 +78,7 @@ BEGIN
  AND p.period=to_char(stamp AT TIME ZONE 'America/Chicago','YYYY-MM') AND p.expires_at>stamp AND l.expires_at>stamp
  AND 'zaria-solenne'=ANY(p.characters) AND c.theme=ANY(p.themes)
  AND public.cs_cafe_metricool_is_admin(l.actor_id) IS TRUE
- AND coalesce(p.owner_evidence->>'evidenceRef','')~'^[A-Za-z0-9_.:/-]{1,500}$'
+ AND (length(coalesce(p.owner_evidence->>'evidenceRef','')) BETWEEN 1 AND 500 AND coalesce(p.owner_evidence->>'evidenceRef','')~'^[A-Za-z0-9_.:/-]+$')
 ;
  -- Fixed reviewed config must be well formed before IDs/time are allocated.
  IF (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.account) k) IS DISTINCT FROM ARRAY['aspectRatio','expectedUsername','linkId','model']::text[]
@@ -92,7 +92,7 @@ BEGIN
  OR (c.image->>'imageBytes')::bigint NOT BETWEEN 12 AND 10485760
  OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.quote) k) IS DISTINCT FROM ARRAY['cents','durationSeconds','evidenceRef','expiresAt','observedAt']::text[]
  OR EXISTS(SELECT 1 FROM unnest(ARRAY['cents','durationSeconds','expiresAt','observedAt']) k WHERE jsonb_typeof(c.quote->k) IS DISTINCT FROM 'number' OR NOT coalesce(c.quote->>k~'^[0-9]{1,16}$',false))
- OR NOT coalesce(c.quote->>'evidenceRef'~'^[A-Za-z0-9_.:/-]{1,500}$',false)
+ OR NOT coalesce(length(c.quote->>'evidenceRef') BETWEEN 1 AND 500 AND c.quote->>'evidenceRef'~'^[A-Za-z0-9_.:/-]+$',false)
  OR (c.quote->>'durationSeconds')::bigint NOT BETWEEN 8 AND p.max_duration OR (c.quote->>'cents')::bigint NOT BETWEEN 1 AND p.cap_cents THEN RETURN NULL; END IF;
  IF c.image?'approvedScene' THEN
   IF jsonb_typeof(c.image->'approvedScene') IS DISTINCT FROM 'object' OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(c.image->'approvedScene') k) IS DISTINCT FROM ARRAY['approvalReference','imageSha256']::text[] OR NOT coalesce(c.image#>>'{approvedScene,imageSha256}'~'^[a-f0-9]{64}$',false) OR NOT coalesce(length(btrim(c.image#>>'{approvedScene,approvalReference}')) BETWEEN 1 AND 500,false) OR c.image#>>'{approvedScene,approvalReference}'~E'[\\r\\n]' THEN RETURN NULL; END IF;

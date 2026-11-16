@@ -1,3 +1,4 @@
+import {createProductionTimeBudget,type ProductionTimeBudget} from './character-production-time-budget.ts'
 /** Dormant scheduling boundary. Trusted composition adapts existing planner,
  * original-task collector, private QA, standing-authority and Café dispatch /
  * receipt handlers. No route, credentials, cadence, enrollment or provider is
@@ -17,7 +18,7 @@ export type CafeRecurringSession={
 }
 export function createCafeRecurringEntry(d:{
  enabled?:()=>boolean;authorize:(header:string|null)=>boolean;
- open:(signal:AbortSignal)=>CafeRecurringSession;timeoutMs?:number;
+ open:(signal:AbortSignal,budget:ProductionTimeBudget)=>CafeRecurringSession;timeoutMs?:number;
 }){
  const timeout=d.timeoutMs??45000
  if(!Number.isSafeInteger(timeout)||timeout<1||timeout>45000)throw Error('Invalid recurring tick deadline')
@@ -35,7 +36,7 @@ export function createCafeRecurringEntry(d:{
   let timer:ReturnType<typeof setTimeout>|undefined,session:CafeRecurringSession|undefined
   const task=(async()=>{
    try{
-    life.signal.throwIfAborted();session=d.open(life.signal)
+    life.signal.throwIfAborted();session=d.open(life.signal,createProductionTimeBudget(life.signal,timeout))
     const phase=await session.next(life.signal)
     life.signal.throwIfAborted()
     if(phase===null)return reply(200,'idle')
@@ -58,3 +59,4 @@ export function createCafeRecurringEntry(d:{
   finally{clearTimeout(timer);life.abort();life.signal.removeEventListener('abort',onAbort);req.signal.removeEventListener('abort',abort)}
  }
 }
+

@@ -14,3 +14,6 @@ test('unknown settlement remains held; no auto retry',async()=>{const f=fixture(
 test('pre-aborted request never opens',async()=>{const c=new AbortController();c.abort();let opened=0;const f=fixture({open:()=>{opened++;throw Error()}});assert.equal((await f.entry(new Request('https://internal.test/tick',{headers:{authorization:'approved'},signal:c.signal}))).status,503);assert.equal(opened,0)})
 test('stage error returns held and never invokes fallback',async()=>{let count=0;const f=fixture({open:()=>({next:async()=> 'generate',stages:{generate:async()=>{count++;throw Error('unknown')}},whenSettled:async()=>{}})});assert.equal((await f.entry(req())).status,503);assert.equal(count,1)})
 test('invalid deadlines rejected',()=>{for(const timeoutMs of [0,45001,NaN,1.5])assert.throws(()=>fixture({timeoutMs}))})
+
+
+test('adapter receives real enclosing deadline budget, not fresh longer window',async()=>{let checked=false;const f=fixture({timeoutMs:5,open:(signal,budget)=>({next:async()=>{assert.throws(()=>budget.requireRemaining(100));checked=true;return null},stages:{},whenSettled:async()=>{}})});assert.equal((await f.entry(req())).status,200);assert.equal(checked,true)})

@@ -1,4 +1,7 @@
 import 'server-only'
+import {join} from 'node:path'
+import {createSelectedTechnicalQa} from './character-production-selected-technical-qa'
+import type {SelectedItem} from './character-production-selected-session'
 import {cronAuthorized} from './auth'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {createProductionFetch} from './character-production-bounded-fetch'
@@ -19,7 +22,14 @@ export function openPrivateQaSession(signal:AbortSignal,dispatchGuard?:()=>void)
   }}
   const storage=createStreamingQaStorage(db.storage,15000)
   const bridge=createCharacterProductionQaBridge(rpc,storage)
-  return {rpc,whenSettled:network.whenSettled,bridge:{async ingest(key:string,digest:string){
+  let technical:ReturnType<typeof createSelectedTechnicalQa>|undefined
+  return {rpc,async evaluateSelected(item:SelectedItem,selectorRpc:ProductionRpc){
+   if(process.env.CS_CHARACTER_TECHNICAL_QA_ENABLED!=='true')throw Error('Technical QA disabled')
+   const origin=process.env.NEXT_PUBLIC_SUPABASE_URL
+   if(!origin)throw Error('Private storage origin missing')
+   technical=createSelectedTechnicalQa({rpc:{rpc:(name,args)=>name==='character_production_selected_binding'?selectorRpc.rpc(name,args):rpc.rpc(name,args)},storage:db.storage,signal,enabled:()=>process.env.CS_CHARACTER_TECHNICAL_QA_ENABLED==='true',origin,ffmpeg:join(process.cwd(),'node_modules/@ffmpeg-installer/linux-x64/ffmpeg'),ffprobe:join(process.cwd(),'node_modules/@ffprobe-installer/linux-x64/ffprobe')})
+   return technical.run(item)
+  },async whenSettled(){const settled=await Promise.allSettled([technical?.whenSettled(),network.whenSettled()]);if(settled.some(r=>r.status==='rejected'))throw Error('QA original transport settlement failed')},bridge:{async ingest(key:string,digest:string){
    if(signal.aborted)throw Error('QA cancelled')
    const bucket=await db.storage.getBucket('cafe-sativa-content')
    if(bucket.error)throw Error('QA destination unavailable')

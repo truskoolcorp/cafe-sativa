@@ -1,0 +1,33 @@
+name: Technical media QA exact binaries
+on:
+  pull_request:
+    paths:
+      - 'lib/content/character-production-*qa*.ts'
+      - 'lib/content/character-production-technical-media.*'
+      - 'tests/character-production-technical-media.test.mjs'
+      - 'package*.json'
+      - 'next.config.js'
+      - '.github/workflows/technical-media-qa.yml'
+permissions:
+  contents: read
+jobs:
+  media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      # Exact package postinstall only, after installing the locked official blob.
+      - run: chmod u+x node_modules/@ffprobe-installer/linux-x64/ffprobe
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: node --test tests/character-production-technical-media.test.mjs
+        env:
+          QA_TEST_FFMPEG: ${{ github.workspace }}/node_modules/@ffmpeg-installer/linux-x64/ffmpeg
+          QA_TEST_FFPROBE: ${{ github.workspace }}/node_modules/@ffprobe-installer/linux-x64/ffprobe
+      - run: node --test tests/character-production-selected-technical-qa.test.cjs tests/character-production-recurring-qa-server.test.cjs
+      - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false

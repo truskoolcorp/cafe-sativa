@@ -1,5 +1,7 @@
 import type {createSelectedProductionSession} from './character-production-selected-session'
 import 'server-only'
+import type {SelectedItem} from './character-production-selected-session'
+import type {ProductionRpc} from './character-production-store'
 import {openPrivateQaSession} from './character-production-qa-worker-entry'
 import {createRecurringPrivateQa} from './character-production-recurring-qa'
 import type {CafeRecurringSession} from './character-production-recurring-entry'
@@ -7,7 +9,7 @@ import type {CafeRecurringSession} from './character-production-recurring-entry'
 /** Concrete private-QA adapter only. Uses the exact existing scoped SQL/private
  * Storage composition. No new credential, grant, route, cron or paid operation.
  * The database queue, never HTTP input, selects existing eligible bindings. */
-export function createRecurringQaSession(signal:AbortSignal,selection?:Pick<ReturnType<typeof createSelectedProductionSession>,'readQa'>):CafeRecurringSession {
+export function createRecurringQaSession(signal:AbortSignal,selection?:Pick<ReturnType<typeof createSelectedProductionSession>,'readQa'>,technicalSelection?:{item:SelectedItem;rpc:ProductionRpc}):CafeRecurringSession {
  let session:ReturnType<typeof openPrivateQaSession>|undefined
  let selected=false,read=false,used=false
  const enabled=()=>process.env.CS_CHARACTER_QA_BRIDGE_ENABLED==='true'
@@ -24,7 +26,10 @@ export function createRecurringQaSession(signal:AbortSignal,selection?:Pick<Retu
    read=true;const backend=openPrivateQaSession(signal,check)
    session={...backend,rpc:{async rpc(name,args){
     check();const result=name==='character_production_qa_ready_slots'&&selection?{data:[await selection.readQa()],error:null}:await backend.rpc.rpc(name,args);check();return result
-   }},bridge:{async ingest(key,digest){check();const result=await backend.bridge.ingest(key,digest);check();return result}}}
+   }},bridge:{async ingest(key,digest){check();if(process.env.CS_CHARACTER_TECHNICAL_QA_ENABLED==='true'){
+     if(!technicalSelection||technicalSelection.item.key!==key||technicalSelection.item.digest!==digest)throw Error('Technical QA requires exact selection')
+     await backend.evaluateSelected(technicalSelection.item,technicalSelection.rpc);check()
+    }const result=await backend.bridge.ingest(key,digest);check();return result}}}
    const result=await session.rpc.rpc('character_production_qa_ready_slots',{p_limit:1})
    signal.throwIfAborted()
    if(result.error||!Array.isArray(result.data)||result.data.length>1)throw Error('QA queue unconfirmed')

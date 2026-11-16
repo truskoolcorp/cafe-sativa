@@ -45,10 +45,19 @@ def suite():
  assert read(selected['selectionToken'])==''
  collect=json.loads(own("SELECT public.character_production_recurring_next('"+e+"')"));assert collect['phase']=='collect'
  observed=json.loads(read(collect['selectionToken']));assert observed['selected']['payload']['taskId']=='original-provider-task' and observed['snapshotText']==snap and observed['slot']==s
+ # Existing selected authority transitions from original collection into QA.
+ db.run("UPDATE character_production.jobs SET state='pending_qa',sha=repeat('a',64),bytes=100,bucket='character-production-private',object_path=digest||'/'||repeat('a',64)||'.mp4' WHERE key="+db.quote(s['key']))
+ assert read(collect['selectionToken'])==''
+ qa=json.loads(own("SELECT public.character_production_recurring_next('"+e+"')"));assert qa['phase']=='qa'
+ observed=json.loads(read(qa['selectionToken']));assert observed['selected']['payload']=={'key':s['key'],'digest':d} and observed['slot']==s and observed['snapshotText']==snap
+ assert read('ffffffff-ffff-4fff-8fff-ffffffffffff')==''
+ db.run("BEGIN; UPDATE public.cs_character_promo_drafts SET spoken_script='Changed fixture' WHERE id="+db.quote(p['draftId'])+"; SET ROLE character_production_owner; DO $$ BEGIN IF public.character_production_selected_binding('"+e+"','"+qa['selectionToken']+"') IS NOT NULL THEN RAISE EXCEPTION 'changed draft accepted'; END IF; END $$; ROLLBACK;")
  db.run("UPDATE character_production.scheduler_binding SET enabled=false")
  assert read(collect['selectionToken'])==''
+ assert read(qa['selectionToken'])==''
  db.finish('binding-snapshot')
 if __name__=='__main__':
  original=db.run;db.run=verbatim_run
  try:suite()
  finally:db.run=original
+

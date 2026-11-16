@@ -32,7 +32,8 @@ export function createSelectedBindingReader(d:{rpc:ProductionRpc;signal:AbortSig
  const check=()=>{d.signal.throwIfAborted();if(!d.enabled())throw Error('Binding reader disabled')}
  return {async read(expected:SelectedItem){
   check();const e=structuredClone(expected)
-  if(!['generate','collect'].includes(e.phase)||!uuid(e.enrollmentId)||!uuid(e.selectionToken))throw Error('Binding phase unavailable')
+  if(!['generate','collect','qa'].includes(e.phase)||!uuid(e.enrollmentId)||!uuid(e.selectionToken))throw Error('Binding phase unavailable')
+  if(e.phase==='qa'&&(!exact(e.payload,['key','digest'])||(e.payload as {key:string;digest:string}).key!==e.key||(e.payload as {key:string;digest:string}).digest!==e.digest))throw Error('Exact QA identity required')
   const started=Date.now()
   const r=await d.rpc.rpc('character_production_selected_binding',{p_enrollment:e.enrollmentId,p_token:e.selectionToken});check()
   if(r.error||!exact(r.data,['selected','slot','snapshotText','snapshotSha256']))throw Error('Original binding read unavailable')
@@ -68,3 +69,4 @@ export function bindSnapshotPlannerRpc(db:import('./character-production-server-
   }}}}
  }}
 }
+

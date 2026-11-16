@@ -1,4 +1,6 @@
 import 'server-only'
+import {createHash} from 'node:crypto'
+import type {PersistedFreshTextIdentity} from './character-production-fresh-speech-receipt-store'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {createProductionFetch} from './character-production-bounded-fetch'
 import {liveGlyphCharacters} from './glyph-live'
@@ -12,8 +14,9 @@ type Snapshot={scopeId:string;attempt:SavedTextAttempt;authority:FreshSpeechAuth
 /** Dormant exact daily Zaria operation. No caller-selected authority, key, voice,
  * model, budget, script, RPC or public post. RPC grant is separately reviewed;
  * no direct private-table fallback or implied authority from a text budget. */
-export function createFreshSpeechOperation(deadlineMs=85000){
+export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedFreshTextIdentity,currentPreparation?:()=>Promise<void>){
  if(!Number.isSafeInteger(deadlineMs)||deadlineMs<1000||deadlineMs>85000)throw Error('Invalid speech deadline')
+ const identity=expected?structuredClone(expected):undefined
  const enabled=()=>process.env.CS_CHARACTER_FRESH_INCLUDED_SPEECH_ENABLED==='true'
  let consumed=false,closing=false,work:Promise<unknown>|undefined,network:ReturnType<typeof createProductionFetch>|undefined,provider:ReturnType<typeof createIncludedOperationProvider>|undefined
  return {
@@ -27,11 +30,11 @@ export function createFreshSpeechOperation(deadlineMs=85000){
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(Date.now()),part=(t:string)=>parts.find(p=>p.type===t)!.value
     const key=`daily:${part('year')}-${part('month')}-${part('day')}:zaria-solenne`
     const read=async():Promise<Snapshot>=>{
-     active();const r=await db.rpc('character_production_fresh_speech_source',{p_key:key}).abortSignal(signal).retry(false);active()
+     active();await currentPreparation?.();const r=await db.rpc('character_production_fresh_speech_source',{p_key:key}).abortSignal(signal).retry(false);active()
      if(r.error||!r.data||typeof r.data!=='object'||Object.keys(r.data).sort().join(',')!=='attempt,authority,scopeId'||! /^[a-f0-9-]{36}$/.test(r.data.scopeId)||r.data.attempt?.key!==key)throw Error('Current fresh speech source unavailable')
      return structuredClone(r.data) as Snapshot
     }
-    const original=await read(),fingerprint=replenishmentDigest(original)
+    const original=await read(),script=(original.attempt.output as {spokenScript?:unknown}|null)?.spokenScript;if(identity&&(identity.textAttemptKey!==original.attempt.key||identity.textAttemptToken!==original.attempt.token||identity.textSourceDigest!==original.attempt.source_digest||typeof script!=='string'||identity.scriptSha256!==createHash('sha256').update(script).digest('hex')))throw Error('Original preparation identity changed');const fingerprint=replenishmentDigest(original)
     const current=async()=>{const v=await read();if(replenishmentDigest(v)!==fingerprint)throw Error('Speech source or authority changed');if(Date.now()>=v.authority.expiresAt)throw Error('Speech authority expired')}
     const canon=async()=>{active();const body=await liveGlyphCharacters(signal);active();return normalizePromoCanon(body,'zaria-solenne',new Date().toISOString())}
     const operation=bindFreshIncludedSpeech(original.attempt,await canon(),original.authority,Date.now())
@@ -49,3 +52,4 @@ export function createFreshSpeechOperation(deadlineMs=85000){
   async whenSettled(){closing=true;const done=await Promise.allSettled(work?[work]:[]);const drained=await Promise.allSettled([network?.whenSettled(),provider?.whenSettled()]);if([...done,...drained].some(r=>r.status==='rejected'))throw Error('Fresh speech settled with failure')},
  }
 }
+

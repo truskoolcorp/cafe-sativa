@@ -18,6 +18,10 @@ def setup():
  # Replace ONLY disposable foundation's old minimal Café guard scaffolding with
  # the actual store and writer. This is not a production installer migration.
  db.run("DROP SCHEMA cafe_metricool_private CASCADE; CREATE ROLE cafe_metricool_owner NOLOGIN NOSUPERUSER NOINHERIT; GRANT CREATE ON DATABASE character_ci_provision TO cafe_metricool_owner; GRANT CREATE ON SCHEMA public TO cafe_metricool_owner; GRANT USAGE ON SCHEMA auth TO cafe_metricool_owner; GRANT REFERENCES(id) ON auth.users TO cafe_metricool_owner; GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO cafe_metricool_owner; ALTER TABLE public.cs_character_promo_delivery_plans ADD COLUMN caption text; ALTER TABLE public.cs_character_promo_qa_checks ADD COLUMN video_sha256 text,ADD COLUMN result text,ADD COLUMN reviewer_id uuid,ADD COLUMN evidence text,ADD COLUMN created_at timestamptz; GRANT UPDATE(id) ON public.cs_character_promo_drafts TO cafe_metricool_owner; GRANT SELECT,REFERENCES,TRIGGER ON public.cs_character_promo_drafts,public.cs_character_promo_delivery_plans,public.cs_character_promo_qa_checks TO cafe_metricool_owner; CREATE POLICY standing_fixture_read_drafts ON public.cs_character_promo_drafts FOR SELECT TO cafe_metricool_owner USING(true); CREATE POLICY standing_fixture_read_plans ON public.cs_character_promo_delivery_plans FOR SELECT TO cafe_metricool_owner USING(true);")
+ # Reproduce the existing production lock-only policy, verified read-only.
+ # UPDATE(id) permits row locks; WITH CHECK(false) still rejects all writes.
+ # This is disposable foundation parity, not a new production access change.
+ db.check("has_column_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','id','UPDATE') AND NOT has_table_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','UPDATE')",'existing id-only lock privilege')
  raw=(db.ROOT/'docs/proposals/cafe-metricool-store.sql').read_text()
  old="EXISTS(SELECT 1 FROM auth.users WHERE id=a.approved_by AND raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb)"
  assert raw.count(old)==1
@@ -69,7 +73,13 @@ def main():
  db.run("INSERT INTO character_production.budgets(provider,period,cap_cents,reserved_cents,enabled) VALUES('heygen',"+q(slot['period'])+",2000,35,true) ON CONFLICT(provider,period) DO UPDATE SET cap_cents=2000; INSERT INTO character_production.planning_policies VALUES('"+planner.POL+"',1,true,'{\"evidenceRef\":\"synthetic:timing-owner\"}',"+q(slot['period'])+",to_timestamp("+str(slot['authorizationExpiresAt'])+"/1000.0),ARRAY['synthetic-persona'],ARRAY['synthetic-theme'],31,45,2000,'d61468fdf18c4b478f27857337ddd1ea'); INSERT INTO character_production.scheduler_enrollments SELECT '"+E+"',id,revision,'"+planner.ACT+"',to_jsonb(p),"+j([c])+",repeat('a',64),'synthetic:timing-owner',clock_timestamp()-interval '1 minute',expires_at,true FROM character_production.planning_policies p WHERE id='"+planner.POL+"'; INSERT INTO character_production.scheduler_candidates VALUES('"+E+"',0,"+j(slot)+","+q(digest)+",'"+plan['draftId']+"','"+plan['theme']+"',"+q(plan['scheduledAt'])+"); INSERT INTO character_production.scheduler_binding VALUES('cafe-character-planner','"+E+"',true);")
  planned=db.run("SET ROLE character_production_owner; SELECT public.character_production_scheduler_plan('"+E+"',0,"+j(plan['validation'])+");")
  assert planned, 'actual enrolled planner must create draft'
- draft=plan['draftId'];sha=hashlib.sha256(b'synthetic-no-real-media').hexdigest();path=f'character-promos/synthetic-persona/{draft}/{sha}.mp4'
+ draft=plan['draftId']
+ # The old fixture could SELECT but silently could not lock the same row.
+ db.run("BEGIN; SET ROLE cafe_metricool_owner; DO $$ BEGIN PERFORM 1 FROM public.cs_character_promo_drafts WHERE id="+q(draft)+"; IF NOT FOUND THEN RAISE EXCEPTION 'fixture draft must be SELECT-visible'; END IF; PERFORM 1 FROM public.cs_character_promo_drafts WHERE id="+q(draft)+" FOR UPDATE; IF FOUND THEN RAISE EXCEPTION 'missing lock policy unexpectedly permitted lock'; END IF; END $$; ROLLBACK;")
+ db.run("CREATE POLICY cafe_metricool_owner_lock ON public.cs_character_promo_drafts FOR UPDATE TO cafe_metricool_owner USING(true) WITH CHECK(false);")
+ db.run("BEGIN; SET ROLE cafe_metricool_owner; DO $$ BEGIN PERFORM 1 FROM public.cs_character_promo_drafts WHERE id="+q(draft)+" FOR UPDATE; IF NOT FOUND THEN RAISE EXCEPTION 'existing draft lock policy must expose row'; END IF; END $$; ROLLBACK;")
+ fail("BEGIN; SET ROLE cafe_metricool_owner; UPDATE public.cs_character_promo_drafts SET id=id WHERE id="+q(draft)+";",'row-level security')
+ sha=hashlib.sha256(b'synthetic-no-real-media').hexdigest();path=f'character-promos/synthetic-persona/{draft}/{sha}.mp4'
  db.check("(SELECT scheduled_at>clock_timestamp() FROM character_production.planning_records WHERE promo_id="+q(draft)+")",'generation starts future')
  db.run("SELECT pg_sleep(greatest(0,extract(epoch FROM ("+q(plan['scheduledAt'])+"::timestamptz-clock_timestamp()))+.03))")
  db.check("(SELECT scheduled_at<clock_timestamp() FROM character_production.planning_records WHERE promo_id="+q(draft)+")",'generation due really elapsed before QA')
@@ -112,7 +122,7 @@ def main():
   diagnostic=parts[0]
   for index,part in enumerate(parts[1:],1):
    diagnostic+="RAISE EXCEPTION 'timing diagnostic guard "+str(index)+"';"+part
-  result=subprocess.run(db.command(),input='BEGIN; '+diagnostic+' SET ROLE service_role; SELECT '+resolve+'; ROLLBACK;',text=True,capture_output=True)
+  result=subprocess.run(db.command(),input='BEGIN; SET ROLE cafe_metricool_owner; '+diagnostic+'; RESET ROLE; SET ROLE service_role; SELECT '+resolve+'; ROLLBACK;',text=True,capture_output=True)
   raise AssertionError('valid reviewed QA target unavailable: '+result.stderr)
 
  assert rpc(resolve)==target,'same immutable target on repeat'

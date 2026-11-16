@@ -101,3 +101,25 @@ grant or activation. It must be bound to the durable selector's exact item token
 before recurring activation; the current due-queue head is not a fair selector.
 Tests use actual engine/store/queue but synthetic provider boundaries and do not
 establish approved new content or a successful live generation.
+
+## Exact selected-item composition
+
+`createSelectedRecurringSession` now binds the three supported collection,
+generation and private-QA adapters to a durable selected token. A separately
+provided scoped selector RPC and exact enrollment/manifest are mandatory; no
+admin-client fallback or new runtime grants exist. Every selected read validates
+the same ordinal/key/digest/token and immutable payload with a fresh database
+observation. Collection pending, generation due and QA ready reads use only that
+selected payload; generation's original-pending guard still reads real pending
+work. A selected item cannot silently change to the legacy queue head.
+
+The stage finishes its bookkeeping only after original work and transports settle,
+within the same finite un-aborted lifetime. Unknown work or lost receipts are not
+retried. Public cleanup only drains and fences admission; it cannot perform a late
+finish. A held SQL disposition is not successful stage completion.
+
+This remains unregistered. The rollback SQL proposal has not been installed in
+production, no current policy/candidate has been enrolled, and no real recurring
+run is established. Planning, standing authority and delivery/receipt phase
+composition remain outside this three-phase factory. Neither synthetic tests nor
+code deployment establish current voice/visual QA or watermark-free publication.

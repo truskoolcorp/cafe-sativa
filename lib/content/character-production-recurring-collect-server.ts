@@ -1,3 +1,4 @@
+import type {createSelectedProductionSession} from './character-production-selected-session'
 import 'server-only'
 import {openInternalProduction,type InternalProductionManifest} from './character-production-server-composition'
 import {createBrokeredCharacterProductionRuntime} from './character-production-runtime'
@@ -11,7 +12,7 @@ import type {CafeRecurringSession} from './character-production-recurring-entry'
  * supply its manifest; the expired canary must never be silently reused.
  * Read-only provider polling may persist private bytes/receipts, but cannot
  * reserve a generation claim, submit a new task, plan, approve or publish. */
-export function createRecurringCollectionSession(signal:AbortSignal,manifest:InternalProductionManifest):CafeRecurringSession {
+export function createRecurringCollectionSession(signal:AbortSignal,manifest:InternalProductionManifest,selection?:Pick<ReturnType<typeof createSelectedProductionSession>,'readCollect'>):CafeRecurringSession {
  let opened:ReturnType<typeof openInternalProduction>|undefined
  let collect:(()=>Promise<{status:string;held:number}>)|undefined
  let read=false,selected=false,used=false
@@ -24,7 +25,7 @@ export function createRecurringCollectionSession(signal:AbortSignal,manifest:Int
    // one. The collector RPC allowlist independently rejects generation claims.
    opened=openInternalProduction(manifest,signal)
    const backend=opened,allowed=new Set(['character_production_pending','character_production_failed','character_production_broker_authorized','character_production_output_status','character_production_output'])
-   const rpc:ProductionRpc={async rpc(name,args){check(signal);if(!allowed.has(name))throw Error('Collection RPC rejected');const result=await backend.rpc.rpc(name,args);check(signal);return result}}
+   const rpc:ProductionRpc={async rpc(name,args){check(signal);if(!allowed.has(name))throw Error('Collection RPC rejected');const result=name==='character_production_pending'&&selection?{data:await selection.readCollect(),error:null}:await backend.rpc.rpc(name,args);check(signal);return result}}
    const cfg=manifest.configuration
    const broker=createPrivateOutputBroker({rpc,storage:createPrivateOutputStorage(backend.storage,8000),authorize:async job=>{
     const result=await rpc.rpc('character_production_broker_authorized',{p_job:job});return !result.error&&result.data===true

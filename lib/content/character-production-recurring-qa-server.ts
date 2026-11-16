@@ -1,3 +1,4 @@
+import type {createSelectedProductionSession} from './character-production-selected-session'
 import 'server-only'
 import {openPrivateQaSession} from './character-production-qa-worker-entry'
 import {createRecurringPrivateQa} from './character-production-recurring-qa'
@@ -6,7 +7,7 @@ import type {CafeRecurringSession} from './character-production-recurring-entry'
 /** Concrete private-QA adapter only. Uses the exact existing scoped SQL/private
  * Storage composition. No new credential, grant, route, cron or paid operation.
  * The database queue, never HTTP input, selects existing eligible bindings. */
-export function createRecurringQaSession(signal:AbortSignal):CafeRecurringSession {
+export function createRecurringQaSession(signal:AbortSignal,selection?:Pick<ReturnType<typeof createSelectedProductionSession>,'readQa'>):CafeRecurringSession {
  let session:ReturnType<typeof openPrivateQaSession>|undefined
  let selected=false,read=false,used=false
  const enabled=()=>process.env.CS_CHARACTER_QA_BRIDGE_ENABLED==='true'
@@ -19,7 +20,10 @@ export function createRecurringQaSession(signal:AbortSignal):CafeRecurringSessio
   async next(callSignal){
    signal.throwIfAborted();callSignal.throwIfAborted()
    if(callSignal!==signal||!enabled()||read)throw Error('QA selection unavailable')
-   read=true;session=openPrivateQaSession(signal)
+   read=true;const backend=openPrivateQaSession(signal)
+   session=selection?{...backend,rpc:{async rpc(name,args){
+    signal.throwIfAborted();const result=name==='character_production_qa_ready_slots'?{data:[await selection.readQa()],error:null}:await backend.rpc.rpc(name,args);signal.throwIfAborted();return result
+   }}}:backend
    const result=await session.rpc.rpc('character_production_qa_ready_slots',{p_limit:1})
    signal.throwIfAborted()
    if(result.error||!Array.isArray(result.data)||result.data.length>1)throw Error('QA queue unconfirmed')
@@ -39,3 +43,4 @@ export function createRecurringQaSession(signal:AbortSignal):CafeRecurringSessio
   async whenSettled(){await session?.whenSettled()},
  }
 }
+

@@ -31,7 +31,7 @@ function fixture(opts={}){
   './character-production-broker-boundary':{createPrivateOutputStorage:()=>({privateBucket:async()=>true,insert:async(p,bytes)=>{output=bytes;calls.push('private-insert')},read:async()=>output})},
   './character-production-runtime':runtime
  })
- return {session:m.createRecurringCollectionSession(c.signal,manifest),calls,c,env,manifest,getRpc:()=>rpcSeen}
+ return {session:m.createRecurringCollectionSession(c.signal,manifest,opts.exactSelection?{readCollect:async()=>[{...job,key:'selected-key',taskId:'selected-task'}]}:undefined),calls,c,env,manifest,getRpc:()=>rpcSeen}
 }
 test('default disabled, disabled manifest, foreign signal and preabort never open',async()=>{for(const mode of ['env','manifest','foreign','abort']){const f=fixture();if(mode==='env')delete f.env.CS_CHARACTER_INTERNAL_WORKER_ENABLED;if(mode==='manifest')f.manifest.configuration.engine.enabled=false;if(mode==='abort')f.c.abort();await assert.rejects(f.session.next(mode==='foreign'?new AbortController().signal:f.c.signal));assert.equal(f.calls.length,0)}})
 test('original task polled once, no generation or replay, queue re-read',async()=>{const f=fixture();assert.equal(await f.session.next(f.c.signal),'collect');await f.session.stages.collect(f.c.signal);assert.equal(f.calls.filter(x=>Array.isArray(x)&&x[0]==='character_production_pending').length,2);assert.deepEqual(f.calls.find(x=>Array.isArray(x)&&x[0]==='provider-status').slice(1),['original-provider-task','b'.repeat(64)]);await assert.rejects(f.session.stages.collect(f.c.signal));await assert.rejects(f.session.next(f.c.signal));await assert.rejects(f.getRpc().rpc('character_production_claim',{}))})
@@ -42,3 +42,5 @@ test('provider uncertainty and flag revocation hold, never retry',async()=>{for(
 test('revocation after selection and unknown transport settlement propagate',async()=>{const f=fixture();await f.session.next(f.c.signal);f.env.CS_CHARACTER_INTERNAL_WORKER_ENABLED='false';await assert.rejects(f.session.stages.collect(f.c.signal));const g=fixture({settleError:true});await g.session.next(g.c.signal);await assert.rejects(g.session.whenSettled())})
 
 test('revocation while pending read is in flight blocks provider polling',async()=>{const f=fixture({disableDuringPending:true});await f.session.next(f.c.signal);await assert.rejects(f.session.stages.collect(f.c.signal));assert.equal(f.calls.some(x=>Array.isArray(x)&&x[0]==='provider-status'),false)})
+
+test('selected collection never falls back to legacy head',async()=>{const f=fixture({exactSelection:true});await f.session.next(f.c.signal);await f.session.stages.collect(f.c.signal);assert.equal(f.calls.some(x=>Array.isArray(x)&&x[0]==='character_production_pending'),false);assert.equal(f.calls.find(x=>Array.isArray(x)&&x[0]==='provider-status')[1],'selected-task')})

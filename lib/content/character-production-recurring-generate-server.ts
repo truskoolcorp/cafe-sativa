@@ -1,3 +1,4 @@
+import type {createSelectedProductionSession} from './character-production-selected-session'
 import 'server-only'
 import {openInternalProduction,type InternalProductionManifest} from './character-production-server-composition'
 import {createBrokeredCharacterProductionRuntime} from './character-production-runtime'
@@ -10,7 +11,7 @@ import type {CafeRecurringSession} from './character-production-recurring-entry'
 /** Dormant generation adapter, not authorization or enrollment. Requires a
  * separately reviewed current manifest and the real exact authorized SQL queue.
  * No collect/QA/publication chaining, caller candidate or old canary default. */
-export function createRecurringGenerationSession(signal:AbortSignal,manifest:InternalProductionManifest,budget:ProductionTimeBudget):CafeRecurringSession {
+export function createRecurringGenerationSession(signal:AbortSignal,manifest:InternalProductionManifest,budget:ProductionTimeBudget,selection?:Pick<ReturnType<typeof createSelectedProductionSession>,'readDue'>):CafeRecurringSession {
  let opened:ReturnType<typeof openInternalProduction>|undefined
  let selected:ScheduledProductionSlot|undefined,read=false,used=false
  let produce:(()=>Promise<void>)|undefined
@@ -29,16 +30,17 @@ export function createRecurringGenerationSession(signal:AbortSignal,manifest:Int
    const allowed=new Set(['character_production_due','character_production_pending','character_production_authorization','character_production_claim','character_production_observe_receipt','character_production_submitted','character_production_unknown'])
    const rpc:ProductionRpc={async rpc(name,args){check(signal);if(!allowed.has(name))throw Error('Generation RPC rejected');const result=await backend.rpc.rpc(name,args);check(signal);return result}}
    const queue=createProductionQueue(rpc,cfg.engine.now)
+   const due=()=>selection?selection.readDue():queue.due(cfg.engine.provider,cfg.engine.model,1)
    // Generation cannot persist private video or impersonate collection receipts.
    const engine=createBrokeredCharacterProductionRuntime(cfg,()=>({...backend,rpc,outputBroker:{async save(){throw Error('Generation cannot collect output')}}}))
    const pending=async()=>{const r=await rpc.rpc('character_production_pending',{p_provider:cfg.engine.provider,p_model:cfg.engine.model,p_limit:1});if(r.error||!Array.isArray(r.data)||r.data.length>1)throw Error('Original task state unknown');return r.data.length>0}
    if(await pending())return null
-   const rows=await queue.due(cfg.engine.provider,cfg.engine.model,1);check(signal)
+   const rows=await due();check(signal)
    if(!rows.length||!timely(rows[0]))return null
    selected=rows[0]
    produce=async()=>{
     if(await pending())throw Error('Collect original task first')
-    const current=await queue.due(cfg.engine.provider,cfg.engine.model,1);check(signal)
+    const current=await due();check(signal)
     if(!selected||current.length!==1||current[0].slot.key!==selected.slot.key||current[0].digest!==selected.digest||!timely(current[0]))throw Error('Exact due candidate changed')
     // Real runtime verifies current canon/provider/authority and SQL atomically
     // reserves the unique key and monthly spend. Never retries an unknown write.

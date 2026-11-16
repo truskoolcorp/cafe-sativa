@@ -3,7 +3,7 @@ const occurrence='00000000-0000-4000-8000-000000000001',enrollment='00000000-000
 function harness(context,options={}){
  const retained=[],calls=[],env={CS_CHARACTER_PIPELINE_ENTRY_ENABLED:'true'}
  const account={linkId:'reviewed-link',model:'avatar_iv',aspectRatio:'16:9'},base={images:[],expectedHeyGenUsername:'reviewed-user',configuration:{engine:{characters:['zaria-solenne']},heygen:{...account,bindings:[]}}}
- const finite=(name,result)=>({run:async()=>{calls.push(name);return result},whenSettled:async()=>calls.push(name+'-drained')})
+ const finite=(name,result)=>({run:async()=>{calls.push(name);return options.malformedResult?{status:'invented_success'}:result},whenSettled:async()=>calls.push(name+'-drained')})
  const mods={'server-only':{},'node:crypto':crypto,
  './character-production-preparation-server':{createCafePreparationOperation:()=>finite('prepare',{status:'text_phase_finished'})},
  './character-production-first-admission-server':{createCafeFirstAdmissionOperation:()=>finite('admit',{status:'first_enrollment_admitted'})},
@@ -40,3 +40,5 @@ test('host retains original drainage synchronously beyond early abort response',
  release();await h.retained[0];assert.equal(settled,true);assert.ok(h.calls.includes('connection-drained'));assert.equal(h.calls.includes('prepare'),false)
 })
 test('hosting registration failure prevents opening any capability',async()=>{const h=harness({phase:'prepare',occurrenceId:occurrence},{badRetain:true});assert.equal((await h.handler(h.request())).status,503);assert.equal(h.calls.includes('open'),false)})
+
+test('unrecognized finite status cannot be presented as success',async()=>{for(const context of [{phase:'prepare',occurrenceId:occurrence},{phase:'admit',occurrenceId:occurrence,identity:{key:'original'}}]){const h=harness(context,{malformedResult:true});const r=await h.handler(h.request());assert.equal(r.status,503);assert.equal((await r.json()).status,'held')}})

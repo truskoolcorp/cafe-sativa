@@ -26,6 +26,10 @@ export type CafePipelineConfig={
 export function createCafePipelineEntry(input:CafePipelineConfig){
  const base=snapshotProductionManifest(input.manifest),authorize=input.authorize,open=input.open,retain=input.retain
  if(base.images.length||base.configuration.heygen.bindings.length||base.exactScope)throw Error('No static occurrence binding allowed')
+ const phaseStatus=(value:unknown,allowed:readonly string[]):string=>{
+  if(!value||typeof value!=='object'||!('status' in value)||typeof value.status!=='string'||!allowed.includes(value.status))throw Error('Invalid finite operation status')
+  return value.status
+ }
  const enabled=()=>process.env.CS_CHARACTER_PIPELINE_ENTRY_ENABLED==='true'
  let busy=false
  const reply=(status:string,code=200,phase?:string)=>Response.json({status,...(phase?{phase}:{}),publicationVerified:false},{status:code,headers:{'Cache-Control':'private, no-store'}})
@@ -62,7 +66,7 @@ export function createCafePipelineEntry(input:CafePipelineConfig){
     if(original.phase==='prepare'){
      await current();const op=createCafePreparationOperation();child=op
      const result=await op.run(signal);check()
-     return reply(result.status,200,'prepare')
+     return reply(phaseStatus(result,['disabled','unconfigured','held_original_text','held_authority','held_original_speech','text_phase_finished','speech_phase_finished','original_speech_verified']),200,'prepare')
     }
     if(original.phase==='admit'){
      receipt=createFreshSpeechReceiptReader(original.identity,{storage:connection.storage,signal,enabled,timeoutMs:30000})
@@ -71,7 +75,7 @@ export function createCafePipelineEntry(input:CafePipelineConfig){
      await current()
      const op=createCafeFirstAdmissionOperation();child=op
      const result=await op.run(signal);check()
-     return reply(result.status,200,'admit')
+     return reply(phaseStatus(result,['disabled','unconfigured','original_enrollment_retained','original_planning_phase_finished','held_authority','held_admission_outcome','first_enrollment_admitted']),200,'admit')
     }
     const admitted=JSON.parse(original.manifest)
     if(admitted.candidates?.length!==1||admitted.images?.length!==1||admitted.candidates[0].slot?.key!=='first:'+original.occurrenceId)throw Error('Exact first occurrence required')

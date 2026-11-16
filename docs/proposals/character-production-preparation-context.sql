@@ -23,8 +23,11 @@ ALTER TABLE character_production.preparation_binding ENABLE ROW LEVEL SECURITY;
 ALTER TABLE character_production.preparation_occurrences ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON character_production.preparation_lanes,character_production.preparation_binding,character_production.preparation_occurrences FROM PUBLIC;
 CREATE FUNCTION character_production.preparation_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN
- IF TG_TABLE_NAME='preparation_lanes' AND TG_OP='UPDATE' AND OLD.enabled AND NOT NEW.enabled AND to_jsonb(OLD)-'enabled'=to_jsonb(NEW)-'enabled' THEN RETURN NEW; END IF;
- IF TG_TABLE_NAME='preparation_occurrences' AND TG_OP='UPDATE' AND to_jsonb(OLD)-'text_started'-'speech_started'=to_jsonb(NEW)-'text_started'-'speech_started' AND (NOT OLD.text_started OR NEW.text_started) AND (NOT OLD.speech_started OR NEW.speech_started) THEN RETURN NEW; END IF;
+ IF TG_TABLE_NAME='preparation_lanes' AND TG_OP='UPDATE' THEN
+  IF OLD.enabled AND NOT NEW.enabled AND to_jsonb(OLD)-'enabled'=to_jsonb(NEW)-'enabled' THEN RETURN NEW; END IF;
+ ELSIF TG_TABLE_NAME='preparation_occurrences' AND TG_OP='UPDATE' THEN
+  IF to_jsonb(OLD)-'text_started'-'speech_started'=to_jsonb(NEW)-'text_started'-'speech_started' AND (NOT OLD.text_started OR NEW.text_started) AND (NOT OLD.speech_started OR NEW.speech_started) THEN RETURN NEW; END IF;
+ END IF;
  RAISE EXCEPTION 'Original preparation context immutable; no reset or successor'; END $$;
 CREATE TRIGGER preparation_lane_immutable BEFORE UPDATE OR DELETE ON character_production.preparation_lanes FOR EACH ROW EXECUTE FUNCTION character_production.preparation_immutable();
 CREATE TRIGGER preparation_binding_immutable BEFORE UPDATE OR DELETE ON character_production.preparation_binding FOR EACH ROW EXECUTE FUNCTION character_production.preparation_immutable();

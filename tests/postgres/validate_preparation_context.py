@@ -86,6 +86,9 @@ def suite():
  fail("SET ROLE character_production_owner; DELETE FROM character_production.preparation_occurrences;",'immutable')
  fail("SET ROLE character_production_owner; UPDATE character_production.preparation_lanes SET expires_at=expires_at+interval '1 hour';",'immutable')
  fail("SET ROLE character_production_owner; UPDATE character_production.preparation_binding SET lane_id=lane_id;",'immutable')
+ for table in ['preparation_lanes','preparation_binding']:
+  fail('SET ROLE character_production_owner; DELETE FROM character_production.'+table+';','immutable')
+ fail("SET ROLE character_production_owner; UPDATE character_production.preparation_occurrences SET speech_started=false,text_started=false;",'immutable')
  # Use actual text claim/save RPCs. Provider values are explicitly synthetic
  # fixture data; this is not evidence of an external API call or generated media.
  expiry=owner("SELECT floor(extract(epoch FROM expires_at)*1000)::bigint FROM character_production.text_replenishment_budgets WHERE id='"+B+"'")

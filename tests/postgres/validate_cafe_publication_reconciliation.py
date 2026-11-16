@@ -20,7 +20,7 @@ def setup():
  db.run('REVOKE CREATE ON SCHEMA public FROM character_production_owner;')
  # Replace ONLY disposable foundation's old minimal Café guard scaffolding with
  # the actual store and writer. This is not a production installer migration.
- db.run("DROP SCHEMA cafe_metricool_private CASCADE; CREATE ROLE cafe_metricool_owner NOLOGIN NOSUPERUSER NOINHERIT; GRANT CREATE ON DATABASE character_ci_provision TO cafe_metricool_owner; GRANT CREATE ON SCHEMA public TO cafe_metricool_owner; GRANT USAGE ON SCHEMA auth TO cafe_metricool_owner; GRANT REFERENCES(id) ON auth.users TO cafe_metricool_owner; GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO cafe_metricool_owner; ALTER TABLE public.cs_character_promo_delivery_plans ADD COLUMN caption text; ALTER TABLE public.cs_character_promo_qa_checks ADD COLUMN video_sha256 text,ADD COLUMN result text,ADD COLUMN reviewer_id uuid,ADD COLUMN evidence text,ADD COLUMN created_at timestamptz; GRANT UPDATE(id) ON public.cs_character_promo_drafts TO cafe_metricool_owner; GRANT SELECT,REFERENCES,TRIGGER ON public.cs_character_promo_drafts,public.cs_character_promo_delivery_plans,public.cs_character_promo_qa_checks TO cafe_metricool_owner; CREATE POLICY standing_fixture_read_drafts ON public.cs_character_promo_drafts FOR SELECT TO cafe_metricool_owner USING(true); CREATE POLICY standing_fixture_read_plans ON public.cs_character_promo_delivery_plans FOR SELECT TO cafe_metricool_owner USING(true);")
+ db.run("DROP SCHEMA cafe_metricool_private CASCADE; CREATE ROLE cafe_metricool_owner NOLOGIN NOSUPERUSER NOINHERIT; GRANT CREATE ON DATABASE character_ci_provision TO cafe_metricool_owner; GRANT CREATE ON SCHEMA public TO cafe_metricool_owner; GRANT USAGE ON SCHEMA auth TO cafe_metricool_owner; GRANT REFERENCES(id) ON auth.users TO cafe_metricool_owner; GRANT EXECUTE ON FUNCTION public.cs_cafe_metricool_is_admin(uuid) TO cafe_metricool_owner; ALTER TABLE public.cs_character_promo_delivery_plans ADD COLUMN caption text; ALTER TABLE public.cs_character_promo_qa_checks ADD COLUMN video_sha256 text,ADD COLUMN result text,ADD COLUMN reviewer_id uuid,ADD COLUMN evidence text,ADD COLUMN created_at timestamptz; GRANT UPDATE(id) ON public.cs_character_promo_drafts TO cafe_metricool_owner; GRANT SELECT,REFERENCES,TRIGGER ON public.cs_character_promo_drafts,public.cs_character_promo_delivery_plans,public.cs_character_promo_qa_checks TO cafe_metricool_owner; CREATE POLICY standing_fixture_read_drafts ON public.cs_character_promo_drafts FOR SELECT TO cafe_metricool_owner USING(true); CREATE POLICY cafe_metricool_owner_lock ON public.cs_character_promo_drafts FOR UPDATE TO cafe_metricool_owner USING(true) WITH CHECK(false); CREATE POLICY standing_fixture_read_plans ON public.cs_character_promo_delivery_plans FOR SELECT TO cafe_metricool_owner USING(true);")
  raw=(db.ROOT/'docs/proposals/cafe-metricool-store.sql').read_text()
  old="EXISTS(SELECT 1 FROM auth.users WHERE id=a.approved_by AND raw_app_meta_data->'cafe_sativa_admin'='true'::jsonb)"
  assert raw.count(old)==1
@@ -96,6 +96,12 @@ def main():
  db.run('BEGIN; SET ROLE cafe_metricool_owner; SELECT '+call(0,r,e)+'; ROLLBACK;')
  db.check('NOT EXISTS(SELECT 1 FROM cafe_metricool_private.publication_receipts)','receipt rolls back')
  assert own(call(0,r,e))=='t';assert own(call(0,r,e))=='t'
+ before_receipt=db.run('SELECT receipt::text FROM cafe_metricool_private.publication_receipts WHERE plan_id='+q(P[0]))
+ later=copy.deepcopy(r);later['observedAt']=db.run('SELECT clock_timestamp()')
+ assert later['observedAt']!=r['observedAt'];assert own(call(0,later,e))=='t'
+ assert db.run('SELECT receipt::text FROM cafe_metricool_private.publication_receipts WHERE plan_id='+q(P[0]))==before_receipt,'later positive poll retains original receipt'
+ db.check("NOT has_table_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','UPDATE') AND has_column_privilege('cafe_metricool_owner','public.cs_character_promo_drafts','id','UPDATE')",'lock-only column privilege')
+ fail("SET ROLE cafe_metricool_owner; UPDATE public.cs_character_promo_drafts SET id=id WHERE id="+q(D), 'row-level security')
  assert terminal()=='f','one platform cannot complete pair'
  rr=copy.deepcopy(r);rr['destinationId']='999';assert own(call(0,rr,e))=='f'
  r1,e1=observation(1);assert own(call(1,r1,e1))=='t';assert terminal()=='t'

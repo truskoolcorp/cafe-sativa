@@ -32,7 +32,6 @@ BEGIN
  expected:=public.cs_cafe_publication_attempt(p_plan);
  IF expected IS NULL OR a.token IS DISTINCT FROM p_token OR a.digest IS DISTINCT FROM p_digest THEN RETURN false; END IF;
  SELECT * INTO old FROM cafe_metricool_private.publication_receipts WHERE plan_id=p_plan;
- IF FOUND THEN RETURN old.attempt_token=p_token AND old.digest=p_digest AND old.receipt=p_receipt AND old.evidence_text=p_evidence; END IF;
  IF jsonb_typeof(p_receipt) IS DISTINCT FROM 'object' OR (p_receipt-'version'-'brandId'-'destinationId'-'publicUrl'-'observedAt'-'evidenceSha256') IS DISTINCT FROM expected
  OR jsonb_typeof(p_receipt->'publicUrl') IS DISTINCT FROM 'string' OR length(p_receipt->>'publicUrl') NOT BETWEEN 1 AND 500 OR p_receipt->'version' IS DISTINCT FROM '1'::jsonb OR p_receipt->>'brandId' IS DISTINCT FROM '7605217'
  OR p_receipt->>'evidenceSha256' IS DISTINCT FROM encode(sha256(convert_to(p_evidence,'UTF8')),'hex')
@@ -48,6 +47,9 @@ BEGIN
  ELSE
   IF p_receipt->>'destinationId' IS DISTINCT FROM p_receipt->>'publicUrl' OR NOT coalesce(p_receipt->>'publicUrl'~'^https://(www\.)?instagram\.com/reel/[A-Za-z0-9_-]{1,100}/?$',false) THEN RETURN false; END IF;
  END IF;
+ -- A later verified poll may have a fresh observation time, but cannot change
+ -- the original evidence or destination. Keep the first receipt immutable.
+ IF old.plan_id IS NOT NULL THEN RETURN old.attempt_token=p_token AND old.digest=p_digest AND (old.receipt-'observedAt')=(p_receipt-'observedAt') AND old.evidence_text=p_evidence; END IF;
  INSERT INTO cafe_metricool_private.publication_receipts VALUES(p_plan,p_token,p_digest,p_receipt,p_evidence,p_receipt->>'evidenceSha256');
  RETURN true;
 END $$;

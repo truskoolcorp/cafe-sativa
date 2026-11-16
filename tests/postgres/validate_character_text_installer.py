@@ -29,10 +29,10 @@ def main():
  CREATE ROLE anon; CREATE ROLE authenticated;
  CREATE SCHEMA character_production AUTHORIZATION character_production_owner;
  SET ROLE supabase_admin;
- GRANT character_production_owner TO postgres WITH ADMIN TRUE,INHERIT FALSE,SET FALSE;
- GRANT service_role TO postgres WITH ADMIN TRUE,INHERIT TRUE,SET TRUE;
- GRANT service_role TO authenticator WITH ADMIN FALSE,INHERIT FALSE,SET TRUE;
- GRANT authenticator TO supabase_storage_admin WITH ADMIN FALSE,INHERIT FALSE,SET TRUE;
+ GRANT character_production_owner TO postgres WITH ADMIN TRUE,INHERIT FALSE,SET FALSE GRANTED BY supabase_admin;
+ GRANT service_role TO postgres WITH ADMIN TRUE,INHERIT TRUE,SET TRUE GRANTED BY supabase_admin;
+ GRANT service_role TO authenticator WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY supabase_admin;
+ GRANT authenticator TO supabase_storage_admin WITH ADMIN FALSE,INHERIT FALSE,SET TRUE GRANTED BY supabase_admin;
  ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
  RESET ROLE;
  REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -41,6 +41,9 @@ def main():
  os.environ['PGUSER']='postgres'
  assert run("SELECT current_user='postgres' AND session_user='postgres' AND NOT rolsuper AND rolcreaterole FROM pg_roles WHERE rolname=current_user;")=='t'
  before=capture()
+ owner_members=[m for m in before['catalog']['members'] if m['role']=='character_production_owner' or m['member']=='character_production_owner']
+ expected_owner_members=[{'role':'character_production_owner','member':'postgres','grantor':'supabase_admin','admin':True,'inherit':False,'set':False}]
+ assert owner_members==expected_owner_members, 'Unexpected owner membership baseline: '+json.dumps(owner_members,sort_keys=True)
  source=(db.ROOT/'docs/proposals/character-production-replenishment.sql').read_text()
  body=source.split('\nBEGIN;',1)[1].rsplit('\nROLLBACK;',1)[0]
  # Collect exact expected after in disposable transaction, never persist it.

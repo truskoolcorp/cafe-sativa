@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript')
-function load(file,requires={}){const c={exports:{},require:n=>{if(n==='server-only')return {};if(Object.hasOwn(requires,n))return requires[n];throw Error(n)},process:requires.process,AbortSignal,AbortController,Error,Set,Object};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,c);return c.exports}
+function load(file,requires={}){const c={exports:{},require:n=>{if(n==='server-only')return {};if(Object.hasOwn(requires,n))return requires[n];throw Error(n)},fetch:requires.fetch??global.fetch,Request,Response,ReadableStream,setTimeout,clearTimeout,process:requires.process,AbortSignal,AbortController,Error,Set,Object};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,c);return c.exports}
 const real=load('lib/content/character-production-recurring-qa.ts')
 function fixture(opts={}){const calls=[],controller=new AbortController(),env={CS_CHARACTER_QA_BRIDGE_ENABLED:opts.enabled===false?'false':'true'};let reads=0;const identity={key:'real-database-slot',digest:'a'.repeat(64)}
  const m=load('lib/content/character-production-recurring-qa-server.ts',{'./character-production-recurring-qa':real,process:{env},'./character-production-qa-worker-entry':{openPrivateQaSession:s=>{calls.push('open');assert.equal(s,controller.signal);return {rpc:{async rpc(name,args){calls.push([name,args]);if(name.endsWith('ready_slots')){reads++;if(opts.revoke)env.CS_CHARACTER_QA_BRIDGE_ENABLED='false';return {data:opts.rows??(opts.empty?[]:reads===2&&opts.vanish?[]:[identity]),error:opts.queueError}}if(opts.revokeDuringMaterialize)env.CS_CHARACTER_QA_BRIDGE_ENABLED='false';return {data:opts.materialize??true,error:null}}},bridge:{async ingest(key,digest){calls.push(['copy',key,digest]);return {status:opts.held?'held':'ingested'}}},whenSettled:async()=>{calls.push('settled');if(opts.settleError)throw Error('unknown')}}}}})
@@ -19,10 +19,12 @@ test('QA revocation during materialization prevents private copy in either mode'
 test('revoked QA blocks actual backend network dispatch inside bridge',async()=>{
  let dispatch,enabled=true,sent=0
  const c=new AbortController()
+ const network=load('lib/content/character-production-bounded-fetch.ts')
  const m=load('lib/content/character-production-qa-worker-entry.ts',{
+  fetch:async()=>{sent++;return new Response(null,{status:204})},
   './auth':{cronAuthorized:()=>true},
   '@/lib/supabase/admin':{createAdminClient:f=>{dispatch=f;return {storage:{}}}},
-  './character-production-bounded-fetch':{createProductionFetch:()=>({fetch:async()=>{sent++;return {}},whenSettled:async()=>{}})},
+  './character-production-bounded-fetch':network,
   './character-production-qa-bridge':{createCharacterProductionQaBridge:()=>({})},
   './character-production-qa-storage':{createStreamingQaStorage:()=>({})},
   './character-production-qa-worker':{createPrivateQaWorker:()=>({})},
@@ -30,5 +32,5 @@ test('revoked QA blocks actual backend network dispatch inside bridge',async()=>
  })
  m.openPrivateQaSession(c.signal,()=>{if(!enabled)throw Error('revoked')})
  await dispatch('https://synthetic.invalid')
- enabled=false;assert.throws(()=>dispatch('https://synthetic.invalid'));assert.equal(sent,1)
+ const pending=dispatch('https://synthetic.invalid');enabled=false;await assert.rejects(pending);assert.equal(sent,1)
 })

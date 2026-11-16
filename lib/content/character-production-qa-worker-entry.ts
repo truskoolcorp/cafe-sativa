@@ -11,7 +11,7 @@ import type {ProductionRpc} from './character-production-store'
 // No manifest, binding rows or scheduler are created by this route. Missing
 // reviewed runtime grants/configuration holds; a flag alone cannot enroll jobs.
 export function openPrivateQaSession(signal:AbortSignal,dispatchGuard?:()=>void){
-  const network=createProductionFetch(signal),db=createAdminClient((input,init)=>{signal.throwIfAborted();dispatchGuard?.();return network.fetch(input,init)})
+  const network=createProductionFetch(signal,(input,init)=>{signal.throwIfAborted();dispatchGuard?.();return fetch(input,init)}),db=createAdminClient(network.fetch)
   const allowed=new Set(['character_production_qa_ready_slots','character_production_qa_materialize','character_production_qa_prepare','character_production_qa_commit'])
   const rpc:ProductionRpc={async rpc(name,args){
    if(signal.aborted||!allowed.has(name))throw Error('QA RPC scope rejected')

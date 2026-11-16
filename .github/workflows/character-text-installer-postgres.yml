@@ -22,16 +22,16 @@ jobs:
         image: postgres:17
         env:
           POSTGRES_DB: character_ci_test
-          POSTGRES_USER: ci_bootstrap
+          POSTGRES_USER: supabase_admin
           POSTGRES_PASSWORD: synthetic-ci-only
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U ci_bootstrap -d character_ci_test"
+          --health-cmd "pg_isready -U supabase_admin -d character_ci_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       PGHOST: 127.0.0.1
       PGPORT: '5432'
-      PGUSER: ci_bootstrap
+      PGUSER: supabase_admin
       PGPASSWORD: synthetic-ci-only
       PGDATABASE: character_ci_test
       PG_TEST_SERVER: '1'

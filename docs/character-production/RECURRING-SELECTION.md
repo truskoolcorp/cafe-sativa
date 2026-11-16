@@ -67,5 +67,9 @@ head bypass, durable backoff, non-reclaim after old timestamps, stale-token
 rejection, no paid-job/budget mutation, actual receipt-derived completion and
 revocation. CI must pass before this proposal is described as verified.
 
+The proposal asserts exact owner-only ACLs even under unexpected default grants,
+and every public wrapper rejects non-READ-COMMITTED snapshots. These constraints
+are tested in the same disposable fixture, not by changing live permissions.
+
 Tests do not prove content/voice/video quality, live enrollment, platform delivery
 or a running recurring pipeline. Those still require genuine production evidence.

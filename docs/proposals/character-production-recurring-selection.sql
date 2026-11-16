@@ -189,9 +189,9 @@ DO $$ DECLARE o record; own oid:='character_production_owner'::regrole; BEGIN
  'public.character_production_recurring_finish(uuid,uuid,text)'::regprocedure)
  LOOP
  IF o.owner<>own OR EXISTS(
- (SELECT * FROM aclexplode(coalesce(o.acl,acldefault(o.kind,own))) EXCEPT SELECT * FROM aclexplode(acldefault(o.kind,own)))
+ (SELECT * FROM aclexplode(coalesce(o.acl,acldefault(o.kind,own))) EXCEPT SELECT * FROM aclexplode(acldefault(o.kind,own)) WHERE grantee=own)
  UNION ALL
- (SELECT * FROM aclexplode(acldefault(o.kind,own)) EXCEPT SELECT * FROM aclexplode(coalesce(o.acl,acldefault(o.kind,own)))))
+ (SELECT * FROM aclexplode(acldefault(o.kind,own)) WHERE grantee=own EXCEPT SELECT * FROM aclexplode(coalesce(o.acl,acldefault(o.kind,own)))))
  THEN RAISE EXCEPTION 'Recurring selection exact owner-only ACL required'; END IF;
  END LOOP;
 END $$;

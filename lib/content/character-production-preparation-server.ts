@@ -11,8 +11,8 @@ const day=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'
 /** One trusted finite phase per invocation. No caller keys/scopes, no successor,
  * reset/retry, route or activation. Saved original identity survives day/lease
  * expiry; only read-only receipt recovery is allowed then. */
-export function createCafePreparationOperation(){
- const enabled=()=>process.env.CS_CHARACTER_PREPARATION_ENABLED==='true'
+export function createCafePreparationOperation(allowed:()=>boolean=()=>true){
+ const enabled=()=>allowed()&&process.env.CS_CHARACTER_PREPARATION_ENABLED==='true'
  let used=false,closing=false,work:Promise<unknown>|undefined,network:ReturnType<typeof createProductionFetch>|undefined
  let child:{whenSettled():Promise<void>}|undefined
  return {async run(parent:AbortSignal){
@@ -33,7 +33,7 @@ export function createCafePreparationOperation(){
    }
    if(!original.speechStarted&&original.active&&original.textKey===`daily:${day()}:zaria-solenne`){
     if(!await claim('speech'))return {status:'held_original_speech' as const}
-    const operation=createFreshSpeechOperation(80000,original.identity,current);child=operation
+    const operation=createFreshSpeechOperation(80000,original.identity,current,enabled);child=operation
     const result=await operation.run(signal);await operation.whenSettled();check();return {status:'speech_phase_finished' as const,result}
    }
    // Never reconstruct a current speech operation for yesterday's saved text.

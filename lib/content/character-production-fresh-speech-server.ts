@@ -14,10 +14,10 @@ type Snapshot={scopeId:string;attempt:SavedTextAttempt;authority:FreshSpeechAuth
 /** Dormant exact daily Zaria operation. No caller-selected authority, key, voice,
  * model, budget, script, RPC or public post. RPC grant is separately reviewed;
  * no direct private-table fallback or implied authority from a text budget. */
-export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedFreshTextIdentity,currentPreparation?:()=>Promise<void>){
+export function createFreshSpeechOperation(deadlineMs=85000,expected?:PersistedFreshTextIdentity,currentPreparation?:()=>Promise<void>,allowed:()=>boolean=()=>true){
  if(!Number.isSafeInteger(deadlineMs)||deadlineMs<1000||deadlineMs>85000)throw Error('Invalid speech deadline')
  const identity=expected?structuredClone(expected):undefined
- const enabled=()=>process.env.CS_CHARACTER_FRESH_INCLUDED_SPEECH_ENABLED==='true'
+ const enabled=()=>allowed()&&process.env.CS_CHARACTER_FRESH_INCLUDED_SPEECH_ENABLED==='true'
  let consumed=false,closing=false,work:Promise<unknown>|undefined,network:ReturnType<typeof createProductionFetch>|undefined,provider:ReturnType<typeof createIncludedOperationProvider>|undefined
  return {
   async run(parent:AbortSignal){

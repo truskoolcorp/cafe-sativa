@@ -6,7 +6,7 @@ export async function boundedOperationBytes(stream:ReadableStream<Uint8Array>,ma
  const cancel=()=>{cancellation??=reader.cancel().catch(()=>{});return cancellation};signal.addEventListener('abort',cancel,{once:true})
  try{while(true){if(signal.aborted)throw Error('cancelled');const x=await reader.read();if(signal.aborted)throw Error('cancelled');if(x.done)break;if(!(x.value instanceof Uint8Array)||chunks.length>=4096)throw Error('stream_unconfirmed');n+=x.value.length;if(n>max)throw Error('size_exceeded');chunks.push(Uint8Array.from(x.value))}return Buffer.concat(chunks,n)}finally{signal.removeEventListener('abort',cancel);await cancel()}
 }
-export function createIncludedOperationProvider(input:IncludedSpeechOperation,key:string,signal:AbortSignal,fetcher:typeof fetch=fetch,beforePost:()=>void=()=>{}){
+export function createIncludedOperationProvider(input:IncludedSpeechOperation,key:string,signal:AbortSignal,fetcher:typeof fetch=fetch,beforePost:()=>void|Promise<void>=()=>{},beforeDispatch:()=>void=()=>{}){
  const operation=Object.freeze({...input});validateIncludedSpeechOperation(operation)
  if(!key||key.length>4096||/[\r\n]/.test(key))throw Error('provider_unconfigured')
  let posted=false
@@ -15,9 +15,9 @@ export function createIncludedOperationProvider(input:IncludedSpeechOperation,ke
  async function performRequest(path:string,body?:unknown){
   if(signal.aborted)throw Error('cancelled')
   const deadline=AbortSignal.any([signal,AbortSignal.timeout(body?12000:8000)])
-  const r=await track(Promise.resolve().then(()=>{
+  const r=await track(Promise.resolve().then(async()=>{
    deadline.throwIfAborted();signal.throwIfAborted()
-   if(body){if(Date.now()>=operation.expiresAt)throw Error('authority_expired');beforePost();deadline.throwIfAborted();signal.throwIfAborted()}
+   if(body){if(Date.now()>=operation.expiresAt)throw Error('authority_expired');const checked=beforePost();if(checked)await checked;deadline.throwIfAborted();signal.throwIfAborted();if(Date.now()>=operation.expiresAt)throw Error('authority_expired');beforeDispatch();deadline.throwIfAborted();signal.throwIfAborted()}
    return fetcher('https://api.elevenlabs.io'+path,{method:body?'POST':'GET',headers:{'xi-api-key':key,Accept:body?'audio/mpeg':'application/json',...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:deadline,cache:'no-store',redirect:'error'})}))
   if(r.status!==200||!r.body){if(r.body)void track(r.body.cancel()).catch(()=>{});throw Error('provider_unconfirmed')}
   const type=r.headers.get('content-type')?.split(';')[0]

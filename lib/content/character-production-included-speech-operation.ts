@@ -1,3 +1,4 @@
+import {verifyFreshSpeechSourceScope,type FreshSpeechSourceScope} from './character-production-fresh-speech-provenance.ts'
 import {createHash,randomUUID} from 'node:crypto'
 import {performance} from 'node:perf_hooks'
 const hash=(v:string|Uint8Array)=>createHash('sha256').update(v).digest('hex')
@@ -20,12 +21,15 @@ export interface IncludedOperationStore {preflight():Promise<void>;claim(bytes:U
 /** New bounded occurrence, never an old canary replay. Permanent insert-only claim
  * precedes POST. Dependencies must honor signal; outer handler owns finite deadline.
  * Included quota is not a global reservation against concurrent account consumers. */
-export async function runIncludedSpeechOperation(input:IncludedSpeechOperation,d:{signal:AbortSignal;now():number;monotonic?():number;canon(s:IncludedSpeechOperation):Promise<void>;quota():Promise<ReturnType<typeof includedOperationQuota>>;store:IncludedOperationStore;synthesize():Promise<{requestId:string;bytes:Uint8Array}>;measureDuration(bytes:Uint8Array):Promise<number>}){
+export async function runIncludedSpeechOperation(input:IncludedSpeechOperation,d:{freshSourceScope?:FreshSpeechSourceScope;signal:AbortSignal;now():number;monotonic?():number;canon(s:IncludedSpeechOperation):Promise<void>;quota():Promise<ReturnType<typeof includedOperationQuota>>;store:IncludedOperationStore;synthesize():Promise<{requestId:string;bytes:Uint8Array}>;measureDuration(bytes:Uint8Array):Promise<number>}){
  const s=Object.freeze({...input});validateIncludedSpeechOperation(s)
+ const fresh=d.freshSourceScope?structuredClone(d.freshSourceScope):undefined
+ if(fresh)verifyFreshSpeechSourceScope(s,fresh)
+ else if(s.key.startsWith('fresh-zaria-'))throw Error('fresh_original_snapshot_required')
  const monotonic=d.monotonic??(()=>performance.now()),start=monotonic(),active=()=>{if(d.signal.aborted||d.now()>=s.expiresAt)throw Error('authority_expired')}
  active();await d.canon(s);await d.store.preflight();const quota=await d.quota();active()
  const beforeClaim=monotonic()-start;if(!Number.isFinite(beforeClaim)||beforeClaim<0||beforeClaim>15000)throw Error('insufficient_tick_time')
- const digest=hash(JSON.stringify(s)),claim=Buffer.from(JSON.stringify({version:1,key:s.key,nonce:randomUUID(),inputDigest:digest,resource:'existing-included-only',quota,createdAt:new Date(d.now()).toISOString()}))
+ const digest=hash(JSON.stringify(s)),claim=Buffer.from(JSON.stringify({version:1,key:s.key,nonce:randomUUID(),inputDigest:digest,resource:'existing-included-only',quota,createdAt:new Date(d.now()).toISOString(),...(fresh?{freshBinding:{version:1,operation:s,sourceScope:fresh}}:{})}))
  await d.store.claim(claim);active();if(hash(await d.store.readClaim())!==hash(claim))throw Error('claim_unconfirmed')
  await d.canon(s);active()
  const elapsed=monotonic()-start;if(!Number.isFinite(elapsed)||elapsed<0||elapsed>30000)throw Error('insufficient_tick_time')

@@ -65,8 +65,10 @@ DECLARE standing character_production.successor_standing;root character_producti
 BEGIN
  IF current_setting('transaction_isolation')<>'read committed' THEN RETURN NULL; END IF;
  SELECT lane_id INTO bound FROM character_production.preparation_binding WHERE name='zaria-gallery-preparation';
- IF (SELECT count(*) FROM character_production.successor_standing s WHERE s.root_lane=bound OR EXISTS(SELECT 1 FROM character_production.successor_edges e WHERE e.standing_id=s.id AND e.next_lane=bound))<>1 THEN RETURN NULL; END IF;
- SELECT s.* INTO standing FROM character_production.successor_standing s WHERE s.root_lane=bound OR EXISTS(SELECT 1 FROM character_production.successor_edges e WHERE e.standing_id=s.id AND e.next_lane=bound) FOR UPDATE OF s NOWAIT;
+ BEGIN
+  SELECT s.* INTO STRICT standing FROM character_production.successor_standing s WHERE s.root_lane=bound OR EXISTS(SELECT 1 FROM character_production.successor_edges e WHERE e.standing_id=s.id AND e.next_lane=bound) FOR UPDATE OF s NOWAIT;
+ EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+ END;
  IF standing.id IS NULL THEN RETURN NULL; END IF;
  stamp:=clock_timestamp();today:=(stamp AT TIME ZONE 'America/Chicago')::date;
  IF NOT standing.enabled OR standing.authorized_at>stamp OR standing.expires_at<=stamp OR EXISTS(SELECT 1 FROM unnest(standing.owner_message_ids) m WHERE m IS NULL OR m!~'^Sentinel_[a-f0-9]{32}$') THEN RETURN NULL; END IF;

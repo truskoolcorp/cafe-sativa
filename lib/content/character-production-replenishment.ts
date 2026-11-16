@@ -18,7 +18,7 @@ export const replenishmentDigest=(x:unknown)=>createHash('sha256').update(stable
 const text=(x:unknown,max:number):x is string=>typeof x==='string'&&x.trim().length>0&&x.length<=max&&!/[\u0000-\u0008\u000b-\u001f\u007f]/.test(x)
 const hash=(s:string)=>/^[a-f0-9]{64}$/.test(s)
 const period=(at:number)=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit'}).formatToParts(at).filter(p=>p.type==='year'||p.type==='month').sort((a,b)=>a.type==='year'?-1:1).map(p=>p.value).join('-')
-export function parseFreshEditorial(raw:unknown,source:ReplenishmentSource):FreshEditorial{
+export function parseFreshEditorial(raw:unknown,source:Pick<ReplenishmentSource,'verifiedHandles'|'characterId'|'roomKey'>):FreshEditorial{
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Invalid editorial')
  const x=raw as FreshEditorial
  if(Object.keys(x).sort().join('|')!==['title','spokenScript','visualBrief','facebookTitle','caption','hashtags','collaborators'].sort().join('|')||!text(x.title,100)||!text(x.spokenScript,600)||!text(x.visualBrief,1000)||!text(x.facebookTitle,100)||!text(x.caption,1800)||!Array.isArray(x.hashtags)||x.hashtags.length>5||!x.hashtags.every(h=>/^[\p{L}\p{N}_]{1,40}$/u.test(h))||new Set(x.hashtags.map(h=>h.toLowerCase())).size!==x.hashtags.length||!Array.isArray(x.collaborators)||x.collaborators.length>3||new Set(x.collaborators).size!==x.collaborators.length||x.collaborators.some(h=>!source.verifiedHandles.includes(h)))throw Error('Invalid editorial scope')

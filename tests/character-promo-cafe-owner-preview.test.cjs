@@ -26,7 +26,7 @@ test('cross-origin, missing CSRF site, unknown fields and foreign plans reject',
 test('changed preview, missing real QA and wrong owner refuse recording',async()=>{for(const options of [{changed:true},{ready:false},{owner:false}]){const f=fixture(options);assert.notEqual((await f.request(post())).status,200);assert.equal(f.stats().writes,0)}})
 test('oversized body and untrusted URL origin rejected',async()=>{const f=fixture();assert.notEqual((await f.request(post({padding:'x'.repeat(513)}))).status,200);assert.equal((await f.request(new Request('https://evil.invalid/?planId='+PLAN))).status,403);assert.equal(f.stats().writes,0)})
 test('editorial derives exact existing records, never rewrites inline tags',()=>{
- const {cafeEditorialFromPlan:build}=load('lib/content/character-promo-cafe-editorial-from-plan.ts',{'./character-promo-time':{normalizePromoDatabaseTime:v=>new Date(v).toISOString()}})
+ const {cafeEditorialFromPlan:build}=load('lib/content/character-promo-cafe-editorial-from-plan.ts',{'./character-promo-cafe-initial-editorial':{initialCafeEditorial:()=>assert.fail('Legacy preview must not invent saved editorial')},'./character-promo-time':{normalizePromoDatabaseTime:v=>new Date(v).toISOString()}})
  const draft={id:PROMO,character_id:'zaria-solenne',actual_social_account:'metricool-brand:7605217',title:'Look again',video_asset_path:`character-promos/zaria-solenne/${PROMO}/${DIGEST}.mp4`},plan={id:PLAN,promo_id:PROMO,character_id:'zaria-solenne',network:'facebook',account_id:'105363501666032',caption:'Look #Art',scheduled_at:'2026-12-01T18:00:00Z'}
  const m=build(plan,draft);assert.equal(m.caption,'Look #Art');assert.equal(m.facebookTitle,'Look again');assert.equal(m.hashtags.length,0);assert.equal(m.collaborators.length,0);assert.throws(()=>build({...plan,account_id:'other'},draft));assert.throws(()=>build(plan,{...draft,title:'x'.repeat(101)}))
 })
@@ -50,3 +50,4 @@ test('client synchronous latch prevents double POST and persistent marker preven
 test('client storage failure prevents POST',async()=>{
  const f=clientFixture(new Map(),true);await f.buttons()[0].props.onClick();await f.buttons()[1].props.onClick();assert.equal(f.posts(),0)
 })
+

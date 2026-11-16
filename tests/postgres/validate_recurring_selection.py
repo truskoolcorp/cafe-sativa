@@ -1,7 +1,7 @@
 """Disposable PG17 only. Genuine chained foundation, synthetic candidate rows.
 No provider/network calls. No production installer or runtime grant is included.
 """
-import concurrent.futures, copy, datetime, hashlib, json
+import concurrent.futures, copy, datetime, hashlib, json, subprocess
 import validate_ledger as db
 import validate_planner as planner
 import validate_planner_install as foundation
@@ -12,6 +12,13 @@ def suite():
  db.check("current_setting('server_version_num')::integer BETWEEN 170000 AND 179999", 'PG17 only')
  db.run('GRANT CREATE ON SCHEMA public TO character_production_owner; SET ROLE character_production_owner; '+(db.ROOT/'docs/proposals/character-production-scheduler-principal.sql').read_text())
  source=(db.ROOT/'docs/proposals/character-production-recurring-selection.sql').read_text()
+ # An unfamiliar role in inherited defaults must fail closed, not silently
+ # gain wrapper/ledger access. The failing proposal transaction rolls back.
+ db.run('CREATE ROLE unexpected_recurring_default NOLOGIN; ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner GRANT EXECUTE ON FUNCTIONS TO unexpected_recurring_default; ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner GRANT SELECT ON TABLES TO unexpected_recurring_default;')
+ rejected=subprocess.run(db.command(),input='SET ROLE character_production_owner; '+source,text=True,capture_output=True)
+ assert rejected.returncode and 'exact owner-only ACL required' in rejected.stderr, rejected.stderr
+ db.check("to_regclass('character_production.recurring_selections') IS NULL", 'unexpected default grant rolled back')
+ db.run('ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner REVOKE EXECUTE ON FUNCTIONS FROM unexpected_recurring_default; ALTER DEFAULT PRIVILEGES FOR ROLE character_production_owner REVOKE SELECT ON TABLES FROM unexpected_recurring_default; DROP ROLE unexpected_recurring_default;')
  before_auth=foundation.auth_snapshot()
  role_snapshot=lambda:db.run("SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(r) ORDER BY oid) FROM pg_roles r),(SELECT jsonb_agg(to_jsonb(m) ORDER BY roleid,member,grantor) FROM pg_auth_members m))")
  before_roles=role_snapshot()
@@ -70,6 +77,8 @@ def suite():
  current=lambda r:"public.character_production_recurring_selected('"+e+"','"+r['selectionToken']+"')"
  finish=lambda r,outcome:"public.character_production_recurring_finish('"+e+"','"+r['selectionToken']+"',"+db.quote(outcome)+")"
  assert json.loads(rpc(current(rows[2])))['key']=='qa-next'
+ for expression in [nxt,current(first),finish(first,'settled')]:
+  db.run("BEGIN ISOLATION LEVEL REPEATABLE READ; SET ROLE service_role; DO $$ BEGIN IF "+expression+" IS NOT NULL THEN RAISE EXCEPTION 'repeatable-read selection accepted'; END IF; END $$; ROLLBACK")
  assert rpc("public.character_production_recurring_selected('"+e+"','00000000-0000-4000-8000-000000000000')")==''
  assert rpc(finish(rows[1],'held'))=='held'
  assert rpc(finish(rows[1],'settled'))=='', 'completed token cannot be reused'

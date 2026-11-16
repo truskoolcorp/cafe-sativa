@@ -2,6 +2,9 @@
 -- Depends on reviewed scheduler/QA/planner foundations. Not a migration or
 -- permission to install. Existing paid job claims/budgets are never modified.
 BEGIN;
+DO $$ BEGIN
+ IF current_user<>'character_production_owner' THEN RAISE EXCEPTION 'Reviewed restricted owner required'; END IF;
+END $$;
 CREATE TABLE character_production.recurring_selections(
  enrollment_id uuid NOT NULL,
  ordinal integer NOT NULL,
@@ -118,6 +121,7 @@ CREATE FUNCTION public.character_production_recurring_selected(p_enrollment uuid
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE e character_production.scheduler_enrollments; s character_production.recurring_selections; r record;
 BEGIN
+ IF current_setting('transaction_isolation')<>'read committed' THEN RETURN NULL; END IF;
  e:=character_production.scheduler_current(p_enrollment);
  IF e.id IS NULL THEN RETURN NULL; END IF;
  SELECT * INTO s FROM character_production.recurring_selections
@@ -140,6 +144,7 @@ RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE e character_production.scheduler_enrollments; s character_production.recurring_selections;
  j character_production.jobs; disposition text:='held'; delay_seconds integer:=0;
 BEGIN
+ IF current_setting('transaction_isolation')<>'read committed' THEN RETURN NULL; END IF;
  IF p_outcome IS NULL OR p_outcome NOT IN ('settled','held') THEN RETURN NULL; END IF;
  e:=character_production.scheduler_current(p_enrollment);
  IF e.id IS NULL THEN RETURN NULL; END IF;
@@ -171,5 +176,23 @@ DO $$ DECLARE r text; BEGIN
  EXECUTE format('REVOKE ALL ON FUNCTION character_production.recurring_eligible(uuid) FROM %I',r);
  EXECUTE format('REVOKE ALL ON FUNCTION public.character_production_recurring_next(uuid), public.character_production_recurring_selected(uuid,uuid), public.character_production_recurring_finish(uuid,uuid,text) FROM %I',r);
  END IF; END LOOP;
+END $$;
+-- Exact owner-only baseline, including unknown inherited default-ACL roles.
+-- Fail rather than silently broadening the reviewed access delta.
+DO $$ DECLARE o record; own oid:='character_production_owner'::regrole; BEGIN
+ FOR o IN SELECT c.relowner owner,c.relacl acl,'r'::"char" kind
+ FROM pg_class c WHERE c.oid='character_production.recurring_selections'::regclass
+ UNION ALL SELECT p.proowner,p.proacl,'f'::"char" FROM pg_proc p WHERE p.oid IN (
+ 'character_production.recurring_eligible(uuid)'::regprocedure,
+ 'public.character_production_recurring_next(uuid)'::regprocedure,
+ 'public.character_production_recurring_selected(uuid,uuid)'::regprocedure,
+ 'public.character_production_recurring_finish(uuid,uuid,text)'::regprocedure)
+ LOOP
+ IF o.owner<>own OR EXISTS(
+ (SELECT * FROM aclexplode(coalesce(o.acl,acldefault(o.kind,own))) EXCEPT SELECT * FROM aclexplode(acldefault(o.kind,own)))
+ UNION ALL
+ (SELECT * FROM aclexplode(acldefault(o.kind,own)) EXCEPT SELECT * FROM aclexplode(coalesce(o.acl,acldefault(o.kind,own)))))
+ THEN RAISE EXCEPTION 'Recurring selection exact owner-only ACL required'; END IF;
+ END LOOP;
 END $$;
 ROLLBACK;

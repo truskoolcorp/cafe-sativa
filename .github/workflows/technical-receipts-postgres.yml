@@ -1,0 +1,54 @@
+name: Technical receipts PostgreSQL 17
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/technical-receipts-postgres.yml'
+      - 'docs/proposals/cafe-*.sql'
+      - 'docs/proposals/character-production-*.sql'
+      - 'tests/postgres/*.py'
+      - 'scripts/prepare-*-install.py'
+      - 'lib/content/character-production-technical-qa-*.ts'
+      - 'tests/character-production-technical-qa-*.test.cjs'
+      - 'tests/character-production-selected-technical-qa.test.cjs'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: character_ci_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d character_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      PGDATABASE: character_ci_test
+      PG_DISPOSABLE_TEST_CONFIRM: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/character-production-technical-qa-*.test.cjs tests/character-production-binding-snapshot.test.cjs tests/character-production-selected-technical-qa.test.cjs
+      - run: node node_modules/typescript/bin/tsc --project tsconfig.json --strict --noEmit --incremental false
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: python3 tests/postgres/validate_technical_receipts.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: technical-receipts-postgres-evidence
+          path: evidence/postgres-*-validation.log

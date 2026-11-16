@@ -1,4 +1,5 @@
 import 'server-only'
+import {createTechnicalQaReceiptStore} from './character-production-technical-qa-receipt'
 import {validateQaManifest} from './character-production-qa-bridge'
 import {createHash} from 'node:crypto'
 import {createSelectedBindingReader} from './character-production-binding-snapshot'
@@ -10,8 +11,9 @@ import {evaluateTechnicalMedia} from './character-production-technical-media.mjs
 import type {SelectedItem} from './character-production-selected-session'
 import type {ProductionRpc} from './character-production-store'
 /** Trusted enrolled QA only. Must run after materialize and before ingest commits.
- * No observation writes, final authority, URLs, synthesis or provider requests. */
-export function createSelectedTechnicalQa(d:{rpc:ProductionRpc;storage:FreshReceiptStorage&PrivateAudioStorage&Parameters<typeof createStreamingQaStorage>[0];signal:AbortSignal;enabled:()=>boolean;origin:string;ffmpeg:string;ffprobe:string}){
+ * Optional typed technical observation persistence only; no final authority, URLs, synthesis or provider requests. */
+export function createSelectedTechnicalQa(d:{rpc:ProductionRpc;storage:FreshReceiptStorage&PrivateAudioStorage&Parameters<typeof createStreamingQaStorage>[0];signal:AbortSignal;enabled:()=>boolean;origin:string;ffmpeg:string;ffprobe:string;persistTechnical?:boolean}){
+ const persistence=d.persistTechnical===true?createTechnicalQaReceiptStore(d.rpc,d.signal,d.enabled):null
  const binding=createSelectedBindingReader(d),check=()=>{d.signal.throwIfAborted();if(!d.enabled())throw Error('Technical QA disabled')}
  let used=false,work:Promise<unknown>|undefined
  return {run(selected:SelectedItem){
@@ -30,6 +32,7 @@ export function createSelectedTechnicalQa(d:{rpc:ProductionRpc;storage:FreshRece
     if(prep.error)throw Error('QA manifest unavailable')
     const m=validateQaManifest(prep.data,original.key,original.digest)
     if(m.state!=='copy'||m.characterId!==b.slot.characterId)throw Error('Exact original private QA video required')
+    if(persistence){const prior=await persistence.recover(original,m.promoId,m.sha);check();if(prior){if((await binding.read(original)).snapshotSha256!==b.snapshotSha256)throw Error('Selection changed during recovery');if(prior.evidence.snapshotSha256!==b.snapshotSha256||prior.evidence.audioSha256!==a.audioSha256)throw Error('Original receipt changed');return {...prior,selected:original,snapshotSha256:b.snapshotSha256,promoId:m.promoId}}}
     const storage=createStreamingQaStorage(d.storage,15000),bucket=await storage.getBucket('character-production-private');check()
     if(bucket.error||bucket.data?.public!==false||bucket.data.id!=='character-production-private')throw Error('Private source unavailable')
     const video=await storage.from('character-production-private').download(m.sourcePath as string,m.bytes as number);check()
@@ -38,6 +41,7 @@ export function createSelectedTechnicalQa(d:{rpc:ProductionRpc;storage:FreshRece
     if((await binding.read(original)).snapshotSha256!==b.snapshotSha256)throw Error('Selection changed')
     const result=await evaluateTechnicalMedia({video:video.data,videoSha256:m.sha,audio:originalAudio,audioSha256:a.audioSha256},{signal:d.signal,ffmpeg:d.ffmpeg,ffprobe:d.ffprobe,timeoutMs:35000});check()
     if((await binding.read(original)).snapshotSha256!==b.snapshotSha256)throw Error('Selection changed after evaluation')
+    if(persistence){const saved=await persistence.record(original,m.promoId,m.expectedUpdatedAt,b.snapshotSha256,result);check();if(saved.evidence.snapshotSha256!==b.snapshotSha256||saved.evidence.audioSha256!==a.audioSha256)throw Error('Saved technical identity changed');return {...saved,selected:original,snapshotSha256:b.snapshotSha256,promoId:m.promoId}}
     return {selected:original,snapshotSha256:b.snapshotSha256,promoId:m.promoId,technical:result,recorded:false as const}
    }finally{const settled=await Promise.allSettled([receipt.whenSettled(),audio.whenSettled()]);if(settled.some(r=>r.status==='rejected'))throw Error('QA audio settlement failed')}
   })();work=task;return task

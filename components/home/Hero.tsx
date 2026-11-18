@@ -113,6 +113,9 @@ export async function Hero({ featured }: { featured: EventRow | null }) {
                 <Button size="lg" variant="outline" asChild>
                   <Link href="/membership">Explore Membership</Link>
                 </Button>
+                <Button size="lg" variant="outline" asChild>
+                  <Link href="#walkthrough">Watch the Walkthrough</Link>
+                </Button>
               </div>
             </div>
 

@@ -1,4 +1,5 @@
 import { SiteFeatures } from '@/components/events/SiteFeatures'
+import { VenueWalkthrough } from '@/components/home/VenueWalkthrough'
 import { Hero } from '@/components/home/Hero'
 import { ExploreVenue } from '@/components/home/ExploreVenue'
 import { ThisWeek } from '@/components/home/ThisWeek'
@@ -22,6 +23,7 @@ export default async function HomePage() {
   return (
     <>
       <Hero featured={featured} />
+      <VenueWalkthrough />
       <ExploreVenue />
       <div className="max-w-7xl mx-auto px-4 pb-12"><SiteFeatures category="venue" /></div>
       <ThisWeek events={upcoming} />

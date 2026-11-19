@@ -25,23 +25,33 @@ The Stage is Café Sativa's interactive entertainment and social-commerce venue.
 
 ### Virtual concerts and listening events
 
-- Example: Ahnika performs \"Already Gone\" on the Stage with canonical likeness, wardrobe, audio, lipsync, staging, band/production context, and audience behavior.
+- The concert format is artist-agnostic and supports a growing roster of Café Sativa, Tru Skool, affiliated, independent, and guest artists.
+- **Debut program:** Ahnika performs \"Already Gone\" on the Stage with canonical likeness, wardrobe, audio, lipsync, staging, band/production context, and audience behavior. This is the launch example, not an exclusive or permanent limitation.
 - Calls to action may link to approved listening, viewing, song/album purchase, artist follow, membership, ticket, and merchandise destinations.
 - Music ownership, synchronization, performance, visual, and distribution rights must be recorded before publication.
 - A prerecorded performance with live chat must be presented as a premiere or replay, never falsely described as live.
 
+### Live-streamed real-world events
+
+- The Stage also serves as the virtual broadcast venue for approved real-world productions such as community BBQs, festivals, concerts, pop-ups, cultural events, panels, fashion events, and community programs.
+- A live event may be streamed to the Café Sativa Stage while remote viewers participate through moderated chat, reactions, questions, polls, registrations, donations/tipping, artist links, product cards, and membership or ticket actions.
+- The stream experience requires an event-specific run sheet, producer/moderator roles, tested ingest and backup feed, connectivity health checks, stream delay policy, music/appearance/location permissions, emergency stop, chat moderation, accessible captions where practical, and a recorded fallback or holding screen.
+- The site must accurately distinguish **live now**, **scheduled**, **premiere**, **replay**, **interrupted**, and **ended** states. A prerecorded or delayed feed may never be represented as live.
+- If the primary stream fails, the venue should preserve chat state where safe, show an accurate interruption message, attempt only approved bounded failover, and reconcile the recording before publishing a replay.
+- Real-world programs may create simultaneous in-person and virtual commerce, registration, sponsor, affiliate, artist, and membership opportunities; each uses the same exact-destination and attribution controls.
+
 ### Additional approved formats
 
-Spoken word, THE Verse Alkemist performances, DJ showcases, interviews, listening parties, sponsored showcases, and approved outside artists or designers may use the same controls.
+Spoken word, THE Verse Alkemist performances, DJ showcases, interviews, listening parties, sponsored showcases, community BBQs, festivals, pop-ups, and approved outside artists or designers may use the same controls.
 
 ## Standard show lifecycle
 
-1. **Pre-show lobby:** countdown, talent/product information, accessibility, sponsor/affiliate disclosures, and chat rules.
+1. **Pre-show lobby:** countdown, talent/product information, accessibility, sponsor/affiliate disclosures, chat rules, and live-stream health/status when applicable.
 2. **Host introduction:** accurate program, performer, venue, and sponsor context.
 3. **Main performance:** dynamic multi-camera or multi-scene presentation; no long static-avatar substitute.
 4. **Interactive moments:** moderated chat, reactions, questions, polls, requests, or product discovery.
 5. **Contextual calls to action:** artist, music, product, event, membership, or replay links placed at relevant moments.
-6. **Closing/encore:** next event and approved conversion actions.
+6. **Closing/encore:** next event and approved conversion actions. Live real-world productions transition deliberately to an ended, post-show, or replay-processing state.
 7. **Replay:** chapters, captions, persistent moderated context, and time-synchronized artist/product links.
 8. **Reconciliation:** publication receipts, public URLs, moderation record, conversion attribution, errors, and replay status.
 
@@ -126,7 +136,7 @@ The first production release should prove one complete experience, not every for
 6. provider IDs, public URLs, replay receipt, and interaction/moderation evidence;
 7. safe failure behavior for unavailable commerce, chat, scheduler, or replay components.
 
-The recommended first canary is an approved Ahnika \"Already Gone\" premiere if rights, canonical media, audio, lipsync, and destinations are ready. Otherwise use an owner-approved Stage-format program whose rights and media are already complete. Do not fabricate readiness to satisfy the recommendation.
+The debut Stage canary is Ahnika performing \"Already Gone\", subject to verified rights, canonical media, audio, lipsync, and exact destinations. The underlying Stage system must remain reusable for other artists, concerts, show formats, and live-streamed real-world events; no Ahnika-specific assumption may be hard-coded into the reusable program, player, chat, commerce, receipt, or replay models.
 
 ## Acceptance criteria
 

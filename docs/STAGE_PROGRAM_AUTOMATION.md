@@ -44,6 +44,28 @@ The Stage is Café Sativa's interactive entertainment and social-commerce venue.
 
 Spoken word, THE Verse Alkemist performances, DJ showcases, interviews, listening parties, sponsored showcases, community BBQs, festivals, pop-ups, and approved outside artists or designers may use the same controls.
 
+## Debut visual language and supplied references
+
+Owner-supplied references on 19 November 2026 establish the intended Ahnika debut visual language:
+
+- intimate, premium lounge performance rather than a generic arena;
+- warm amber and practical candle/table lighting with controlled dark backgrounds;
+- close audience proximity and believable seated sightlines;
+- shallow depth of field and cinematic contrast;
+- a clear stage while retaining the Café Sativa relationship to audience, lounge, courtyard, and beachside terrace;
+- coverage that alternates establishing wide, performer medium, emotional face/microphone close-up, instrument/hand insert, audience reaction, and environmental transition shots;
+- natural, emotionally credible performance energy instead of exaggerated avatar gestures;
+- Ahnika's canonical face and light-hazel eyes must remain stable across every angle.
+
+Reference classification:
+
+- `Ahnika_Merlot_on_Stage-CS.png`: still-image visual target for intimacy, lighting, audience distance, table practicals, guitar, and performer framing; it is guidance, not automatic publication approval.
+- `Ahnika Merlot Already Gone_6398(2).mp4`: 30-second 1920×1080 visual/editing reference. It visibly contains an MVLAND watermark and is therefore prohibited from publication; use only for shot-language guidance.
+- `Ahnika Merlot Live Performance(3).mp4`: 8-second 1280×720 performance candidate/reference. Publication requires exact likeness, hazel-eye, rights, audio, lipsync, artifact, watermark, and source/export verification.
+- `Ahnika_Merlot_at_Café_Sativa(1).mp4`: 10-second 1080×1920 vertical host/promo candidate/reference. Treat as short-form supporting material, not the full concert master; publication requires the same checks.
+
+The debut master should be composed in 16:9, with separately reviewed 9:16 and 4:5 derivatives. Cropping must not remove instrument interaction, microphone position, key gestures, commerce overlays, or Café Sativa spatial context. No reference filename or presence in storage grants rights, canon approval, or publishing authority.
+
 ## Standard show lifecycle
 
 1. **Pre-show lobby:** countdown, talent/product information, accessibility, sponsor/affiliate disclosures, chat rules, and live-stream health/status when applicable.

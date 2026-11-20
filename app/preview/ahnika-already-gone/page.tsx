@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
-import AhnikaStageCanary from '@/components/events/AhnikaStageCanary'
-import { canPreviewAhnikaStage } from '@/lib/events/ahnika-stage-preview'
+import StageProgramCanary from '@/components/events/StageProgramCanary'
+import { AHNIKA_STAGE_CANARY, canPreviewAhnikaStage } from '@/lib/events/ahnika-stage-preview'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -14,5 +14,5 @@ export function generateMetadata() {
 
 export default function AhnikaStagePreviewPage() {
   if (!canPreviewAhnikaStage(process.env)) notFound()
-  return <AhnikaStageCanary />
+  return <StageProgramCanary program={AHNIKA_STAGE_CANARY} />
 }

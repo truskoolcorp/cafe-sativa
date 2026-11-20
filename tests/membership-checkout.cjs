@@ -5,6 +5,7 @@ class Stripe { constructor(){this.prices={retrieve:async()=>price};this.subscrip
 const scope={exports:{},process:{env},console:{error(){}},URL,require(name){
  if(name==='next/server')return {NextResponse:{json:(body,opts)=>({body,status:opts?.status||200})}};
  if(name.endsWith('/membership-prices'))return {CAFE_MEMBERSHIP_PRICES:{price_1TNFwCIDc7LlvDW9siOcRvdd:'regular'}};
+ if(name.endsWith('/music-release-contract'))return {publicRelease:r=>r?.status==='approved'};
  if(name==='stripe')return {default:Stripe};
  if(name.endsWith('/server'))return {createClient:()=>({auth:{getUser:async()=>({data:{user}})}})};
  if(name.endsWith('/admin'))return {createAdminClient:()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:membership,error:dbError})})})})})};

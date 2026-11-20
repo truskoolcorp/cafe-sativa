@@ -249,7 +249,7 @@ function MembershipInner() {
     // Intent carries the tier so we know what to auto-resume.
     if (!isSignedIn) {
       router.push(
-        `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`
+        `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}${searchParams.get('release') ? '&release='+encodeURIComponent(searchParams.get('release')!) : ''}`)}`
       )
       return
     }
@@ -260,14 +260,14 @@ function MembershipInner() {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ tier, releaseSlug: searchParams.get('release') || undefined }),
       })
 
       const data = await res.json().catch(() => ({}))
 
       if (res.status === 401 || data?.code === 'not_authenticated') {
         router.push(
-          `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}`)}`
+          `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}${searchParams.get('release') ? '&release='+encodeURIComponent(searchParams.get('release')!) : ''}`)}`
         )
         return
       }

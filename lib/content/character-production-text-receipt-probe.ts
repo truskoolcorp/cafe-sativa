@@ -7,3 +7,8 @@ export async function probeTextReceipt(rpc:(args:Record<string,null>)=>PromiseLi
   return r.error===null&&r.data===false
  }catch{return false}
 }
+
+/** Same no-mutation probe for separately approved private content checkpoint. */
+export async function probeTextCheckpoint(rpc:(args:Record<string,null>)=>PromiseLike<{data:unknown;error:unknown}>):Promise<boolean>{
+ return probeTextReceipt(args=>rpc({...args,p_content_json:null}))
+}

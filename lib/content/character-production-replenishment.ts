@@ -29,7 +29,7 @@ export function parseFreshEditorial(raw:unknown,source:Pick<ReplenishmentSource,
  for(const m of prose.matchAll(/@([a-zA-Z0-9_.]+)/g))if(!source.verifiedHandles.includes(m[1]))throw Error('Unverified mention')
  return structuredClone(x)
 }
-export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>number;load:()=>Promise<ReplenishmentSource>;store:ReplenishmentStore;receipt?:{ready(signal:AbortSignal):Promise<boolean>;persist(identity:{key:string;token:string;sourceDigest:string},evidence:TextReceiptEvidence,signal:AbortSignal):Promise<boolean>};complete:(request:{model:typeof REPLENISHMENT_MODEL;max_tokens:1024;system:string;messages:{role:'user';content:string}[]},signal:AbortSignal,dispatchGuard:()=>void)=>Promise<unknown>}){
+export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>number;load:()=>Promise<ReplenishmentSource>;store:ReplenishmentStore;receipt?:{checkpoint?(identity:{key:string;token:string;sourceDigest:string},evidence:TextReceiptEvidence,contentJson:string,signal:AbortSignal):Promise<boolean>;ready(signal:AbortSignal):Promise<boolean>;persist(identity:{key:string;token:string;sourceDigest:string},evidence:TextReceiptEvidence,signal:AbortSignal):Promise<boolean>};complete:(request:{model:typeof REPLENISHMENT_MODEL;max_tokens:1024;system:string;messages:{role:'user';content:string}[]},signal:AbortSignal,dispatchGuard:()=>void)=>Promise<unknown>}){
  let used=false
  return {async produce(cadenceKey:string,lease:ReplenishmentLease,signal:AbortSignal){
   if(used)throw Error('Attempt consumed');used=true
@@ -54,7 +54,7 @@ export function createFreshCandidateReplenisher(d:{enabled:()=>boolean;now:()=>n
   const dispatchGuard=()=>{const dispatchAt=checked(),dispatchDay=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(dispatchAt)
   if(current.observedAt>dispatchAt||dispatchAt-current.observedAt>60000||cadenceKey!==`daily:${dispatchDay}:${source.characterId}`)throw Error('Dispatch source or cadence expired')}
   dispatchGuard()
-  const completion=d.receipt?createTextReceiptCompletion({attemptKey:cadenceKey,complete:d.complete,persist:(evidence,s)=>d.receipt!.persist({key:cadenceKey,token,sourceDigest},evidence,s)}):undefined
+  const completion=d.receipt?createTextReceiptCompletion({attemptKey:cadenceKey,complete:d.complete,checkpoint:d.receipt.checkpoint?(e,c,s)=>d.receipt!.checkpoint!({key:cadenceKey,token,sourceDigest},e,c,s):undefined,persist:(evidence,s)=>d.receipt!.persist({key:cadenceKey,token,sourceDigest},evidence,s)}):undefined
   const response=await (completion?completion.complete(request,signal,dispatchGuard):d.complete(request,signal,dispatchGuard));checked()
   const r=response as {id?:string;stop_reason?:string;content?:{type:string;text:string}[];usage?:{input_tokens:number;output_tokens:number}}
   if(!r||!text(r.id,200)||r.stop_reason!=='end_turn'||r.content?.length!==1||r.content[0].type!=='text'||!text(r.content[0].text,10000)||!Number.isSafeInteger(r.usage?.input_tokens)||r.usage!.input_tokens<=0||!Number.isSafeInteger(r.usage?.output_tokens)||r.usage!.output_tokens<=0||r.usage!.output_tokens>1024)throw Error('Model receipt unconfirmed')

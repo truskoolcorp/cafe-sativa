@@ -15,6 +15,10 @@
     {
       "path": "/api/admin/library-sync",
       "schedule": "40 6 * * *"
+    },
+    {
+      "path": "/api/music/worker",
+      "schedule": "11,26,41,56 * * * *"
     }
   ],
   "git": {

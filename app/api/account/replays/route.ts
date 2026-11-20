@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifiedMusicBytes } from '@/lib/content/music-release-server'
+import { approvedRelease } from '@/lib/content/music-release-contract'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 
 export const dynamic = 'force-dynamic'
@@ -24,6 +26,13 @@ export async function GET(req:NextRequest) {
     if(!visible)return NextResponse.json({error:'Replay unavailable'},{status:404,headers:noStore})
     const result=await db.from('cs_vip_recordings').select('storage_bucket,storage_path').eq('id',id).eq('status','published').not('approved_at','is',null).lte('release_at',now).maybeSingle()
     if(result.error || !result.data)return NextResponse.json({error:'Replay unavailable'},{status:404,headers:noStore})
+    // Music releases bind the reviewed master bytes, not just a mutable storage path.
+    const music=await db.from('cs_music_releases').select('*').eq('id',id).maybeSingle()
+    if(music.error)return NextResponse.json({error:'Replay verification unavailable'},{status:503,headers:noStore})
+    if(music.data){
+      if(!approvedRelease(music.data)||!music.data.vip_ready)return NextResponse.json({error:'Replay unavailable'},{status:404,headers:noStore})
+      try{await verifiedMusicBytes(db,music.data.manifest.master)}catch{return NextResponse.json({error:'Reviewed recording unavailable'},{status:503,headers:noStore})}
+    }
     const bucket=await db.storage.getBucket(result.data.storage_bucket)
     if(bucket.error||!bucket.data||bucket.data.public)return NextResponse.json({error:'Replay private storage unavailable'},{status:503,headers:noStore})
     const signed=await db.storage.from(result.data.storage_bucket).createSignedUrl(result.data.storage_path,120)

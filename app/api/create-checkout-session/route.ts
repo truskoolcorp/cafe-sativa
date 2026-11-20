@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import {publicRelease} from '@/lib/content/music-release-contract'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CAFE_MEMBERSHIP_PRICES } from '@/lib/membership-prices'
@@ -120,6 +121,14 @@ export async function POST(req: Request) {
       }
     }
 
+    let releaseMetadata:Record<string,string>={}
+    if(body?.releaseSlug!==undefined){
+      if(typeof body.releaseSlug!=='string'||!/^[-a-z0-9]{1,100}$/.test(body.releaseSlug))return NextResponse.json({error:'Invalid release attribution'},{status:400})
+      const release=await admin.from('cs_music_releases').select('*').eq('slug',body.releaseSlug).maybeSingle()
+      if(release.error||!publicRelease(release.data))return NextResponse.json({error:'Release unavailable'},{status:409})
+      releaseMetadata={music_release_id:release.data.id,music_release_slug:release.data.slug}
+    }
+
     const existingCustomerId = existingMembership?.stripe_customer_id || null
 
     const stripe = new Stripe(stripeSecretKey)
@@ -146,12 +155,14 @@ export async function POST(req: Request) {
       // Attach identifiers to BOTH the session and the subscription it creates.
       metadata: {
         site: 'cafe-sativa',
+        ...releaseMetadata,
         user_id: user.id,
         tier,
       },
       subscription_data: {
         metadata: {
           site: 'cafe-sativa',
+          ...releaseMetadata,
           user_id: user.id,
           tier,
         },

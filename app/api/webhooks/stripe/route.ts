@@ -145,6 +145,16 @@ export async function POST(req: Request) {
         await syncCafeMembership(admin,stripe,{
           userId,subscriptionId:stripeSubscriptionId,mode:'checkout',expectedCustomer:stripeCustomerId,expectedTier:tier,
         })
+        const releaseId=session.metadata?.music_release_id
+        if(session.metadata?.site==='cafe-sativa' && releaseId && /^[0-9a-f-]{36}$/i.test(releaseId) && session.payment_status==='paid' && session.currency==='usd' && Number.isSafeInteger(session.amount_total) && (session.amount_total||0)>0){
+          const release=await admin.from('cs_music_releases').select('id,status').eq('id',releaseId).eq('status','approved').maybeSingle()
+          if(release.error)throw Error('Music attribution lookup unavailable')
+          if(release.data){
+            const receipt=await admin.from('cs_music_conversions').upsert({stripe_session_id:session.id,release_id:releaseId,stripe_subscription_id:stripeSubscriptionId,amount_cents:session.amount_total,currency:'usd'},{onConflict:'stripe_session_id',ignoreDuplicates:true})
+            if(receipt.error)throw Error('Music attribution receipt unavailable')
+          }
+        }
+
         break
       }
 

@@ -11,6 +11,7 @@ export const revalidate = 0
 const slug = 'ahnika-already-gone'
 const startsAt = '2026-12-01T06:00:00.000Z'
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
+const mediaRelayTimeoutMs = 3500
 
 async function premiereVideo(): Promise<string | null> {
   const relayUrl = process.env.STAGE_RELEASE_MEDIA_RELAY_URL
@@ -24,6 +25,7 @@ async function premiereVideo(): Promise<string | null> {
       headers: { 'x-canary-key': key },
       cache: 'no-store',
       redirect: 'error',
+      signal: AbortSignal.timeout(mediaRelayTimeoutMs),
     })
     if (!response.ok) return null
     const payload = await response.json()

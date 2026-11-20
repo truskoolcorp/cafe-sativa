@@ -1,5 +1,8 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
+import { LoungeRoom } from '@/app/lounge/LoungeRoom'
+import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +41,8 @@ async function premiereVideo(): Promise<string | null> {
 export const metadata = { title: 'Ahnika Merlot — Already Gone' }
 
 export default async function AhnikaPremierePage() {
-  const { data: event } = await createClient().from('my_events_v')
+  const supabase = createClient()
+  const { data: event } = await supabase.from('my_events_v')
     .select('slug, starts_at, ticket_price_cents, status, presenter_name')
     .eq('slug', slug).maybeSingle()
   if (!event || event.presenter_name !== 'Ahnika Merlot' || event.ticket_price_cents !== 0 ||
@@ -48,6 +52,17 @@ export default async function AhnikaPremierePage() {
   const started = Date.now() >= Date.parse(startsAt)
   const video = started ? await premiereVideo() : null
 
+  const { data: auth } = await supabase.auth.getUser()
+  const user = auth.user
+  const { data: room } = user ? await supabase.from('lounge_rooms')
+    .select('id').eq('slug', slug).maybeSingle() : { data: null }
+  const [profiles, memberships, messages] = user && room ? await Promise.all([
+    supabase.from('profiles').select('display_name, is_staff, is_admin').eq('id', user.id).maybeSingle(),
+    supabase.from('memberships').select('tier, status, current_period_end').eq('user_id', user.id).maybeSingle(),
+    supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
+      .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
+  ]) : [{ data: null }, { data: null }, { data: null }]
+
   return (
     <main className="mx-auto min-h-screen max-w-5xl space-y-6 px-4 pb-16 pt-28">
       <Link href="/stage" className="text-primary underline">The Stage</Link>
@@ -56,16 +71,35 @@ export default async function AhnikaPremierePage() {
         <p>An intimate prerecorded acoustic performance at Café Sativa.</p>
         <p><time dateTime={startsAt}>December 1, 2026 at 12:00 a.m. Central</time></p>
       </header>
+      {!started && <StagePremiereRefresh startsAt={startsAt} />}
       {video ? (
         <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
           src={video} aria-label="Ahnika Merlot performing Already Gone" />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
           <h2 className="font-heading text-2xl font-semibold">{started ? 'Playback temporarily unavailable' : 'Premiere lobby'}</h2>
-          <p className="mt-3">{started ? 'Reload the page to try playback again.' : 'Reload this page at midnight Central to watch.'}</p>
+          <p className="mt-3">{started ? 'Reload the page to try playback again.' : 'The player opens at midnight Central. You can stay on this page.'}</p>
           <a href="/events/ahnika-already-gone" className="mt-4 inline-block text-primary underline">Reload premiere page</a>
         </section>
       )}
+      <section className="space-y-4 rounded-xl border border-border bg-card p-6" aria-labelledby="audience-heading">
+        <h2 id="audience-heading" className="font-heading text-2xl font-semibold">Live audience room</h2>
+        <p>Join the discussion, ask the hosts a question, and respond in chat when a host opens a poll or trivia round.</p>
+        {user && room ? (
+          <div className="flex h-[28rem] min-h-0 flex-col">
+            <LoungeRoom roomId={room.id} userId={user.id}
+              displayName={profiles.data?.display_name || user.email?.split('@')[0] || 'Member'}
+              tier={loungeMembershipTier(memberships.data)}
+              isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
+              minPostTier="explorer" initialMessages={(messages.data || []).reverse()} />
+          </div>
+        ) : user ? (
+          <p role="status">The audience room is temporarily unavailable.</p>
+        ) : (
+          <Link className="text-primary underline" href="/auth/signin?next=%2Fevents%2Fahnika-already-gone">Sign in to join the live audience room</Link>
+        )}
+        <Link href="/ask" className="inline-block text-primary underline">Ask a Café Sativa concierge</Link>
+      </section>
       <p className="text-sm text-muted-foreground">This performance includes AI-assisted production under Tru Skool Entertainment International Corp.’s creative direction.</p>
     </main>
   )

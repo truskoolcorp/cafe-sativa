@@ -42,7 +42,10 @@ export async function processMusicReleases(){
    }catch{await db.from('cs_music_releases').update({vip_error:'Private master could not be verified or registered; no membership access claimed.'}).eq('id',row.id)}
   }
  }
- const candidates=(found.data||[]).filter(r=>approvedRelease(r)&&['queued','scheduled','unknown'].includes(r.marketing_state))
+ // New queues must not starve behind old receipts absent from the provider's pending feed.
+ const queued=await db.from('cs_music_releases').select('*').eq('status','approved').eq('marketing_state','queued').order('created_at').limit(1)
+ if(queued.error)throw queued.error
+ const candidates=[...(queued.data||[]),...(found.data||[])].filter(r=>approvedRelease(r)&&['queued','scheduled','unknown'].includes(r.marketing_state))
  if(!candidates.length)return {archived,marketing:'idle'}
  return withSocialConnection(async({session,brand,enabled})=>{
   let reconciled=0

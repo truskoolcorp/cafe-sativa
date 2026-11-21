@@ -56,9 +56,16 @@ surf loop. No paid generation, music, third-party footage, or watermark.
 The reusable **Sound** switch defaults to off and works with reduced motion.
 Lobby sound plays on one continuous audio buffer, with no media restarts
 or encoder padding at the seam. At kickoff the lobby sound stops; the
-same tab carries its selection into the performance player. A future
-recorded or live MC segment should use the same sound control. A failed
-media asset does not prevent lobby use or change kickoff.
+same tab carries its mute and volume choices into the performance player.
+In Player options, **Still view** changes the backdrop without muting it,
+and **Volume** adjusts the lobby sound without turning it on.
+
+A future recorded or live MC segment should read the same guest
+preferences at handoff, while keeping its source level separate from the
+quieter lobby mix. Stop the lobby bed when spoken program audio starts;
+do not reset a guest's volume as the introduction gives way to the act.
+The current introduction is text only. A failed media asset does not
+prevent lobby use or change kickoff.
 
 Source SHA-256: `a734d2cbbfd01c1736931c16bd623f4a67c5826e4d78acedc688044fdb5d13ec`.
 The timed text welcome and performance kickoff are unchanged. This change

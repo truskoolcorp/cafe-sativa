@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { stageLobbyPhase, STAGE_INTRO_LEAD_MS } from '@/lib/events/stage-lobby'
-import { writeStageSound } from '@/lib/events/stage-sound'
+import { MIN_STAGE_VOLUME, readStageVolume, writeStageSound, writeStageVolume } from '@/lib/events/stage-sound'
 import StageSoundToggle from './StageSoundToggle'
 
 type SoundSession = {
   context: AudioContext
   request: AbortController
   source?: AudioBufferSourceNode
+  gain?: GainNode
 }
 
 // Keep the optional lobby bed under foreground audio; this does not affect the show.
@@ -30,6 +31,8 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
   const [soundOn, setSoundOn] = useState(false)
   const [soundLoading, setSoundLoading] = useState(false)
   const [soundFailed, setSoundFailed] = useState(false)
+  const [volume, setVolume] = useState(100)
+  const volumeRef = useRef(100)
   const video = useRef<HTMLVideoElement>(null)
   const audio = useRef<SoundSession | null>(null)
   const stopSound = useCallback(() => {
@@ -83,6 +86,23 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
 
   useEffect(() => stopSound, [stopSound])
 
+  useEffect(() => {
+    const saved = readStageVolume()
+    volumeRef.current = saved
+    setVolume(saved)
+  }, [])
+
+  function updateVolume(value: number) {
+    volumeRef.current = value
+    setVolume(value)
+    writeStageVolume(value)
+    const playing = audio.current
+    if (!playing?.gain) return
+    const now = playing.context.currentTime
+    playing.gain.gain.cancelScheduledValues(now)
+    playing.gain.gain.setTargetAtTime(LOBBY_SOUND_GAIN * value / 100, now, 0.015)
+  }
+
   async function toggleSound() {
     if (!sound || !lobbyOpen) return
     if (audio.current) {
@@ -116,9 +136,10 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       source.connect(gain)
       gain.connect(context.destination)
       gain.gain.setValueAtTime(0, context.currentTime)
-      gain.gain.linearRampToValueAtTime(LOBBY_SOUND_GAIN, context.currentTime + 0.08)
+      gain.gain.linearRampToValueAtTime(LOBBY_SOUND_GAIN * volumeRef.current / 100, context.currentTime + 0.08)
       source.start()
       session.source = source
+      session.gain = gain
       setSoundOn(true)
       setSoundLoading(false)
       writeStageSound(true)
@@ -145,21 +166,41 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
             <source src={loop.mp4} type="video/mp4" onError={() => setFailed(true)} />
           </video>
         )}
+        {lobbyOpen && (!failed || sound) && (
+          <details className="absolute bottom-3 right-3 z-10 text-white"
+            onKeyDown={event => {
+              if (event.key !== 'Escape' || !event.currentTarget.open) return
+              event.preventDefault()
+              event.currentTarget.open = false
+              event.currentTarget.querySelector('summary')?.focus()
+            }}>
+            <summary className="ml-auto flex size-10 cursor-pointer list-none items-center justify-center rounded-full border border-white/30 bg-black/80 text-xl hover:bg-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white [&::-webkit-details-marker]:hidden">
+              <span aria-hidden="true">⋯</span>
+              <span className="sr-only">Player options</span>
+            </summary>
+            <div className="absolute bottom-full right-0 mb-2 w-44 rounded-md border border-white/30 bg-black/90 p-1 shadow-lg">
+              {!failed && (
+                <button type="button" aria-pressed={!showMotion} className="w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                  onClick={() => setMotion(current => !current)}>
+                  Still view<span aria-hidden="true">: {showMotion ? 'Off' : 'On'}</span>
+                </button>
+              )}
+              {sound && (
+                <label className="block px-3 py-2 text-sm">
+                  <span className="flex justify-between">Volume <span aria-hidden="true">{volume}%</span></span>
+                  <input type="range" min={MIN_STAGE_VOLUME} max={100} step={1} value={volume}
+                    aria-valuetext={`${volume}%`} onChange={event => updateVolume(event.currentTarget.valueAsNumber)}
+                    className="mt-1 h-5 w-full accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-white" />
+                </label>
+              )}
+            </div>
+          </details>
+        )}
       </div>
       <div className="space-y-3 p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="stage-lobby-heading" className="font-heading text-2xl font-semibold">Premiere lobby</h2>
-          {lobbyOpen && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              {!failed && (
-                <button type="button" className="text-sm text-primary underline underline-offset-4"
-                  onClick={() => setMotion(current => !current)}>
-                  {showMotion ? 'Pause Stage ambience' : 'Play Stage ambience'}
-                </button>
-              )}
-              {sound && <StageSoundToggle on={soundOn} busy={soundLoading} toggle={toggleSound} />}
-            </div>
-          )}
+          {lobbyOpen && sound && <StageSoundToggle on={soundOn} busy={soundLoading} toggle={toggleSound} />}
         </div>
         {lobbyOpen && soundFailed && <p role="status" className="text-sm text-muted-foreground">Sound is unavailable. Try again.</p>}
         <div role="status" className="space-y-2">

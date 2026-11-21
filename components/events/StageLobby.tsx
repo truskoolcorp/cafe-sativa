@@ -100,7 +100,10 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       // Resume synchronously from the click, before starting the network work.
       const [, response] = await Promise.all([context.resume(), fetch(sound, { signal: request.signal })])
       if (!response.ok) throw new Error('Lobby audio unavailable')
-      const buffer = await context.decodeAudioData(await response.arrayBuffer())
+      // Decode at the exported PCM rate so device-rate conversion happens
+      // during continuous playback, not at the stored loop endpoints.
+      const decoder = new OfflineAudioContext(1, 1, 24_000)
+      const buffer = await decoder.decodeAudioData(await response.arrayBuffer())
       if (audio.current !== session) return
       const source = context.createBufferSource()
       const gain = context.createGain()

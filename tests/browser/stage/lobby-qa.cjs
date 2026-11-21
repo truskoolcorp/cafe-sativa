@@ -79,10 +79,11 @@ async function main() {
     assert.equal(await room.evaluate(() => window.bufferPlayback.length), 0)
     await room.getByRole('button', { name: 'Sound', pressed: false, exact: true }).click()
     await room.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
-    assert.equal(await room.evaluate(() => {
+    const playback = await room.evaluate(() => {
       const { context, node } = window.bufferPlayback[0]
-      return context.state === 'running' && node.loop && node.loopStart === 0 && node.loopEnd === 8
-    }), true)
+      return { state: context.state, loop: node.loop, start: node.loopStart, end: node.loopEnd }
+    })
+    assert.deepEqual(playback, { state: 'running', loop: true, start: 0, end: 8 })
     // Render past the seam in the real browser audio engine and compare the
     // first post-wrap samples to the original samples (no silence or padding).
     const audioSeam = await room.evaluate(async input => {

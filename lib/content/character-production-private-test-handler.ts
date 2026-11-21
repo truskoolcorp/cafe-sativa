@@ -4,14 +4,16 @@ type Operation={run(signal:AbortSignal):Promise<unknown>;whenSettled():Promise<v
 type Dependencies={authorize():Promise<boolean>;enabled():boolean;open():Operation;retain(work:Promise<void>):void;now?:()=>number;deadlineMs?:number;authMs?:number}
 /** Finite original text/speech preparation only. No media generation, first
  * admission, recurring worker, publication, caller scope or authority creation. */
-export function createPrivateTestHandler(d:Dependencies){
+export function createPrivateTestHandler(d:Dependencies){return createWindowedPrivateTestHandler(d,0,PRIVATE_TEST_EXPIRES_AT)}
+export function createFiniteNov17TestHandler(d:Dependencies){return createWindowedPrivateTestHandler(d,Date.parse('2026-11-17T06:00:00Z'),Date.parse('2026-11-18T06:00:00Z'))}
+function createWindowedPrivateTestHandler(d:Dependencies,startsAt:number,expiresAt:number){
  const now=d.now??Date.now,deadline=d.deadlineMs??85000,authMs=d.authMs??5000
  if(!Number.isSafeInteger(deadline)||deadline<1||deadline>85000||!Number.isSafeInteger(authMs)||authMs<1||authMs>5000)throw Error('Invalid private-test deadline')
  let busy=false
  const reply=(status:string,code=200)=>Response.json({status,qaApproved:false,publicationApproved:false,videoRequested:false,recurringActivationRequested:false},{status:code,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
  const statusOf=(v:unknown):string=>{
   if(!v||typeof v!=='object'||!('status' in v)||typeof v.status!=='string')throw Error('Unconfirmed preparation result')
-  if(['disabled','unconfigured','held_original_text','held_authority','held_original_speech'].includes(v.status))return v.status
+  if(['disabled','unconfigured','held_original_text','held_authority','held_original_speech','held_receipt_unavailable','held_text_disabled','held_speech_disabled'].includes(v.status))return v.status
   const nested='result' in v?v.result:null
   if(v.status==='text_phase_finished'&&nested&&typeof nested==='object'&&'status' in nested&&nested.status==='awaiting_audio_binding_and_qa')return 'private_text_saved'
   if(v.status==='speech_phase_finished'&&nested&&typeof nested==='object'&&'status' in nested&&nested.status==='private_pending_qa')return 'private_audio_saved'
@@ -21,15 +23,15 @@ export function createPrivateTestHandler(d:Dependencies){
  return async(req:Request):Promise<Response>=>{
   const url=new URL(req.url)
   if(req.method!=='POST'||url.search||url.origin!=='https://www.cafe-sativa.com'||req.headers.get('origin')!==url.origin)return reply('unsupported',403)
-  if(!d.enabled()||now()>=PRIVATE_TEST_EXPIRES_AT)return reply('disabled',503)
+  if(!d.enabled()||(now()<startsAt||now()>=expiresAt))return reply('disabled',503)
   if(req.signal.aborted)return reply('held',503)
   if(busy)return reply('busy',429)
   busy=true
   const life=new AbortController(),abort=()=>life.abort()
   req.signal.addEventListener('abort',abort,{once:true});if(req.signal.aborted)abort()
-  const total=setTimeout(abort,Math.min(deadline,Math.max(1,PRIVATE_TEST_EXPIRES_AT-now())))
+  const total=setTimeout(abort,Math.min(deadline,Math.max(1,expiresAt-now())))
   let operation:Operation|undefined,body:ReturnType<typeof emptyQaBody>|undefined,authTimer:ReturnType<typeof setTimeout>|undefined
-  const check=()=>{life.signal.throwIfAborted();if(!d.enabled()||now()>=PRIVATE_TEST_EXPIRES_AT)throw Error('Private test disabled')}
+  const check=()=>{life.signal.throwIfAborted();if(!d.enabled()||(now()<startsAt||now()>=expiresAt))throw Error('Private test disabled')}
   const task=Promise.resolve().then(async()=>{
    try{
     check();authTimer=setTimeout(abort,authMs)

@@ -15,7 +15,7 @@ const invalid=():never=>{throw new TextReceiptError('receipt_invalid')}
  * JSON string/number encoding; no whitespace. Only JSON data is supported.
  * Bound output to 256KiB, depth 64 and 32768 visited values. Unsupported,
  * cyclic or oversized content is held as receipt_invalid, without a receipt. */
-function contentJson(value:unknown):string{
+export function contentJson(value:unknown):string{
  if(!Array.isArray(value))return invalid()
  const active=new Set<object>();let bytes=0,nodes=0
  const emit=(s:string)=>{bytes+=Buffer.byteLength(s,'utf8');if(bytes>262144)return invalid();return s}
@@ -70,7 +70,7 @@ export function textReceiptEvidence(raw:unknown):TextReceiptEvidence{
 /** Persist receipt metadata before returning the response to an editorial
  * parser. Unknown sink outcome never permits parsing, another call or retry.
  * The caller must join whenSettled before disposing its hosted operation. */
-export function createTextReceiptCompletion<Request>(d:{attemptKey:string;complete(request:Request,signal:AbortSignal,dispatchGuard:()=>void):Promise<unknown>;persist(evidence:TextReceiptEvidence,signal:AbortSignal):Promise<boolean>}){
+export function createTextReceiptCompletion<Request>(d:{attemptKey:string;complete(request:Request,signal:AbortSignal,dispatchGuard:()=>void):Promise<unknown>;persist(evidence:TextReceiptEvidence,signal:AbortSignal):Promise<boolean>;checkpoint?:(evidence:TextReceiptEvidence,contentJson:string,signal:AbortSignal)=>Promise<boolean>}){
  const attemptKey=d.attemptKey
  let used=false,work:Promise<unknown>|undefined
  return {
@@ -86,8 +86,14 @@ export function createTextReceiptCompletion<Request>(d:{attemptKey:string;comple
     const evidence=textReceiptEvidence(response)
     // Even a late response must go through the original bounded sink; never
     // detach persistence or manufacture a fresh signal after cancellation.
-    try{if(await d.persist(evidence,signal)!==true)throw new TextReceiptError('receipt_persistence_unconfirmed')}
-    catch{throw new TextReceiptError('receipt_persistence_unconfirmed')}
+    if(d.checkpoint){
+     try{const content=contentJson((response as Record<string,unknown>).content);if(createHash('sha256').update(content,'utf8').digest('hex')!==evidence.responseSha256||await d.checkpoint(evidence,content,signal)!==true)throw new TextReceiptError('receipt_persistence_unconfirmed')}
+     catch{throw new TextReceiptError('receipt_persistence_unconfirmed')}
+    }
+    else{
+     try{if(await d.persist(evidence,signal)!==true)throw new TextReceiptError('receipt_persistence_unconfirmed')}
+     catch{throw new TextReceiptError('receipt_persistence_unconfirmed')}
+    }
     if(signal.aborted)throw new TextReceiptError('cancelled_after_receipt')
     return response
    })()

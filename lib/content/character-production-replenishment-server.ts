@@ -1,4 +1,4 @@
-import {probeTextReceipt} from './character-production-text-receipt-probe'
+import {probeTextReceipt,probeTextCheckpoint} from './character-production-text-receipt-probe'
 import 'server-only'
 import {createAdminClient} from '@/lib/supabase/admin'
 import {createProductionFetch} from './character-production-bounded-fetch'
@@ -18,7 +18,7 @@ export function createReplenishmentOperation(config:{scope:ReplenishmentSourceSc
  let consumed=false,closing=false,work:Promise<unknown>|undefined
  let providerNetwork:ReturnType<typeof createProductionFetch>|undefined
  let network:ReturnType<typeof createProductionFetch>|undefined,sources:ReturnType<typeof openReplenishmentSources>|undefined
- const enabled=()=>process.env.CS_CHARACTER_TEXT_REPLENISHMENT_ENABLED==='true'&&process.env.CS_CHARACTER_TEXT_RECEIPT_EVIDENCE_ENABLED==='true'
+ const enabled=()=>process.env.CS_CHARACTER_TEXT_REPLENISHMENT_ENABLED==='true'&&process.env.CS_CHARACTER_TEXT_RECEIPT_EVIDENCE_ENABLED==='true'&&process.env.CS_CHARACTER_TEXT_CHECKPOINT_ENABLED==='true'
  return {
   async run(parent:AbortSignal){
    if(consumed||closing||parent.aborted||!enabled())return {status:'disabled' as const}
@@ -41,10 +41,15 @@ export function createReplenishmentOperation(config:{scope:ReplenishmentSourceSc
     // Reviewed SQL rejects all-null metadata before any mutation. Missing RPC,
     // missing grant, transport error or unexpected result holds before claim.
     const receipt={
+     async checkpoint(identity:{key:string;token:string;sourceDigest:string},e:import('./character-production-text-receipt-evidence').TextReceiptEvidence,contentJson:string,s:AbortSignal){
+      s.throwIfAborted();if(!enabled())return false
+      const r=await db.rpc('character_production_text_checkpoint',{p_key:identity.key,p_token:identity.token,p_digest:identity.sourceDigest,p_provider_id:e.providerId,p_request_id:e.requestId,p_model:e.model,p_stop_reason:e.stopReason,p_input_tokens:e.inputTokens,p_output_tokens:e.outputTokens,p_response_sha256:e.responseSha256,p_content_json:contentJson}).abortSignal(s).retry(false)
+      s.throwIfAborted();return !r.error&&r.data===true
+     },
      async ready(s:AbortSignal){
       s.throwIfAborted();if(!enabled())return false
       const ready=await probeTextReceipt(args=>db.rpc('character_production_text_receipt',args).abortSignal(s).retry(false))
-      s.throwIfAborted();return enabled()&&ready
+      s.throwIfAborted();return enabled()&&ready&&await probeTextCheckpoint(args=>db.rpc('character_production_text_checkpoint',args).abortSignal(s).retry(false))
      },
      async persist(identity:{key:string;token:string;sourceDigest:string},e:import('./character-production-text-receipt-evidence').TextReceiptEvidence,s:AbortSignal){
       s.throwIfAborted();if(!enabled())return false

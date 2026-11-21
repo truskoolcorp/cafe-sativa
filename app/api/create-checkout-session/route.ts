@@ -3,14 +3,15 @@ import Stripe from 'stripe'
 import {publicRelease} from '@/lib/content/music-release-contract'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CAFE_MEMBERSHIP_PRICES } from '@/lib/membership-prices'
+import { annualPriceId, CAFE_MEMBERSHIP_PRICES, exactAnnualPrice } from '@/lib/membership-prices'
+import { annualMembershipEnabled, MEMBERSHIP_OFFER_CENTS } from '@/lib/membership-offers'
 
 type Tier = 'regular' | 'vip'
 
 /**
  * POST /api/create-checkout-session
  *
- * Body: { tier: 'regular' | 'vip' }
+ * Body: { tier: 'regular' | 'vip', cadence?: 'monthly' | 'annual' }
  *
  * Flow:
  *   1. Resolve the signed-in Supabase user via the SSR cookie helper.
@@ -58,17 +59,26 @@ export async function POST(req: Request) {
       )
     }
 
+    const cadence = body.cadence === undefined ? 'monthly' : body.cadence
+    if (cadence !== 'monthly' && cadence !== 'annual') {
+      return NextResponse.json({ error: 'Invalid billing cadence.' }, { status: 400 })
+    }
+    const annual = cadence === 'annual'
+    if (annual && !annualMembershipEnabled()) {
+      return NextResponse.json({ error: 'Annual membership is not available yet.' }, { status: 503 })
+    }
+
     // -- Resolve price for the tier --
     // Accept both new (STRIPE_PRICE_{TIER}_MONTHLY) and legacy
     // (STRIPE_PRICE_INSIDER / STRIPE_PRICE_FOUNDING) env names. The
     // legacy names were used by the initial scaffolding; the new names
     // match the DB enum. Either works until Vercel env vars are renamed.
     const priceId =
-      tier === 'vip'
+      annual ? annualPriceId(tier) : tier === 'vip'
         ? process.env.STRIPE_PRICE_VIP_MONTHLY || process.env.STRIPE_PRICE_FOUNDING
         : process.env.STRIPE_PRICE_REGULAR_MONTHLY || process.env.STRIPE_PRICE_INSIDER
 
-    if (!priceId || CAFE_MEMBERSHIP_PRICES[priceId] !== tier) {
+    if (!priceId || (!annual && CAFE_MEMBERSHIP_PRICES[priceId] !== tier)) {
       return NextResponse.json(
         { error: 'This membership plan is temporarily unavailable.' },
         { status: 503 }
@@ -134,11 +144,13 @@ export async function POST(req: Request) {
     const stripe = new Stripe(stripeSecretKey)
 
     // Verify the live offer against the amount displayed to customers.
-    // A legacy founding or annual price must never silently replace monthly checkout.
+    // A legacy founding or annual price must never silently replace the selected offer.
     const price = await stripe.prices.retrieve(priceId)
-    if (!price.active || price.currency !== 'usd' || price.type !== 'recurring' ||
-        price.unit_amount !== (tier === 'regular' ? 999 : 2499) ||
-        price.recurring?.interval !== 'month' || price.recurring.interval_count !== 1) {
+    const matchesOffer = annual ? exactAnnualPrice(tier, price)
+      : price.currency === 'usd' && price.type === 'recurring' &&
+        price.unit_amount === MEMBERSHIP_OFFER_CENTS[tier].monthly &&
+        price.recurring?.interval === 'month' && price.recurring.interval_count === 1
+    if (!price.active || !matchesOffer) {
       return NextResponse.json({ error: 'This membership plan is temporarily unavailable.' }, { status: 503 })
     }
 
@@ -150,14 +162,15 @@ export async function POST(req: Request) {
       ...(existingCustomerId
         ? { customer: existingCustomerId }
         : { customer_email: userEmail }),
-      // Allow the customer to change their plan in the customer portal later.
-      allow_promotion_codes: true,
+      // Preserve monthly promotions; do not stack them onto the annual offer.
+      allow_promotion_codes: !annual,
       // Attach identifiers to BOTH the session and the subscription it creates.
       metadata: {
         site: 'cafe-sativa',
         ...releaseMetadata,
         user_id: user.id,
         tier,
+        cadence,
       },
       subscription_data: {
         metadata: {
@@ -165,6 +178,7 @@ export async function POST(req: Request) {
           ...releaseMetadata,
           user_id: user.id,
           tier,
+          cadence,
         },
       },
       // These are read from NEXT_PUBLIC_SITE_URL so they resolve to prod

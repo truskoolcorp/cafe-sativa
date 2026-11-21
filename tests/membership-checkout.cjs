@@ -1,10 +1,12 @@
 const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require('node:assert/strict');
 let user={id:'owner',email:'owner@example.test'},membership=null,dbError=null,subStatus='active',created=0,release=null,lastSession=null,providerError=false,price={active:true,currency:'usd',type:'recurring',unit_amount:999,recurring:{interval:'month',interval_count:1}};
 const env={STRIPE_SECRET_KEY:'test-only',NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',STRIPE_PRICE_REGULAR_MONTHLY:'price_1TNFwCIDc7LlvDW9siOcRvdd'};
+const {offers,prices}=require('./load-membership-offers.cjs')(env);
 class Stripe { constructor(){this.prices={retrieve:async()=>price};this.subscriptions={retrieve:async()=>({status:subStatus})};this.checkout={sessions:{create:async args=>{lastSession=args;created++;if(providerError)throw Error('SENSITIVE_PROVIDER_DETAIL');return {url:'https://checkout.stripe.com/test',id:'cs_test'}}}}} }
 const scope={exports:{},process:{env},console:{error(){}},URL,require(name){
  if(name==='next/server')return {NextResponse:{json:(body,opts)=>({body,status:opts?.status||200})}};
- if(name.endsWith('/membership-prices'))return {CAFE_MEMBERSHIP_PRICES:{price_1TNFwCIDc7LlvDW9siOcRvdd:'regular'}};
+ if(name.endsWith('/membership-prices'))return prices;
+ if(name.endsWith('/membership-offers'))return offers;
  if(name.endsWith('/music-release-contract'))return {publicRelease:r=>r?.status==='approved'};
  if(name==='stripe')return {default:Stripe};
  if(name.endsWith('/server'))return {createClient:()=>({auth:{getUser:async()=>({data:{user}})}})};
@@ -33,7 +35,47 @@ const request=(origin='https://www.cafe-sativa.com',tier='regular')=>({url:'http
  assert.equal((await scope.exports.POST(releaseRequest('oh-laviche'))).status,200);
  assert.equal(lastSession.metadata.music_release_id,'release-1');
  assert.equal(lastSession.subscription_data.metadata.music_release_slug,'oh-laviche');
+ assert.equal(lastSession.allow_promotion_codes,true);
+ const annualRequest=tier=>({...request(),json:async()=>({tier,cadence:'annual'})});
+ assert.equal((await scope.exports.POST({...request(),json:async()=>({tier:'regular',cadence:'weekly'})})).status,400);
+ assert.equal((await scope.exports.POST(annualRequest('regular'))).status,503);
+ env.NEXT_PUBLIC_CAFE_ANNUAL_MEMBERSHIPS='true';
+ assert.equal((await scope.exports.POST(annualRequest('regular'))).status,503);
+ const monthlyPrice=price;
+ for(const [tier,product,cents,legacy] of [
+   ['regular','prod_ULxrCgCmYnTWOF',9990,'price_1TdCcIIDc7LlvDW9fuj3QaNn'],
+   ['vip','prod_ULxsmvOgLeiyYy',24990,'price_1TdCcIIDc7LlvDW9ROnqf2HG'],
+ ]){
+  const key=`STRIPE_PRICE_${tier.toUpperCase()}_ANNUAL`, id=`price_Accepted${tier}`;
+  const legacySubscription={items:{data:[{price:{id:legacy}}]},metadata:{site:'cafe-sativa',tier}};
+  assert.equal(prices.cafeSubscriptionTier(legacySubscription),tier);
+  env[key]=legacy;
+  assert.equal((await scope.exports.POST(annualRequest(tier))).status,503);
+  env[key]=id;
+  const annualPrice={id,product,active:true,currency:'usd',type:'recurring',unit_amount:cents,
+   recurring:{interval:'year',interval_count:1,usage_type:'licensed'}};
+  const before=created;
+  for(const changes of [{product:'prod_foreign'},{unit_amount:cents-90},{currency:'eur'},{active:false},
+   {recurring:{...annualPrice.recurring,interval_count:2}},{recurring:{...annualPrice.recurring,usage_type:'metered'}}]){
+   price={...annualPrice,...changes};
+   assert.equal((await scope.exports.POST(annualRequest(tier))).status,503);
+  }
+  assert.equal(created,before);
+  price=annualPrice;
+  assert.equal((await scope.exports.POST(annualRequest(tier))).status,200);
+  assert.equal(lastSession.line_items[0].price,id);
+  assert.equal(lastSession.subscription_data.metadata.cadence,'annual');
+  assert.equal(lastSession.allow_promotion_codes,false);
+  const sub={items:{data:[{price:annualPrice}]},metadata:{site:'cafe-sativa',tier}};
+  assert.equal(prices.cafeSubscriptionTier(sub),tier);
+  assert.equal(prices.cafeSubscriptionTier({...sub,metadata:{site:'another-store'}}),null);
+  env.NEXT_PUBLIC_CAFE_ANNUAL_MEMBERSHIPS='false';
+  assert.equal((await scope.exports.POST(annualRequest(tier))).status,503);
+  assert.equal(prices.cafeSubscriptionTier(sub),tier,'pausing sales must not break annual renewals');
+  env.NEXT_PUBLIC_CAFE_ANNUAL_MEMBERSHIPS='true';
+ }
+ price=monthlyPrice;
  providerError=true;const failed=await scope.exports.POST(request());assert.equal(failed.status,500);assert(!JSON.stringify(failed).includes('SENSITIVE_PROVIDER_DETAIL'));
  delete env.STRIPE_SECRET_KEY;assert(!JSON.stringify(await scope.exports.POST(request())).includes('STRIPE_SECRET_KEY'));
- console.log('PASS: origin, authentication, database failure, six billable subscription states, canceled subscription and safe error responses');
+ console.log('PASS: existing monthly guards, exact annual Stripe prices, legacy price isolation, and annual subscriber recognition when sales are paused');
 })().catch(e=>{console.error(e);process.exitCode=1});

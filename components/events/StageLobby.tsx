@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { stageLobbyPhase, STAGE_INTRO_LEAD_MS } from '@/lib/events/stage-lobby'
-import { MIN_STAGE_VOLUME, readStageVolume, writeStageSound, writeStageVolume } from '@/lib/events/stage-sound'
+import { MIN_STAGE_VOLUME, readStageSound, readStageVolume, writeStageSound, writeStageVolume } from '@/lib/events/stage-sound'
 import StageSoundToggle from './StageSoundToggle'
 
 type SoundSession = {
@@ -33,6 +33,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
   const [soundFailed, setSoundFailed] = useState(false)
   const [volume, setVolume] = useState(100)
   const volumeRef = useRef(100)
+  const explicitlyMuted = useRef(false)
   const video = useRef<HTMLVideoElement>(null)
   const audio = useRef<SoundSession | null>(null)
   const stopSound = useCallback(() => {
@@ -103,15 +104,8 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
     playing.gain.gain.setTargetAtTime(LOBBY_SOUND_GAIN * value / 100, now, 0.015)
   }
 
-  async function toggleSound() {
-    if (!sound || !lobbyOpen) return
-    if (audio.current) {
-      stopSound()
-      setSoundOn(false)
-      setSoundLoading(false)
-      writeStageSound(false)
-      return
-    }
+  const startSound = useCallback(async () => {
+    if (!sound || !lobbyOpen || audio.current) return
     let session: SoundSession | null = null
     try {
       const context = new AudioContext()
@@ -150,6 +144,40 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       setSoundLoading(false)
       setSoundFailed(true)
     }
+  }, [sound, lobbyOpen, stopSound])
+
+  useEffect(() => {
+    if (!lobbyOpen || !sound || explicitlyMuted.current || !readStageSound() || audio.current) return
+    function detach() {
+      document.removeEventListener('click', activate)
+      document.removeEventListener('keydown', activate)
+    }
+    function activate(event: Event) {
+      if (!event.isTrusted || (event instanceof KeyboardEvent && !['Enter', ' '].includes(event.key))) return
+      if (event.target instanceof Element && event.target.closest('[data-stage-sound-control]')) return
+      if (event.target instanceof Element && event.target.closest('a[href], textarea, input, [contenteditable]')) return
+      detach()
+      if (!explicitlyMuted.current && readStageSound()) void startSound()
+    }
+    if (navigator.userActivation?.isActive) void startSound()
+    else {
+      document.addEventListener('click', activate)
+      document.addEventListener('keydown', activate)
+    }
+    return detach
+  }, [lobbyOpen, sound, startSound, soundOn])
+
+  function toggleSound() {
+    if (audio.current) {
+      explicitlyMuted.current = true
+      stopSound()
+      setSoundOn(false)
+      setSoundLoading(false)
+      writeStageSound(false)
+      return
+    }
+    explicitlyMuted.current = false
+    void startSound()
   }
 
   return (
@@ -200,7 +228,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       <div className="space-y-3 p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="stage-lobby-heading" className="font-heading text-2xl font-semibold">Premiere lobby</h2>
-          {lobbyOpen && sound && <StageSoundToggle on={soundOn} busy={soundLoading} toggle={toggleSound} />}
+          {lobbyOpen && sound && <span data-stage-sound-control><StageSoundToggle on={soundOn} busy={soundLoading} toggle={toggleSound} /></span>}
         </div>
         {lobbyOpen && soundFailed && <p role="status" className="text-sm text-muted-foreground">Sound is unavailable. Try again.</p>}
         <div role="status" className="space-y-2">

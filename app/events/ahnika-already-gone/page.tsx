@@ -134,6 +134,7 @@ export default async function AhnikaPremierePage() {
             <p>The live audience room is closed.</p>
           )}
         </div>
+        {chatOpen && <p className="text-sm text-muted-foreground">Keep it respectful. Harassment, threats, explicit content, private contact details, spam, and external links aren’t allowed. Report anything that slips through.</p>}
         {!chatOpen ? null : user && room ? (
           <div className="flex h-[28rem] min-h-0 flex-col">
             <LoungeRoom roomId={room.id} userId={user.id}

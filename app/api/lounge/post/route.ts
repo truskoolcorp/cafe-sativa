@@ -166,6 +166,12 @@ export async function POST(req: Request) {
     // the row because the user's tier is below min_post_tier. Surface
     // that specifically so the UI can nudge them toward upgrading.
     const msg = insertError.message || ''
+    if (msg.includes('stage_audience_content_blocked')) {
+      return NextResponse.json({
+        error: 'This message wasn’t posted. Please remove prohibited content, private contact details, or external links and try again.',
+        code: 'audience_content_blocked',
+      }, { status: 422 })
+    }
     if (msg.includes('lounge_rate_limited')) {
       return NextResponse.json({ error: 'Slow down — up to 10 messages per minute.', code: 'rate_limited' }, { status: 429 })
     }

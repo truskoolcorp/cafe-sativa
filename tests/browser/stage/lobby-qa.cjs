@@ -66,13 +66,15 @@ const loop = {
 const sound = asset('audio/wav', 'public/rooms/stage-golden-hour-surf-v2.wav')
 const intro = 'Fixture welcome: tonight on The Stage.'
 
-async function mount(page, epoch, remaining, media = loop, audio = sound) {
+async function mount(page, epoch, remaining, media = loop, audio = sound, savedMute = true) {
   const fixture = 'https://stage-lobby.test/events/ahnika-already-gone'
   await page.route('**/*', route => route.request().url() === fixture
     ? route.fulfill({ contentType: 'text/html', body: html })
     : route.abort())
   await page.goto(fixture)
   await page.addScriptTag({ content: script })
+  if (savedMute) await page.evaluate(() =>
+    sessionStorage.setItem(`cs:stage-sound:v1:${location.pathname}`, 'off'))
   await page.evaluate(props => window.mountLobby(props), {
     poster, loop: media, sound: audio, intro, startsAt: new Date(epoch + remaining).toISOString(), serverNow: epoch,
   })
@@ -82,6 +84,17 @@ async function mount(page, epoch, remaining, media = loop, audio = sound) {
 async function main() {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.STAGE_QA_CHROMIUM || undefined })
   try {
+    const firstVisit = await browser.newPage()
+    await mount(firstVisit, Date.now(), 120000, loop, sound, false)
+    assert.equal(await firstVisit.evaluate(() => window.bufferPlayback.length), 0)
+    await firstVisit.getByRole('heading', { name: 'Premiere lobby' }).click()
+    await firstVisit.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
+    await firstVisit.getByRole('button', { name: 'Sound', pressed: true, exact: true }).click()
+    await firstVisit.getByRole('heading', { name: 'Premiere lobby' }).click()
+    await firstVisit.getByRole('button', { name: 'Sound', pressed: false, exact: true }).waitFor()
+    assert.equal(await firstVisit.evaluate(() => window.bufferPlayback.length), 1)
+    await firstVisit.close()
+
     const room = await browser.newPage({ viewport: { width: 1280, height: 900 } })
     await mount(room, Date.now(), 120000)
     await room.waitForFunction(() => {

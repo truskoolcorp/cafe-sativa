@@ -76,6 +76,10 @@ export function LoungeRoom({
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reported, setReported] = useState<Set<string>>(() => new Set())
+  const [reportStatus, setReportStatus] = useState('')
+  const [flagged, setFlagged] = useState<Set<string>>(() => new Set())
+  const [moderatorStatus, setModeratorStatus] = useState('')
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
@@ -296,6 +300,36 @@ export function LoungeRoom({
     }
   }
 
+  async function handleReport(messageId: string) {
+    setReportStatus('')
+    try {
+      const response = await fetch('/api/lounge/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: roomId, message_id: messageId }),
+      })
+      if (!response.ok) throw new Error('Report not accepted')
+      setReported((previous) => new Set(previous).add(messageId))
+      setReportStatus('Message reported to moderators.')
+    } catch {
+      setReportStatus('Could not report this message. Try again later.')
+    }
+  }
+
+  async function refreshReports() {
+    setModeratorStatus('Loading reports…')
+    try {
+      const { data, error } = await supabase.from('lounge_message_reports')
+        .select('message_id').eq('room_id', roomId)
+        .order('created_at', { ascending: false }).limit(100)
+      if (error) throw error
+      setFlagged(new Set(data.map((report) => report.message_id)))
+      setModeratorStatus(data.length ? 'Reports loaded. Flagged messages in this view are marked below.' : 'No reports found.')
+    } catch {
+      setModeratorStatus('Could not load reports.')
+    }
+  }
+
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
@@ -318,6 +352,13 @@ export function LoungeRoom({
       </div>
 
       {/* Message list */}
+      {isStaff && (
+        <div className="py-2 text-xs">
+          <button type="button" className="underline" onClick={refreshReports}>Refresh moderation reports</button>
+          <p role="status">{moderatorStatus}</p>
+        </div>
+      )}
+      <p role="status" className="text-xs text-muted-foreground">{reportStatus}</p>
       <div
         ref={listRef}
         onScroll={handleListScroll}
@@ -336,6 +377,9 @@ export function LoungeRoom({
               message={m}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
+              onReport={m.user_id === userId ? undefined : () => handleReport(m.id)}
+              reported={reported.has(m.id)}
+              flagged={isStaff && flagged.has(m.id)}
             />
           ))
         )}
@@ -410,10 +454,16 @@ function MessageRow({
   message,
   canDelete,
   onDelete,
+  onReport,
+  reported,
+  flagged,
 }: {
   message: Message
   canDelete: boolean
   onDelete: () => void
+  onReport?: () => void
+  reported: boolean
+  flagged: boolean
 }) {
   const time = new Date(message.created_at).toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -444,6 +494,13 @@ function MessageRow({
         <span className="text-[11px] text-muted-foreground font-body">
           {time}
         </span>
+        {onReport && (
+          <button type="button" onClick={onReport} disabled={reported}
+            className="text-xs text-muted-foreground underline disabled:no-underline">
+            {reported ? 'Reported' : 'Report message'}
+          </button>
+        )}
+        {flagged && <span className="text-xs font-semibold text-primary">Flagged for review</span>}
         {canDelete && (
           <button
             onClick={onDelete}

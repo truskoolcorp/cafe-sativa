@@ -29,6 +29,12 @@ window.mountLobby = props => root.render(React.createElement(require("lobby").de
 window.mountPerformance = props => root.render(React.createElement(require("performance").default, props));
 window.bufferPlayback = [];
 window.soundRamps = [];
+window.soundTargets = [];
+const target = AudioParam.prototype.setTargetAtTime;
+AudioParam.prototype.setTargetAtTime = function (value, startTime, timeConstant) {
+  window.soundTargets.push(value);
+  return target.call(this, value, startTime, timeConstant);
+};
 const ramp = AudioParam.prototype.linearRampToValueAtTime;
 AudioParam.prototype.linearRampToValueAtTime = function (value, endTime) {
   window.soundRamps.push(value);
@@ -111,6 +117,32 @@ async function main() {
     }, sound)
     assert.equal(audioSeam.length, 192000)
     assert.ok(audioSeam.difference < 1e-5 && audioSeam.step < 0.002, JSON.stringify(audioSeam))
+    const options = room.locator('summary').filter({ hasText: 'Player options' })
+    const still = room.getByRole('button', { name: 'Still view', exact: true })
+    assert.equal(await still.isVisible(), false)
+    await options.focus()
+    await room.keyboard.press('Enter')
+    await room.getByRole('button', { name: 'Still view', pressed: false, exact: true }).waitFor()
+    await room.keyboard.press('Tab')
+    assert.equal(await still.evaluate(el => el === document.activeElement), true)
+    await room.keyboard.press('Space')
+    await room.getByRole('button', { name: 'Still view', pressed: true, exact: true }).waitFor()
+    assert.equal(await room.locator('video').count(), 0)
+    assert.equal(await room.evaluate(() => window.bufferPlayback[0].context.state), 'running')
+    const volume = room.getByRole('slider', { name: 'Volume' })
+    await volume.press('ArrowLeft')
+    assert.equal(await volume.inputValue(), '99')
+    assert.ok(await room.evaluate(() => Math.abs(window.soundTargets.at(-1) - 0.4554) < 1e-6))
+    await room.keyboard.press('Escape')
+    assert.equal(await still.isVisible(), false)
+    assert.equal(await options.evaluate(el => el === document.activeElement), true)
+    await options.click()
+    await still.click()
+    await room.getByRole('button', { name: 'Still view', pressed: false, exact: true }).waitFor()
+    await room.waitForFunction(() => {
+      const v = document.querySelector('video')
+      return v && !v.paused && Number.isFinite(v.duration)
+    })
     await room.getByRole('button', { name: 'Sound', pressed: true, exact: true }).click()
     await room.getByRole('button', { name: 'Sound', pressed: false, exact: true }).waitFor()
     await room.waitForFunction(() => window.bufferPlayback[0].context.state === 'closed')
@@ -122,17 +154,15 @@ async function main() {
       const v = document.querySelector('video')
       return !v.paused && v.currentTime > 0.015 && v.currentTime < 0.65
     }, null, { timeout: 5000 })
-    await room.getByRole('button', { name: 'Pause Stage ambience' }).click()
-    await room.getByRole('button', { name: 'Play Stage ambience' }).waitFor()
-    assert.equal(await room.locator('video').count(), 0)
-    await room.getByRole('button', { name: 'Play Stage ambience' }).click()
-    await room.locator('video').waitFor()
-
     const reduced = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } })
     const clock = Date.UTC(2026, 11, 1, 5, 59, 29)
     await reduced.clock.install({ time: clock })
     await mount(reduced, clock, 31000)
-    await reduced.getByRole('button', { name: 'Play Stage ambience' }).waitFor()
+    await reduced.locator('summary').filter({ hasText: 'Player options' }).click()
+    await reduced.getByRole('button', { name: 'Still view', pressed: true, exact: true }).waitFor()
+    const mobileVolume = reduced.getByRole('slider', { name: 'Volume' })
+    await mobileVolume.press('ArrowLeft')
+    assert.equal(await mobileVolume.inputValue(), '99')
     assert.equal(await reduced.locator('video').count(), 0)
     assert.equal(await reduced.getByText(intro).count(), 0)
     await reduced.getByRole('button', { name: 'Sound', pressed: false, exact: true }).click()
@@ -147,7 +177,7 @@ async function main() {
     await reduced.waitForFunction(() => window.bufferPlayback[0].context.state === 'closed')
     await reduced.evaluate(src => window.mountPerformance({ src, label: 'Handoff fixture' }), loop.webm)
     await reduced.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
-    assert.equal(await reduced.locator('video').evaluate(v => !v.muted && v.controls), true)
+    assert.equal(await reduced.locator('video').evaluate(v => !v.muted && v.controls && v.volume === 0.99), true)
     await reduced.getByRole('button', { name: 'Sound', pressed: true, exact: true }).click()
     await reduced.getByRole('button', { name: 'Sound', pressed: false, exact: true }).waitFor()
     assert.equal(await reduced.locator('video').evaluate(v => v.muted), true)
@@ -158,11 +188,14 @@ async function main() {
     }, 'data:audio/wav;base64,AA==')
     await broken.waitForFunction(() => !document.querySelector('video') &&
       document.querySelector('img')?.naturalWidth > 0 &&
-      !Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('Stage ambience')))
+      !Array.from(document.querySelectorAll('button')).some(button => button.textContent.includes('Still view')))
+    await broken.locator('summary').filter({ hasText: 'Player options' }).click()
+    assert.equal(await broken.getByRole('button', { name: 'Still view', exact: true }).count(), 0)
+    assert.equal(await broken.getByRole('slider', { name: 'Volume' }).isVisible(), true)
     await broken.getByRole('button', { name: 'Sound', exact: true }).click()
     await broken.getByText('Sound is unavailable. Try again.').waitFor()
 
-    console.log('Stage lobby passed: video wrap, sample-exact audio wrap, opt-in sound, reduced motion, kickoff handoff and media fallback')
+    console.log('Stage lobby passed: keyboard-operated Still view and volume, seamless wraps, reduced motion, kickoff and media fallback')
   } finally { await browser.close() }
 }
 

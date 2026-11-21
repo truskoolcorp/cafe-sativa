@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { readStageSound, writeStageSound } from '@/lib/events/stage-sound'
+import { MIN_STAGE_VOLUME, readStageSound, readStageVolume, writeStageSound, writeStageVolume } from '@/lib/events/stage-sound'
 import StageSoundToggle from './StageSoundToggle'
 
 export default function StagePremiereVideo({ src, label }: { src: string; label: string }) {
@@ -11,7 +11,10 @@ export default function StagePremiereVideo({ src, label }: { src: string; label:
 
   useEffect(() => {
     const on = readStageSound()
-    if (video.current) video.current.muted = !on
+    if (video.current) {
+      video.current.volume = readStageVolume() / 100
+      video.current.muted = !on
+    }
     setEnabled(on)
     hydrated.current = true
   }, [])
@@ -20,7 +23,7 @@ export default function StagePremiereVideo({ src, label }: { src: string; label:
     const player = video.current
     if (!player) return
     player.muted = enabled
-    if (!enabled && player.volume === 0) player.volume = 1
+    if (!enabled && player.volume === 0) player.volume = readStageVolume() / 100
     setEnabled(!enabled)
     writeStageSound(!enabled)
   }
@@ -36,6 +39,7 @@ export default function StagePremiereVideo({ src, label }: { src: string; label:
           if (!hydrated.current) return
           const player = event.currentTarget
           const on = !player.muted && player.volume > 0
+          if (player.volume > 0) writeStageVolume(Math.max(MIN_STAGE_VOLUME, Math.round(player.volume * 100)))
           setEnabled(on)
           writeStageSound(on)
         }} />

@@ -68,17 +68,33 @@ const intro = 'Fixture welcome: tonight on The Stage.'
 
 async function mount(page, epoch, remaining, media = loop, audio = sound, savedMute = true) {
   const fixture = 'https://stage-lobby.test/events/ahnika-already-gone'
-  await page.route('**/*', route => route.request().url() === fixture
-    ? route.fulfill({ contentType: 'text/html', body: html })
-    : route.abort())
-  await page.goto(fixture)
-  await page.addScriptTag({ content: script })
-  if (savedMute) await page.evaluate(() =>
-    sessionStorage.setItem(`cs:stage-sound:v1:${location.pathname}`, 'off'))
-  await page.evaluate(props => window.mountLobby(props), {
+  const fixtureScript = new URL('/stage-lobby-fixture.js', fixture).href
+  const props = {
     poster, loop: media, sound: audio, intro, startsAt: new Date(epoch + remaining).toISOString(), serverNow: epoch,
+  }
+  // Let the browser load the fixture normally. Evaluating the mount over
+  // Playwright can confer transient user activation and mask autoplay blocks.
+  await page.route('**/*', route => {
+    if (route.request().url() === fixture) {
+      return route.fulfill({ contentType: 'text/html', body: html + '<script src="/stage-lobby-fixture.js"></script>' })
+    }
+    if (route.request().url() === fixtureScript) {
+      const preference = savedMute ? "sessionStorage.setItem('cs:stage-sound:v1:'+ location.pathname, 'off');" : ''
+      return route.fulfill({ contentType: 'application/javascript', body: `${script}\n${preference}\nwindow.mountLobby(${JSON.stringify(props)});` })
+    }
+    return route.abort()
   })
-  await page.getByRole('heading', { name: 'Premiere lobby' }).waitFor()
+  await page.goto(fixture)
+}
+
+async function audioAfterLoad(page, allowed) {
+  const session = await page.context().newCDPSession(page)
+  const expression = allowed
+    ? 'new Promise(resolve => { const t = Date.now(); (function poll() { const n = window.bufferPlayback.length; if (n || Date.now() - t > 3000) resolve(n); else setTimeout(poll, 30); })(); })'
+    : 'new Promise(resolve => setTimeout(() => resolve({ label: document.querySelector("[data-stage-sound-control] button").textContent, sources: window.bufferPlayback.length }), 700))'
+  const reply = await session.send('Runtime.evaluate', { expression, awaitPromise: true, userGesture: false, returnByValue: true })
+  await session.detach()
+  return reply.result.value
 }
 
 async function main() {
@@ -87,8 +103,7 @@ async function main() {
   try {
     const firstVisit = await browser.newPage()
     await mount(firstVisit, Date.now(), 120000, loop, sound, false)
-    await firstVisit.getByRole('button', { name: 'Enable sound', exact: true }).waitFor()
-    assert.equal(await firstVisit.evaluate(() => window.bufferPlayback.length), 0)
+    assert.deepEqual(await audioAfterLoad(firstVisit, false), { label: 'Enable sound', sources: 0 })
     await firstVisit.getByRole('heading', { name: 'Premiere lobby' }).click()
     await firstVisit.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
     await firstVisit.getByRole('button', { name: 'Sound', pressed: true, exact: true }).click()
@@ -99,6 +114,7 @@ async function main() {
 
     const blocked = await browser.newPage()
     await mount(blocked, Date.now(), 120000, loop, sound, false)
+    assert.deepEqual(await audioAfterLoad(blocked, false), { label: 'Enable sound', sources: 0 })
     await blocked.getByRole('button', { name: 'Enable sound', exact: true }).click()
     await blocked.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
     await blocked.close()
@@ -222,10 +238,12 @@ async function main() {
   try {
     const fresh = await autoplayBrowser.newPage()
     await mount(fresh, Date.now(), 120000, loop, sound, false)
+    assert.equal(await audioAfterLoad(fresh, true), 1)
     await fresh.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
     assert.equal(await fresh.evaluate(() => window.bufferPlayback.length), 1)
     const muted = await autoplayBrowser.newPage()
     await mount(muted, Date.now(), 120000)
+    assert.deepEqual(await audioAfterLoad(muted, false), { label: 'Sound: Off', sources: 0 })
     await muted.getByRole('button', { name: 'Sound', pressed: false, exact: true }).waitFor()
     await muted.getByRole('heading', { name: 'Premiere lobby' }).click()
     assert.equal(await muted.evaluate(() => window.bufferPlayback.length), 0)

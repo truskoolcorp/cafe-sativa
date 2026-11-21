@@ -64,6 +64,7 @@ type Props = {
   conciergeDrafts?: boolean
   privateRoom?: boolean
   rehearsalDraftModerator?: boolean
+  premiereDraftModerator?: boolean
 }
 
 export function LoungeRoom({
@@ -77,6 +78,7 @@ export function LoungeRoom({
   conciergeDrafts = false,
   privateRoom = false,
   rehearsalDraftModerator = false,
+  premiereDraftModerator = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
@@ -332,7 +334,7 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
-  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff)
+  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff || premiereDraftModerator)
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}

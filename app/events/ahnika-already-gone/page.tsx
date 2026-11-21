@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
+import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 const slug = 'ahnika-already-gone'
-const startsAt = '2026-12-01T06:00:00.000Z'
+const startsAt = AHNIKA_PREMIERE_START
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
 
 async function premiereVideo(): Promise<string | null> {
@@ -62,6 +63,11 @@ export default async function AhnikaPremierePage() {
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
   ]) : [{ data: null }, { data: null }, { data: null }]
+  const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && ahnikaConciergeWindowOpen(event)
+  const { data: premiereGrant } = user && room && conciergeOpen
+    ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
+      .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
+    : { data: null }
 
   return (
     <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
@@ -102,7 +108,7 @@ export default async function AhnikaPremierePage() {
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
-              conciergeDrafts={process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true'} />
+              conciergeDrafts={conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)} />
           </div>
         ) : user ? (
           <p role="status">The audience room is temporarily unavailable.</p>

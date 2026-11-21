@@ -61,6 +61,7 @@ type Props = {
   isStaff: boolean
   minPostTier: Tier
   initialMessages: Message[]
+  conciergeDrafts?: boolean
 }
 
 export function LoungeRoom({
@@ -71,11 +72,14 @@ export function LoungeRoom({
   isStaff,
   minPostTier,
   initialMessages,
+  conciergeDrafts = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [drafting, setDrafting] = useState(false)
+  const [draftHost, setDraftHost] = useState('ahnika')
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
@@ -296,6 +300,28 @@ export function LoungeRoom({
     }
   }
 
+  async function draftConciergeReply(message: Message) {
+    if (!conciergeDrafts || !isStaff || drafting || input.trim()) return
+    setDrafting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/lounge/concierge-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: message.id, host: draftHost }),
+      })
+      const data = await res.json()
+      if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
+        throw new Error('Draft unavailable')
+      }
+      setInput(current => current.trim() ? current : `${data.attribution}: ${data.draft}`)
+    } catch {
+      setError('Could not draft a reply. You can still reply as moderator.')
+    } finally {
+      setDrafting(false)
+    }
+  }
+
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
@@ -318,6 +344,15 @@ export function LoungeRoom({
       </div>
 
       {/* Message list */}
+      {conciergeDrafts && isStaff && (
+        <label className="py-2 text-xs text-muted-foreground">
+          Draft as <select className="rounded border border-border bg-background p-1"
+            value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={drafting}>
+            <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
+          </select>
+          {' '}· Drafts go to your composer for review. Nothing is sent until you post.
+        </label>
+      )}
       <div
         ref={listRef}
         onScroll={handleListScroll}
@@ -336,6 +371,8 @@ export function LoungeRoom({
               message={m}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
+              onDraft={conciergeDrafts && isStaff && m.user_id !== userId ? () => draftConciergeReply(m) : undefined}
+              draftDisabled={drafting || Boolean(input.trim())}
             />
           ))
         )}
@@ -410,10 +447,14 @@ function MessageRow({
   message,
   canDelete,
   onDelete,
+  onDraft,
+  draftDisabled,
 }: {
   message: Message
   canDelete: boolean
   onDelete: () => void
+  onDraft?: () => void
+  draftDisabled?: boolean
 }) {
   const time = new Date(message.created_at).toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -444,6 +485,8 @@ function MessageRow({
         <span className="text-[11px] text-muted-foreground font-body">
           {time}
         </span>
+        {onDraft && <button type="button" onClick={onDraft} disabled={draftDisabled}
+          className="text-xs text-primary underline disabled:opacity-50">Draft host reply</button>}
         {canDelete && (
           <button
             onClick={onDelete}

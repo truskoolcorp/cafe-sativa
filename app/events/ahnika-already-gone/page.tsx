@@ -101,7 +101,8 @@ export default async function AhnikaPremierePage() {
               displayName={profiles.data?.display_name || user.email?.split('@')[0] || 'Member'}
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
-              minPostTier="explorer" initialMessages={(messages.data || []).reverse()} />
+              minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
+              conciergeDrafts={process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true'} />
           </div>
         ) : user ? (
           <p role="status">The audience room is temporarily unavailable.</p>

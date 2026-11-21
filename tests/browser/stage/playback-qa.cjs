@@ -1,17 +1,11 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
-const { execFileSync } = require('node:child_process')
+const path = require('node:path')
 const ts = require('typescript')
 const { chromium } = require('playwright')
 
 // Fixture-only tone and visible motion. No approved assets, secrets, or remote calls.
-const media = execFileSync('ffmpeg', [
-  '-hide_banner', '-loglevel', 'error',
-  '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=15',
-  '-f', 'lavfi', '-i', 'sine=frequency=300:sample_rate=48000',
-  '-t', '16', '-c:v', 'libvpx', '-g', '15', '-b:v', '120k', '-c:a', 'libopus',
-  '-f', 'webm', 'pipe:1',
-], { maxBuffer: 2 * 1024 * 1024 }).toString('base64')
+const media = fs.readFileSync(path.join(__dirname, 'synthetic-clip.webm')).toString('base64')
 
 const umd = (pkg) => fs.readFileSync(require.resolve(pkg).replace(/index.js$/, `umd/${pkg}.production.min.js`), 'utf8')
 const build = (path) => ts.transpileModule(fs.readFileSync(path, 'utf8'), {

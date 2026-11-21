@@ -214,9 +214,10 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Send
   // ------------------------------------------------------------
-  async function send() {
-    const content = input.trim()
-    if (!content || sending || !canPost) return
+  async function send(asHostQuestion = false) {
+    const plain = input.trim()
+    const content = asHostQuestion ? `[Ask ${draftHost}] ${plain}` : plain
+    if (!plain || sending || !canPost || content.length > 2000) return
 
     setError(null)
     setSending(true)
@@ -247,7 +248,7 @@ export function LoungeRoom({
       if (!res.ok) {
         // Roll back optimistic message
         setMessages((prev) => prev.filter((m) => m.id !== localId))
-        setInput(content) // let them retry
+        setInput(plain) // let them retry
         if (res.status === 429) {
           setError('Slow down — up to 10 messages per minute.')
         } else if (res.status === 403 && data.code === 'tier_insufficient') {
@@ -264,7 +265,7 @@ export function LoungeRoom({
       setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
-      setInput(content)
+      setInput(plain)
       setError(err?.message || 'Could not post.')
     } finally {
       setSending(false)
@@ -308,7 +309,7 @@ export function LoungeRoom({
       const res = await fetch('/api/lounge/concierge-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId: message.id, host: draftHost }),
+        body: JSON.stringify({ messageId: message.id, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
       })
       const data = await res.json()
       if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
@@ -344,13 +345,13 @@ export function LoungeRoom({
       </div>
 
       {/* Message list */}
-      {conciergeDrafts && isStaff && (
+      {conciergeDrafts && canPost && (
         <label className="py-2 text-xs text-muted-foreground">
-          Draft as <select className="rounded border border-border bg-background p-1"
+          Ask <select className="rounded border border-border bg-background p-1"
             value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={drafting}>
             <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
           </select>
-          {' '}· Drafts go to your composer for review. Nothing is sent until you post.
+          {' '}· Host questions are visible to the room. A moderator reviews concierge replies.
         </label>
       )}
       <div
@@ -371,7 +372,8 @@ export function LoungeRoom({
               message={m}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
-              onDraft={conciergeDrafts && isStaff && m.user_id !== userId ? () => draftConciergeReply(m) : undefined}
+              onDraft={conciergeDrafts && isStaff && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+                ? () => draftConciergeReply(m) : undefined}
               draftDisabled={drafting || Boolean(input.trim())}
             />
           ))
@@ -419,7 +421,7 @@ export function LoungeRoom({
               }}
             />
             <Button
-              onClick={send}
+              onClick={() => send()}
               disabled={sending || !input.trim()}
               className="shrink-0"
             >
@@ -433,6 +435,9 @@ export function LoungeRoom({
         ) : (
           <UpgradePrompt />
         )}
+        {canPost && conciergeDrafts && <button type="button" className="mt-2 text-sm text-primary underline disabled:opacity-50"
+          disabled={sending || !input.trim() || input.trim().length > 1980}
+          onClick={() => send(true)}>Ask a host</button>}
         <p className="mt-2 text-xs text-muted-foreground font-body text-center">
           Posting as{' '}
           <span className="text-foreground font-semibold">{displayName}</span>{' '}

@@ -7,19 +7,20 @@ const code = ts.transpileModule(fs.readFileSync('app/api/lounge/concierge-draft/
   compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true },
 }).outputText
 const id = '00000000-0000-4000-8000-000000000001'
-async function fixture({ enabled = true, staff = true, source = true, origin = 'https://preview.test' } = {}) {
+async function fixture({ enabled = true, staff = true, source = true, origin = 'https://preview.test', claimError = null } = {}) {
   const exports = {}
   let calls = 0
   let providerRequest
   let roomBound = false
   const rows = {
     profiles: { is_staff: staff }, lounge_rooms: { id },
-    lounge_messages: source ? { content: 'Ask about the premiere' } : null,
+    lounge_messages: source ? { content: '[Ask ahnika] Tell me about the premiere' } : null,
     my_events_v: { title: 'Already Gone' },
   }
   const db = {
     auth: { getUser: async () => ({ data: { user: { id } } }) },
     from(table) {
+      if (table === 'stage_concierge_claims') return { insert: async () => ({ error: claimError }) }
       const q = { select: () => q, eq(key, value) {
         if (table === 'lounge_messages' && key === 'room_id' && value === id) roomBound = true
         return q
@@ -64,4 +65,9 @@ test('moderator receives a room-bound draft without an automated post', async ()
   assert.equal(r.roomBound, true)
   assert.equal(r.providerRequest.messages.length, 1)
   assert.match(r.response.body.attribution, /Ahnika/)
+})
+test('duplicate or rate-limited claim does not call the provider', async () => {
+  const r = await fixture({ claimError: { code: '23505' } })
+  assert.equal(r.response.status, 429)
+  assert.equal(r.calls, 0)
 })

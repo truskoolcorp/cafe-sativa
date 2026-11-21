@@ -62,6 +62,7 @@ type Props = {
   minPostTier: Tier
   initialMessages: Message[]
   conciergeDrafts?: boolean
+  privateRoom?: boolean
 }
 
 export function LoungeRoom({
@@ -73,6 +74,7 @@ export function LoungeRoom({
   minPostTier,
   initialMessages,
   conciergeDrafts = false,
+  privateRoom = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
@@ -171,6 +173,8 @@ export function LoungeRoom({
       )
       .subscribe()
 
+    // Never broadcast identities on the public presence channel for invite-only rooms.
+    if (privateRoom) return () => { void supabase.removeChannel(channel) }
     // Presence channel — separate from postgres_changes
     const presenceChannel = supabase.channel(`presence:lounge:${roomId}`, {
       config: { presence: { key: userId } },
@@ -198,7 +202,7 @@ export function LoungeRoom({
       supabase.removeChannel(channel)
       supabase.removeChannel(presenceChannel)
     }
-  }, [supabase, roomId, userId, displayName])
+  }, [supabase, roomId, userId, displayName, privateRoom])
 
   // ------------------------------------------------------------
   // Auto-scroll when messages grow AND user is at bottom
@@ -309,7 +313,7 @@ export function LoungeRoom({
       const res = await fetch('/api/lounge/concierge-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId: message.id, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
+        body: JSON.stringify({ messageId: message.id, rehearsal: privateRoom, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
       })
       const data = await res.json()
       if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
@@ -329,7 +333,7 @@ export function LoungeRoom({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}
-      <div className="flex items-center gap-2 py-3 text-xs font-body text-muted-foreground border-b border-border">
+      {!privateRoom && <div className="flex items-center gap-2 py-3 text-xs font-body text-muted-foreground border-b border-border">
         <Users className="w-3.5 h-3.5 text-primary" />
         <span className="font-semibold text-foreground">
           {presenceCount}
@@ -342,7 +346,7 @@ export function LoungeRoom({
             {presenceCount > 5 && ` +${presenceCount - 5}`}
           </span>
         )}
-      </div>
+      </div>}
 
       {/* Message list */}
       {conciergeDrafts && canPost && (

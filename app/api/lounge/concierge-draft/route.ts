@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getHost } from '@/lib/concierge/personas'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { CONCIERGE_MODEL } from '@/lib/concierge/response-engine'
+import { PRIVATE_STAGE_REHEARSAL_ROOM } from '@/lib/events/private-stage-rehearsal'
 
 const slug = 'ahnika-already-gone'
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
@@ -11,7 +12,9 @@ const reply = (body: object, status = 200) =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 
 export async function POST(req: Request) {
-  if (process.env.STAGE_CONCIERGE_DRAFTS_ENABLED !== 'true') return reply({ error: 'Drafts are disabled.' }, 404)
+  const publicEnabled = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true'
+  const privateEnabled = process.env.STAGE_PRIVATE_REHEARSAL_ENABLED === 'true'
+  if (!publicEnabled && !privateEnabled) return reply({ error: 'Drafts are disabled.' }, 404)
   if (req.headers.get('origin') !== new URL(req.url).origin) return reply({ error: 'Invalid origin.' }, 403)
   const db = createClient()
   const { data: { user } } = await db.auth.getUser()
@@ -21,13 +24,25 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null)
   if (!body || typeof body.messageId !== 'string' || !uuid.test(body.messageId) ||
       !['ahnika', 'laviche'].includes(body.host)) return reply({ error: 'Invalid draft request.' }, 400)
+  const rehearsal = body.rehearsal === true
+  if (rehearsal ? !privateEnabled : !publicEnabled) return reply({ error: 'Drafts are disabled for this room.' }, 404)
+  if (rehearsal) {
+    const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id')
+      .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
+    if (!invitation) return reply({ error: 'Stage room unavailable.' }, 404)
+  }
   const host = getHost(body.host)!
-  const { data: room } = await db.from('lounge_rooms').select('id').eq('slug', slug).maybeSingle()
+  const rooms = db.from('lounge_rooms').select('id')
+  const { data: room } = await (rehearsal
+    ? rooms.eq('id', PRIVATE_STAGE_REHEARSAL_ROOM) : rooms.eq('slug', slug)).maybeSingle()
   if (!room) return reply({ error: 'Stage room unavailable.' }, 404)
   const [source, event] = await Promise.all([
     db.from('lounge_messages').select('content').eq('id', body.messageId)
       .eq('room_id', room.id).is('deleted_at', null).maybeSingle(),
-    db.from('my_events_v').select('title,starts_at,presenter_name,ticket_price_cents')
+    rehearsal ? Promise.resolve({ data: {
+      title: 'Private Stage concierge rehearsal',
+      description: 'An invite-only chat and moderation test. This is not a public performance. No ticket sales or recording.',
+    } }) : db.from('my_events_v').select('title,starts_at,presenter_name,ticket_price_cents')
       .eq('slug', slug).maybeSingle(),
   ])
   const prefix = `[Ask ${host.id}] `

@@ -146,7 +146,7 @@ export async function POST(req: Request) {
     // Verify the live offer against the amount displayed to customers.
     // A legacy founding or annual price must never silently replace the selected offer.
     const price = await stripe.prices.retrieve(priceId)
-    const matchesOffer = annual ? exactAnnualPrice(tier, price)
+    const matchesOffer = annual ? exactAnnualPrice(tier, price) && price.tax_behavior === 'exclusive'
       : price.currency === 'usd' && price.type === 'recurring' &&
         price.unit_amount === MEMBERSHIP_OFFER_CENTS[tier].monthly &&
         price.recurring?.interval === 'month' && price.recurring.interval_count === 1
@@ -162,6 +162,11 @@ export async function POST(req: Request) {
       ...(existingCustomerId
         ? { customer: existingCustomerId }
         : { customer_email: userEmail }),
+      ...(annual ? {
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required' as const,
+        ...(existingCustomerId ? { customer_update: { address: 'auto' as const } } : {}),
+      } : {}),
       // Preserve monthly promotions; do not stack them onto the annual offer.
       allow_promotion_codes: !annual,
       // Attach identifiers to BOTH the session and the subscription it creates.

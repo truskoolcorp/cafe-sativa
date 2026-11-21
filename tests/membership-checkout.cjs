@@ -36,6 +36,7 @@ const request=(origin='https://www.cafe-sativa.com',tier='regular')=>({url:'http
  assert.equal(lastSession.metadata.music_release_id,'release-1');
  assert.equal(lastSession.subscription_data.metadata.music_release_slug,'oh-laviche');
  assert.equal(lastSession.allow_promotion_codes,true);
+ assert.equal(lastSession.automatic_tax,undefined);
  const annualRequest=tier=>({...request(),json:async()=>({tier,cadence:'annual'})});
  assert.equal((await scope.exports.POST({...request(),json:async()=>({tier:'regular',cadence:'weekly'})})).status,400);
  assert.equal((await scope.exports.POST(annualRequest('regular'))).status,503);
@@ -52,10 +53,11 @@ const request=(origin='https://www.cafe-sativa.com',tier='regular')=>({url:'http
   env[key]=legacy;
   assert.equal((await scope.exports.POST(annualRequest(tier))).status,503);
   env[key]=id;
-  const annualPrice={id,product,active:true,currency:'usd',type:'recurring',unit_amount:cents,
+  const annualPrice={id,product,active:true,currency:'usd',type:'recurring',unit_amount:cents,tax_behavior:'exclusive',
    recurring:{interval:'year',interval_count:1,usage_type:'licensed'}};
   const before=created;
   for(const changes of [{product:'prod_foreign'},{unit_amount:cents-90},{currency:'eur'},{active:false},
+   {tax_behavior:'inclusive'},{tax_behavior:'unspecified'},
    {recurring:{...annualPrice.recurring,interval_count:2}},{recurring:{...annualPrice.recurring,usage_type:'metered'}}]){
    price={...annualPrice,...changes};
    assert.equal((await scope.exports.POST(annualRequest(tier))).status,503);
@@ -66,6 +68,14 @@ const request=(origin='https://www.cafe-sativa.com',tier='regular')=>({url:'http
   assert.equal(lastSession.line_items[0].price,id);
   assert.equal(lastSession.subscription_data.metadata.cadence,'annual');
   assert.equal(lastSession.allow_promotion_codes,false);
+  assert.equal(lastSession.automatic_tax.enabled,true);
+  assert.equal(lastSession.billing_address_collection,'required');
+  assert.equal(lastSession.customer_update,undefined);
+  membership={stripe_customer_id:'cus_test',stripe_subscription_id:null};
+  assert.equal((await scope.exports.POST(annualRequest(tier))).status,200);
+  assert.equal(lastSession.customer,'cus_test');
+  assert.equal(lastSession.customer_update.address,'auto');
+  membership=null;
   const sub={items:{data:[{price:annualPrice}]},metadata:{site:'cafe-sativa',tier}};
   assert.equal(prices.cafeSubscriptionTier(sub),tier);
   assert.equal(prices.cafeSubscriptionTier({...sub,metadata:{site:'another-store'}}),null);

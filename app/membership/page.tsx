@@ -566,7 +566,7 @@ function MembershipInner() {
                   {tier.id !== 'explorer' && cadence === 'annual' ? 'per year' : tier.cadence}
                 </span>
                 {tier.id !== 'explorer' && cadence === 'annual' && (
-                  <p className="mt-2 text-xs text-muted-foreground">Billed yearly. Renews annually unless canceled.</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Billed yearly, plus applicable tax. Renews annually unless canceled.</p>
                 )}
               </div>
 

@@ -4,6 +4,7 @@ export const AHNIKA_PREMIERE_SLUG = 'ahnika-already-gone'
 export const AHNIKA_PREMIERE_START = '2026-12-01T06:00:00.000Z'
 export const AHNIKA_PREMIERE_DURATION_MS = 99_700
 export const AHNIKA_AUDIENCE_SCHEDULE = stageAudienceSchedule(AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_DURATION_MS)!
+export const AHNIKA_PREMIERE_END = AHNIKA_AUDIENCE_SCHEDULE.kickoff + AHNIKA_PREMIERE_DURATION_MS
 export const AHNIKA_QA_END = new Date(AHNIKA_AUDIENCE_SCHEDULE.closes).toISOString()
 
 type PremiereRow = {
@@ -25,4 +26,8 @@ export function ahnikaAudiencePhase(event: PremiereRow, now = Date.now()) {
 
 export function ahnikaConciergeWindowOpen(event: PremiereRow, now = Date.now()) {
   return ahnikaAudiencePhase(event, now) === 'hosted'
+}
+
+export function ahnikaPlaybackOpen(now = Date.now()) {
+  return now >= AHNIKA_AUDIENCE_SCHEDULE.kickoff && now < AHNIKA_PREMIERE_END
 }

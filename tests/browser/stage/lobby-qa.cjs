@@ -82,10 +82,12 @@ async function mount(page, epoch, remaining, media = loop, audio = sound, savedM
 }
 
 async function main() {
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.STAGE_QA_CHROMIUM || undefined })
+  const launch = { headless: true, executablePath: process.env.STAGE_QA_CHROMIUM || undefined }
+  const browser = await chromium.launch({ ...launch, args: ['--autoplay-policy=document-user-activation-required'] })
   try {
     const firstVisit = await browser.newPage()
     await mount(firstVisit, Date.now(), 120000, loop, sound, false)
+    await firstVisit.getByRole('button', { name: 'Enable sound', exact: true }).waitFor()
     assert.equal(await firstVisit.evaluate(() => window.bufferPlayback.length), 0)
     await firstVisit.getByRole('heading', { name: 'Premiere lobby' }).click()
     await firstVisit.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
@@ -94,6 +96,12 @@ async function main() {
     await firstVisit.getByRole('button', { name: 'Sound', pressed: false, exact: true }).waitFor()
     assert.equal(await firstVisit.evaluate(() => window.bufferPlayback.length), 1)
     await firstVisit.close()
+
+    const blocked = await browser.newPage()
+    await mount(blocked, Date.now(), 120000, loop, sound, false)
+    await blocked.getByRole('button', { name: 'Enable sound', exact: true }).click()
+    await blocked.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
+    await blocked.close()
 
     const room = await browser.newPage({ viewport: { width: 1280, height: 900 } })
     await mount(room, Date.now(), 120000)
@@ -208,8 +216,21 @@ async function main() {
     await broken.getByRole('button', { name: 'Sound', exact: true }).click()
     await broken.getByText('Sound is unavailable. Try again.').waitFor()
 
-    console.log('Stage lobby passed: keyboard-operated Still view and volume, seamless wraps, reduced motion, kickoff and media fallback')
   } finally { await browser.close() }
+
+  const autoplayBrowser = await chromium.launch({ ...launch, args: ['--autoplay-policy=no-user-gesture-required'] })
+  try {
+    const fresh = await autoplayBrowser.newPage()
+    await mount(fresh, Date.now(), 120000, loop, sound, false)
+    await fresh.getByRole('button', { name: 'Sound', pressed: true, exact: true }).waitFor()
+    assert.equal(await fresh.evaluate(() => window.bufferPlayback.length), 1)
+    const muted = await autoplayBrowser.newPage()
+    await mount(muted, Date.now(), 120000)
+    await muted.getByRole('button', { name: 'Sound', pressed: false, exact: true }).waitFor()
+    await muted.getByRole('heading', { name: 'Premiere lobby' }).click()
+    assert.equal(await muted.evaluate(() => window.bufferPlayback.length), 0)
+  } finally { await autoplayBrowser.close() }
+  console.log('Stage lobby passed: audible autoplay when allowed, activation when blocked, saved mute, seamless loops, reduced motion, and kickoff')
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1 })

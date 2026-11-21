@@ -8,14 +8,18 @@ type Props = {
   serverNow: number
   poster: string
   loop: { webm: string; mp4: string }
+  sound?: string
   intro: string
 }
 
-export default function StageLobby({ startsAt, serverNow, poster, loop, intro }: Props) {
+export default function StageLobby({ startsAt, serverNow, poster, loop, sound, intro }: Props) {
   const [phase, setPhase] = useState(() => stageLobbyPhase(startsAt, serverNow))
   const [motion, setMotion] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [soundOn, setSoundOn] = useState(false)
+  const [soundFailed, setSoundFailed] = useState(false)
   const video = useRef<HTMLVideoElement>(null)
+  const audio = useRef<HTMLAudioElement>(null)
 
   useEffect(() => {
     const anchor = performance.now()
@@ -28,6 +32,8 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, intro }:
       if (next === 'lobby' || next === 'intro') {
         const boundary = Date.parse(startsAt) - (next === 'lobby' ? STAGE_INTRO_LEAD_MS : 0)
         timer = setTimeout(tick, Math.min(Math.max(1, boundary - now), 60_000))
+      } else {
+        audio.current?.pause()
       }
     }
     tick()
@@ -46,13 +52,32 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, intro }:
     return () => preference.removeEventListener('change', update)
   }, [])
 
-  const showMotion = motion && !failed && (phase === 'lobby' || phase === 'intro')
+  const lobbyOpen = phase === 'lobby' || phase === 'intro'
+  const showMotion = motion && !failed && lobbyOpen
   useEffect(() => {
     if (!showMotion) return
     let mounted = true
     void video.current?.play().catch(() => { if (mounted) setMotion(false) })
     return () => { mounted = false }
   }, [showMotion])
+
+  useEffect(() => {
+    const player = audio.current
+    return () => player?.pause()
+  }, [])
+
+  function toggleSound() {
+    const player = audio.current
+    if (!player || !lobbyOpen) return
+    if (!player.paused) {
+      player.pause()
+      return
+    }
+    void player.play().catch(error => {
+      if (error?.name !== 'AbortError') setSoundFailed(true)
+      setSoundOn(false)
+    })
+  }
 
   return (
     <section aria-labelledby="stage-lobby-heading" className="overflow-hidden rounded-xl border border-border bg-card">
@@ -72,13 +97,29 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, intro }:
       <div className="space-y-3 p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="stage-lobby-heading" className="font-heading text-2xl font-semibold">Premiere lobby</h2>
-          {!failed && (phase === 'lobby' || phase === 'intro') && (
-            <button type="button" className="text-sm text-primary underline underline-offset-4"
-              onClick={() => setMotion(current => !current)}>
-              {showMotion ? 'Pause Stage ambience' : 'Play Stage ambience'}
-            </button>
+          {lobbyOpen && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              {!failed && (
+                <button type="button" className="text-sm text-primary underline underline-offset-4"
+                  onClick={() => setMotion(current => !current)}>
+                  {showMotion ? 'Pause Stage ambience' : 'Play Stage ambience'}
+                </button>
+              )}
+              {sound && !soundFailed && (
+                <button type="button" className="text-sm text-primary underline underline-offset-4"
+                  aria-pressed={soundOn} onClick={toggleSound}>
+                  Surf sounds<span aria-hidden="true">: {soundOn ? 'on' : 'off'}</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
+        {sound && (
+          <audio ref={audio} src={sound} loop preload="none"
+            onPlay={() => setSoundOn(true)} onPause={() => setSoundOn(false)}
+            onError={() => { setSoundOn(false); setSoundFailed(true) }} />
+        )}
+        {lobbyOpen && soundFailed && <p role="status" className="text-sm text-muted-foreground">Surf audio is unavailable.</p>}
         <div role="status" className="space-y-2">
           {phase === 'intro' ? (
             <>

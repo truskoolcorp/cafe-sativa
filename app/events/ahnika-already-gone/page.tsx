@@ -93,7 +93,8 @@ export default async function AhnikaPremierePage() {
       {!started ? (
         <StageLobby startsAt={startsAt} serverNow={serverNow}
           poster="/rooms/stage-beach-terrace-v2.webp"
-          loop={{ webm: '/rooms/stage-beach-terrace-v2.webm', mp4: '/rooms/stage-beach-terrace-v2.mp4' }}
+          loop={{ webm: '/rooms/stage-golden-hour-surf-v1.webm', mp4: '/rooms/stage-golden-hour-surf-v1.mp4' }}
+          sound="/rooms/stage-golden-hour-surf-v1.mp3"
           intro={lobbyIntro} />
       ) : video ? (
         <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"

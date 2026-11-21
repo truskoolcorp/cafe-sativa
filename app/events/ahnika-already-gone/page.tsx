@@ -63,6 +63,11 @@ export default async function AhnikaPremierePage() {
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
   ]) : [{ data: null }, { data: null }, { data: null }]
+  const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && ahnikaConciergeWindowOpen(event)
+  const { data: premiereGrant } = user && room && conciergeOpen
+    ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
+      .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
+    : { data: null }
 
   return (
     <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
@@ -103,7 +108,7 @@ export default async function AhnikaPremierePage() {
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
-              conciergeDrafts={process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && ahnikaConciergeWindowOpen(event)} />
+              conciergeDrafts={conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)} />
           </div>
         ) : user ? (
           <p role="status">The audience room is temporarily unavailable.</p>

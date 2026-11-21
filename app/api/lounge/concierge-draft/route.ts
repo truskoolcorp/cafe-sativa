@@ -30,15 +30,20 @@ export async function POST(req: Request) {
       .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
     if (!invitation) return reply({ error: 'Stage room unavailable.' }, 404)
     if (invitation.can_draft !== true) return reply({ error: 'Rehearsal moderator access required.' }, 403)
-  } else {
-    const { data: profile } = await db.from('profiles').select('is_staff,is_admin').eq('id', user.id).maybeSingle()
-    if (!profile?.is_staff && !profile?.is_admin) return reply({ error: 'Moderator access required.' }, 403)
   }
   const host = getHost(body.host)!
   const rooms = db.from('lounge_rooms').select('id')
   const { data: room } = await (rehearsal
     ? rooms.eq('id', PRIVATE_STAGE_REHEARSAL_ROOM) : rooms.eq('slug', slug)).maybeSingle()
   if (!room) return reply({ error: 'Stage room unavailable.' }, 404)
+  if (!rehearsal) {
+    const { data: profile } = await db.from('profiles').select('is_staff,is_admin').eq('id', user.id).maybeSingle()
+    if (!profile?.is_staff && !profile?.is_admin) {
+      const { data: grant } = await db.from('stage_premiere_reply_moderators').select('user_id')
+        .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
+      if (!grant) return reply({ error: 'Moderator access required.' }, 403)
+    }
+  }
   const [source, event] = await Promise.all([
     db.from('lounge_messages').select('content').eq('id', body.messageId)
       .eq('room_id', room.id).is('deleted_at', null).maybeSingle(),

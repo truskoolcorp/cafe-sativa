@@ -77,7 +77,7 @@ export default async function AhnikaPremierePage() {
   ]) : [{ data: null }, { data: null }, { data: null }]
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl space-y-6 px-4 pb-16 pt-28">
+    <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
       <Link href="/stage" className="text-primary underline">The Stage</Link>
       <header className="space-y-3">
         <h1 className="font-heading text-4xl font-bold">Ahnika Merlot — Already Gone</h1>
@@ -86,6 +86,15 @@ export default async function AhnikaPremierePage() {
           timeZone: 'America/Chicago', dateStyle: 'medium', timeStyle: 'long',
         }).format(new Date(startsAt)) : 'December 1, 2026 at 12:00 a.m. Central'}</time></p>
       </header>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Café Sativa · The Stage</p>
+          <span className="rounded-full border border-border px-3 py-1 text-xs" aria-live="polite">
+            {ended ? 'Ended' : !started ? 'Pre-show lobby' : video ? 'Premiere in progress' : 'Playback unavailable'}
+          </span>
+        </div>
+        <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
+          <div className="min-w-0 p-4 sm:p-5">
       {!started && <StagePremiereRefresh startsAt={startsAt} />}
       {ended ? (
         <p>This premiere has ended. <Link href="/vip/recordings" className="text-primary underline">Visit the VIP replay archive</Link>.</p>
@@ -98,9 +107,10 @@ export default async function AhnikaPremierePage() {
           <a href="/events/ahnika-already-gone" className="mt-4 inline-block text-primary underline">Reload premiere page</a>
         </section>
       )}
-      <section className="space-y-4 rounded-xl border border-border bg-card p-6" aria-labelledby="audience-heading">
-        <h2 id="audience-heading" className="font-heading text-2xl font-semibold">Live audience room</h2>
-        <p>Join the discussion, ask the hosts a question, and respond in chat when a host opens a poll or trivia round.</p>
+          </div>
+      <section className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 xl:border-l xl:border-t-0" aria-labelledby="audience-heading">
+        <h2 id="audience-heading" className="font-heading text-xl font-semibold">Live audience room</h2>
+        <p className="text-sm text-muted-foreground">Chat with the room, ask the host a question, or join a trivia round.</p>
         {user && room ? (
           <div className="flex h-[28rem] min-h-0 flex-col">
             <LoungeRoom roomId={room.id} userId={user.id}
@@ -120,6 +130,8 @@ export default async function AhnikaPremierePage() {
           <Link href="/ask" target="_blank" rel="noopener noreferrer" className="inline-block text-primary underline">Open the separate Café Sativa concierge chat</Link>
         )}
       </section>
+        </div>
+      </div>
       <p className="text-sm text-muted-foreground">This performance includes AI-assisted production under Tru Skool Entertainment International Corp.’s creative direction.</p>
     </main>
   )

@@ -15,7 +15,7 @@ const startsAt = AHNIKA_PREMIERE_START
 const audience = AHNIKA_AUDIENCE_SCHEDULE
 const localDoors = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Chicago', month: 'long', day: 'numeric',
-  hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
+  hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
 }).format(audience.doors)
 const lobbyIntro = 'Good evening, Café Sativa! Let’s give our artist a warm welcome in the chat. Tonight on The Stage: an intimate acoustic performance of “Already Gone.” Please welcome Ahnika Merlot.'
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
@@ -121,7 +121,7 @@ export default async function AhnikaPremierePage() {
           {phase === 'waiting' ? (
             <>
               <p className="font-semibold">Doors open <time dateTime={new Date(audience.doors).toISOString()}>{localDoors}</time>.</p>
-              <p>Come early for 15 minutes of audience chat before the house introduction. You can stay right here.</p>
+              <p>Doors open 15 minutes before showtime. Come early to mingle in chat before the house introduction.</p>
             </>
           ) : phase === 'mingling' ? (
             <>

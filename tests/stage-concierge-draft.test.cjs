@@ -106,8 +106,9 @@ test('public window rejects early, expired, changed and canceled premieres', () 
     ahnikaConciergeWindowOpen: open, ahnikaAudiencePhase: phase,
   } = exports
   const row = { starts_at: start, presenter_name: 'Ahnika Merlot', ticket_price_cents: 0, status: 'scheduled' }
-  assert.equal(new Date(times.doors).toISOString(), '2026-12-01T05:44:30.000Z')
-  assert.equal(times.intro - times.doors, 15 * 60_000)
+  assert.equal(new Date(times.doors).toISOString(), '2026-12-01T05:45:00.000Z')
+  assert.equal(times.kickoff - times.doors, 15 * 60_000)
+  assert.equal(times.kickoff - times.intro, 30_000)
   assert.equal(phase(row, times.doors - 1), 'waiting')
   assert.equal(phase(row, times.doors), 'mingling')
   assert.equal(phase(row, times.intro - 1), 'mingling')

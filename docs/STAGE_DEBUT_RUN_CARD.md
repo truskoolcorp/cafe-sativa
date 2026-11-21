@@ -18,6 +18,17 @@ the show; verify two guest accounts and a staffed moderator for playback,
 report and removal, one question, and one trivia answer and reveal.
 Save actual premiere receipts separately from rehearsals.
 
+For a private playback rehearsal, use a protected preview with
+`STAGE_PRIVATE_REHEARSAL_ENABLED=true` and one explicit UTC
+`STAGE_PRIVATE_REHEARSAL_STARTS_AT` value (YYYY-MM-DDTHH:mm:ssZ).
+Keep the scope on that preview, not Production. The invite for each
+participant must remain valid through the entire cut. On
+`/stage/rehearsal`, verify the lobby and the text cue, advance through the
+configured kickoff, and verify both guests can play the cut with their
+own Sound setting. Confirm signed-out and non-invited users cannot get
+media, and invited media requests fail after the planned end. Record
+start, playback and cutoff separately from chat, Q&A and moderation.
+
 ## Artist destination, promotion and replay
 
 - Keep “Listen to Already Gone” hidden until the exact official track

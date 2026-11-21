@@ -28,6 +28,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/persona-playwright/node_modules
         run: node tests/browser/persona/browser-qa.cjs
+      - name: Exercise Stage lobby ambience and timed house cue
+        env:
+          NODE_PATH: ${{ runner.temp }}/persona-playwright/node_modules
+        run: node tests/browser/stage/lobby-qa.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
+import StageLobby from '@/components/events/StageLobby'
 import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
@@ -11,6 +12,7 @@ export const revalidate = 0
 
 const slug = 'ahnika-already-gone'
 const startsAt = AHNIKA_PREMIERE_START
+const lobbyIntro = 'Good evening, Café Sativa! Let’s give our artist a warm welcome in the chat. Tonight on The Stage: an intimate acoustic performance of “Already Gone.” Please welcome Ahnika Merlot.'
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
 
 async function premiereVideo(): Promise<string | null> {
@@ -68,6 +70,7 @@ export default async function AhnikaPremierePage() {
     ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
       .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
     : { data: null }
+  const serverNow = Date.now()
 
   return (
     <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
@@ -86,14 +89,19 @@ export default async function AhnikaPremierePage() {
         </div>
         <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
           <div className="min-w-0 p-4 sm:p-5">
-      {!started && <StagePremiereRefresh startsAt={startsAt} />}
-      {video ? (
+      {!started && <StagePremiereRefresh startsAt={startsAt} serverNow={serverNow} />}
+      {!started ? (
+        <StageLobby startsAt={startsAt} serverNow={serverNow}
+          poster="/references/2026-10-10/stage-design-v1.jpg"
+          loop={{ webm: '/rooms/stage-ambience-v1.webm', mp4: '/rooms/stage-ambience-v1.mp4' }}
+          intro={lobbyIntro} />
+      ) : video ? (
         <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
           src={video} aria-label="Ahnika Merlot performing Already Gone" />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
-          <h2 className="font-heading text-2xl font-semibold">{started ? 'Playback temporarily unavailable' : 'Premiere lobby'}</h2>
-          <p className="mt-3">{started ? 'Reload the page to try playback again.' : 'The player opens at midnight Central. You can stay on this page.'}</p>
+          <h2 className="font-heading text-2xl font-semibold">Playback temporarily unavailable</h2>
+          <p className="mt-3">Reload the page to try playback again.</p>
           <a href="/events/ahnika-already-gone" className="mt-4 inline-block text-primary underline">Reload premiere page</a>
         </section>
       )}

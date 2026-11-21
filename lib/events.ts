@@ -48,6 +48,7 @@ export type EventRow = {
 export async function getUpcomingEvents(options?: {
   category?: EventRow['category']
   limit?: number
+  futureOnly?: boolean
 }): Promise<EventRow[]> {
   const supabase = createClient()
   let q = supabase
@@ -70,7 +71,10 @@ export async function getUpcomingEvents(options?: {
     q = q.limit(options.limit + 1)
   }
 
-  const [upcoming, premiere] = await Promise.all([q, premiereQuery])
+  const [upcoming, premiere] = await Promise.all([
+    q,
+    options?.futureOnly ? Promise.resolve({ data: [], error: null }) : premiereQuery,
+  ])
   if (upcoming.error) console.error('Upcoming event inventory is unavailable')
   if (premiere.error) console.error('Public premiere discovery is unavailable')
   const rows = [
@@ -91,30 +95,23 @@ export async function getUpcomingEvents(options?: {
 
 /**
  * Featured event, if any. Used by the Home page hero to pick the
- * "LIVE NOW" or "UP NEXT" promo. Falls back to the next upcoming
+ * "UP NEXT" promo. Falls back to the next upcoming
  * event if nothing is flagged featured.
  */
 export async function getFeaturedEvent(): Promise<EventRow | null> {
   const supabase = createClient()
-  const [featured, premiere] = await Promise.all([
-    supabase.from('my_events_v').select('*').eq('is_featured', true)
-      .gte('starts_at', new Date().toISOString()).order('starts_at', { ascending: true }).limit(2),
-    supabase.from('my_events_v').select('*').eq('id', HIT_EM_PREMIERE.eventId)
-      .eq('slug', HIT_EM_PREMIERE.slug).eq('is_featured', true).in('status', ['scheduled', 'live']).limit(1),
-  ])
+  const featured = await supabase.from('my_events_v').select('*').eq('is_featured', true)
+    .gte('starts_at', new Date().toISOString()).order('starts_at', { ascending: true }).limit(2)
   // Keep filtering inside the bounded database query so a later explicitly
   // featured event is not hidden by the database's overall result cap.
-  const candidates = [
-    ...(featured.error ? [] : featured.data ?? []),
-    ...(premiere.error ? [] : premiere.data ?? []),
-  ] as EventRow[]
+  const candidates = (featured.error ? [] : featured.data ?? []) as EventRow[]
   const eligible = candidates.filter(event => {
     if (event.slug !== HIT_EM_PREMIERE.slug) return true
     const verified = publicHitEmPremiere(event)
     return verified?.state === 'ready' && verified.status !== 'ended'
   }).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
   if (eligible[0]) return eligible[0]
-  return (await getUpcomingEvents({ limit: 1 }))[0] ?? null
+  return (await getUpcomingEvents({ limit: 1, futureOnly: true }))[0] ?? null
 }
 
 /**

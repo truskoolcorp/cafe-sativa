@@ -192,7 +192,14 @@ const laterEvent=()=>({...valid(),id:'another-event',slug:'another-event',title:
 test('published premiere stays discoverable after midnight without changing status or inventing an end',async()=>{
   const f=listingFixture([listedPremiere(),laterEvent()]),events=await f.getUpcomingEvents()
   assert.equal(events.length,2);assert.equal(events[0].slug,config.slug);assert.equal(events[0].status,'scheduled')
-  assert.equal((await f.getFeaturedEvent()).slug,config.slug)
+  assert.equal((await f.getFeaturedEvent()).slug,'another-event')
+})
+test('past featured Hit Em cannot displace Ahnika from Next Show',async()=>{
+  const ahnika={...laterEvent(),id:'ahnika',slug:'ahnika-already-gone',starts_at:'2026-12-01T06:00:00Z'}
+  const old={...listedPremiere(),is_featured:true}
+  const f=listingFixture([old,ahnika],{now:'2026-11-20T12:00:00Z'})
+  assert.equal((await f.getFeaturedEvent()).slug,ahnika.slug)
+  assert.equal(await listingFixture([old],{now:'2026-11-20T12:00:00Z'}).getFeaturedEvent(),null)
 })
 test('future and dedicated queries do not duplicate the premiere',async()=>{
   const f=listingFixture([listedPremiere(),laterEvent()],{now:'2026-11-11T05:59:00Z'})

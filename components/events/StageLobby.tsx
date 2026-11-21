@@ -7,7 +7,7 @@ type Props = {
   startsAt: string
   serverNow: number
   poster: string
-  loop: string
+  loop: { webm: string; mp4: string }
   intro: string
 }
 
@@ -61,9 +61,12 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, intro }:
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={poster} alt="" width={1536} height={1024} className="absolute inset-0 size-full object-contain" />
         {showMotion && (
-          <video ref={video} src={loop} poster={poster} muted loop playsInline preload="metadata"
+          <video ref={video} poster={poster} muted loop playsInline preload="metadata"
             aria-hidden="true" className="pointer-events-none absolute inset-0 size-full object-contain"
-            onError={() => setFailed(true)} />
+            onError={() => setFailed(true)}>
+            <source src={loop.webm} type="video/webm" />
+            <source src={loop.mp4} type="video/mp4" onError={() => setFailed(true)} />
+          </video>
         )}
       </div>
       <div className="space-y-3 p-5 sm:p-6">

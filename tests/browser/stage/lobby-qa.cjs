@@ -26,7 +26,10 @@ window.mountLobby = props => ReactDOM.createRoot(document.getElementById("root")
 const html = '<!doctype html><meta charset="utf-8"><title>Lobby fixture</title><div id="root"></div>'
 const asset = (type, file) => `data:${type};base64,${fs.readFileSync(file).toString('base64')}`
 const poster = asset('image/jpeg', 'public/references/2026-10-10/stage-design-v1.jpg')
-const loop = asset('video/mp4', 'public/rooms/stage-ambience-v1.mp4')
+const loop = {
+  webm: asset('video/webm', 'public/rooms/stage-ambience-v1.webm'),
+  mp4: asset('video/mp4', 'public/rooms/stage-ambience-v1.mp4'),
+}
 const intro = 'Fixture welcome: tonight on The Stage.'
 
 async function mount(page, epoch, remaining, media = loop) {
@@ -70,7 +73,9 @@ async function main() {
     assert.equal(await reduced.getByText(intro).count(), 0)
 
     const broken = await browser.newPage()
-    await mount(broken, Date.now(), 120000, 'data:video/mp4;base64,AA==')
+    await mount(broken, Date.now(), 120000, {
+      webm: 'data:video/webm;base64,AA==', mp4: 'data:video/mp4;base64,AA==',
+    })
     await broken.waitForFunction(() => !document.querySelector('video') &&
       document.querySelector('img')?.naturalWidth > 0 &&
       !Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('Stage ambience')))

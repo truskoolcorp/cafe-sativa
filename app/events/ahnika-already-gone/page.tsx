@@ -93,7 +93,8 @@ export default async function AhnikaPremierePage() {
       {!started ? (
         <StageLobby startsAt={startsAt} serverNow={serverNow}
           poster="/references/2026-10-10/stage-design-v1.jpg"
-          loop="/rooms/stage-ambience-v1.mp4" intro={lobbyIntro} />
+          loop={{ webm: '/rooms/stage-ambience-v1.webm', mp4: '/rooms/stage-ambience-v1.mp4' }}
+          intro={lobbyIntro} />
       ) : video ? (
         <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
           src={video} aria-label="Ahnika Merlot performing Already Gone" />

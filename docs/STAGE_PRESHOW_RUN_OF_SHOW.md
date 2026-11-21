@@ -56,4 +56,6 @@ for the physical venue.
 ffmpeg -loop 1 -framerate 18 -i public/references/2026-10-10/stage-design-v1.jpg \
   -t 8 -an -vf "scale=768:512:flags=lanczos,setsar=1,eq=brightness='0.007*(1-cos(2*PI*t/8))':eval=frame,format=yuv420p" \
   -c:v libx264 -preset veryslow -crf 26 -movflags +faststart public/rooms/stage-ambience-v1.mp4
+ffmpeg -i public/rooms/stage-ambience-v1.mp4 -an -vf scale=648:432 \
+  -c:v libvpx-vp9 -b:v 0 -crf 40 -pix_fmt yuv420p public/rooms/stage-ambience-v1.webm
 ```

@@ -6,6 +6,13 @@ import { Calendar, Clock, Lock } from 'lucide-react'
 import { formatEventDate, formatPrice, type EventRow } from '@/lib/events'
 import { cn } from '@/lib/utils'
 
+// Use event-specific art for these programs until the editorial ledger has a
+// cover. Explicitly assigned artwork always wins; other cards keep their venue cover.
+const stageEventCovers = new Map<string, string>([
+  ['ahnika-already-gone', '/events/ahnika-acoustic-set.webp'],
+  ['hit-em-release-party', '/events/hit-em-release-party.svg'],
+])
+
 /**
  * A single event card used on the category pages (/stage, /kitchen,
  * /cigar-lounge). Matches the Base44 prototype's card density: image
@@ -32,12 +39,9 @@ function accessLabel(access: EventRow['access'], price: number): string {
 }
 
 export async function EventCard({ event, vipGated }: Props) {
-  const covers=await approvedVenueCovers()
   const date = formatEventDate(event.starts_at)
-  const fallback = event.category
-    ? covers[event.category]
-    : undefined
-  const image = event.hero_image_url || fallback
+  const eventImage = event.hero_image_url || stageEventCovers.get(event.slug)
+  const image = eventImage || (event.category && (await approvedVenueCovers())[event.category])
 
   return (
     <Link

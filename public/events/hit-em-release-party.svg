@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+  <title>Hit Em Release Party — Café Sativa event artwork</title>
+  <defs>
+    <radialGradient id="room" cx="79%" cy="28%" r="76%">
+      <stop offset="0" stop-color="#542d24"/>
+      <stop offset="1" stop-color="#140d0b"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="83%">
+      <stop offset="0" stop-color="#f4d296"/>
+      <stop offset="1" stop-color="#b77542"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#room)" d="M0 0h960v600H0z"/>
+  <g fill="none" stroke="#c68256" opacity=".26">
+    <circle cx="765" cy="263" r="175" stroke-width="2"/>
+    <circle cx="765" cy="263" r="163"/><circle cx="765" cy="263" r="151"/>
+    <circle cx="765" cy="263" r="139"/><circle cx="765" cy="263" r="127"/>
+    <circle cx="765" cy="263" r="115"/><circle cx="765" cy="263" r="72"/>
+    <circle cx="765" cy="263" r="8" fill="#c68256"/>
+    <path d="M636 364a164 164 0 0 0 167 58m-145-72a138 138 0 0 0 143 45m-4-280a151 151 0 0 1 86 52" stroke-width="3"/>
+    <path d="M46 46h868v508H46z"/>
+  </g>
+  <path stroke="#cd9059" d="M92 145h52m-52 309h346"/>
+  <g font-family="Arial, Helvetica, sans-serif" font-weight="bold">
+    <text x="160" y="151" fill="#dfad78" font-size="19" letter-spacing="6">CAFÉ SATIVA · THE STAGE</text>
+    <text x="82" y="358" fill="url(#gold)" font-size="172" letter-spacing="-7">HIT EM</text>
+    <text x="94" y="417" fill="#f4e4cc" font-size="32" letter-spacing="12">RELEASE PARTY</text>
+  </g>
+</svg>

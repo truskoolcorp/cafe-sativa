@@ -85,6 +85,8 @@ export function LoungeRoom({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [drafting, setDrafting] = useState(false)
+  const [dryRunPaused, setDryRunPaused] = useState(true)
+  const [dryRunResult, setDryRunResult] = useState('')
   const [draftHost, setDraftHost] = useState('ahnika')
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
@@ -309,17 +311,23 @@ export function LoungeRoom({
     }
   }
 
-  async function draftConciergeReply(message: Message) {
-    if (!canDraft || drafting || input.trim()) return
+  async function draftConciergeReply(message: Message, dryRun = false) {
+    if (!canDraft || drafting || (!dryRun && input.trim()) || (dryRun && !privateRoom)) return
     setDrafting(true)
     setError(null)
     try {
       const res = await fetch('/api/lounge/concierge-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId: message.id, rehearsal: privateRoom, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
+        body: JSON.stringify({ messageId: message.id, rehearsal: privateRoom, dryRun, paused: dryRunPaused, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
       })
       const data = await res.json()
+      if (res.ok && dryRun && data.decision) {
+        setDryRunResult(data.decision.action === 'eligible' && typeof data.decision.text === 'string'
+          ? `Would answer: ${data.decision.text}`
+          : `Would hand off (${data.decision.reason}).`)
+        return
+      }
       if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
         throw new Error('Draft unavailable')
       }
@@ -354,6 +362,13 @@ export function LoungeRoom({
       </div>}
 
       {/* Message list */}
+      {privateRoom && canDraft && (
+        <div className="space-y-1 py-2 text-xs text-muted-foreground">
+          <label><input type="checkbox" checked={dryRunPaused}
+            onChange={e => setDryRunPaused(e.target.checked)} /> Pause rehearsal simulations</label>
+          <p role="status">{dryRunResult || 'Dry run only. Results are not sent to chat.'}</p>
+        </div>
+      )}
       {conciergeDrafts && canPost && (
         <label className="py-2 text-xs text-muted-foreground">
           Ask <select className="rounded border border-border bg-background p-1"
@@ -384,6 +399,8 @@ export function LoungeRoom({
               onDraft={canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
                 ? () => draftConciergeReply(m) : undefined}
               draftDisabled={drafting || Boolean(input.trim())}
+              onDryRun={privateRoom && canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+                ? () => draftConciergeReply(m, true) : undefined}
             />
           ))
         )}
@@ -463,12 +480,14 @@ function MessageRow({
   onDelete,
   onDraft,
   draftDisabled,
+  onDryRun,
 }: {
   message: Message
   canDelete: boolean
   onDelete: () => void
   onDraft?: () => void
   draftDisabled?: boolean
+  onDryRun?: () => void
 }) {
   const time = new Date(message.created_at).toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -501,6 +520,7 @@ function MessageRow({
         </span>
         {onDraft && <button type="button" onClick={onDraft} disabled={draftDisabled}
           className="text-xs text-primary underline disabled:opacity-50">Draft host reply</button>}
+        {onDryRun && <button type="button" onClick={onDryRun} className="text-xs text-primary underline">Dry run</button>}
         {canDelete && (
           <button
             onClick={onDelete}

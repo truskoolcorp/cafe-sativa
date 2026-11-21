@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { galleryShippingRule } from '@/lib/gallery-shipping'
 
 /**
  * POST /api/gallery/checkout
@@ -27,7 +28,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
  *   }
  *
  * Shipping collection:
- *   - physical products → shipping_address_collection enabled
+ *   - physical products → exact approved shipping rate and address collection
  *   - digital/nft → no shipping
  *
  * Platform fee:
@@ -181,14 +182,31 @@ export async function POST(req: Request) {
 
   const lineTotal = product.price_cents * quantity
   const applicationFee = Math.floor((lineTotal * PLATFORM_FEE_BPS) / 10000)
+  const currency = product.currency || 'usd'
+  const isPhysical = product.kind === 'physical'
+  const shipping = isPhysical
+    ? galleryShippingRule(process.env.CAFE_GALLERY_SHIPPING_RULES, product.id, quantity, currency)
+    : null
+  const shippingUnavailable = () => NextResponse.json({
+    error: 'Shipping is not confirmed for this order. No payment was taken.',
+    code: 'shipping_unavailable',
+  }, { status: 409 })
+  if (isPhysical && !shipping) return shippingUnavailable()
 
   const stripe = new Stripe(stripeSecretKey)
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'
 
-  const isPhysical = product.kind === 'physical'
-
   try {
+    if (shipping) {
+      const rate = await stripe.shippingRates.retrieve(shipping.rateId)
+      if (rate.id !== shipping.rateId || !rate.active || rate.type !== 'fixed_amount' ||
+          rate.fixed_amount?.currency !== currency || rate.fixed_amount.amount !== shipping.amountCents ||
+          // Alternate currency amounts are not part of this reviewed quote.
+          Object.keys(rate.fixed_amount.currency_options ?? {}).some(option => option !== currency)) {
+        return shippingUnavailable()
+      }
+    }
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       ui_mode: 'hosted',
@@ -196,7 +214,7 @@ export async function POST(req: Request) {
         {
           quantity,
           price_data: {
-            currency: product.currency || 'usd',
+            currency,
             unit_amount: product.price_cents,
             product_data: {
               name: product.title,
@@ -231,11 +249,12 @@ export async function POST(req: Request) {
         quantity: String(quantity),
       },
       customer_email: authData.user.email ?? undefined,
-      // Only collect shipping for physical goods
-      shipping_address_collection: isPhysical
-        ? { allowed_countries: ['US', 'CA', 'MX', 'ES', 'GB'] }
-        : undefined,
-      phone_number_collection: isPhysical ? { enabled: true } : undefined,
+      ...(shipping ? {
+        adaptive_pricing: { enabled: false },
+        shipping_address_collection: { allowed_countries: [shipping.country] },
+        shipping_options: [{ shipping_rate: shipping.rateId }],
+        phone_number_collection: { enabled: true },
+      } : {}),
       success_url: `${siteUrl}/gallery/thanks?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/gallery/${product.id}?canceled=1`,
     })

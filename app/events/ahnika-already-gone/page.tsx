@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
+import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 const slug = 'ahnika-already-gone'
-const startsAt = '2026-12-01T06:00:00.000Z'
+const startsAt = AHNIKA_PREMIERE_START
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
 
 async function premiereVideo(): Promise<string | null> {
@@ -62,15 +63,29 @@ export default async function AhnikaPremierePage() {
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
   ]) : [{ data: null }, { data: null }, { data: null }]
+  const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && ahnikaConciergeWindowOpen(event)
+  const { data: premiereGrant } = user && room && conciergeOpen
+    ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
+      .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
+    : { data: null }
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl space-y-6 px-4 pb-16 pt-28">
+    <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
       <Link href="/stage" className="text-primary underline">The Stage</Link>
       <header className="space-y-3">
         <h1 className="font-heading text-4xl font-bold">Ahnika Merlot — Already Gone</h1>
         <p>An intimate prerecorded acoustic performance at Café Sativa.</p>
         <p><time dateTime={startsAt}>December 1, 2026 at 12:00 a.m. Central</time></p>
       </header>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Café Sativa · The Stage</p>
+          <span className="rounded-full border border-border px-3 py-1 text-xs" aria-live="polite">
+            {!started ? 'Pre-show lobby' : video ? 'Premiere viewing' : 'Playback unavailable'}
+          </span>
+        </div>
+        <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
+          <div className="min-w-0 p-4 sm:p-5">
       {!started && <StagePremiereRefresh startsAt={startsAt} />}
       {video ? (
         <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
@@ -82,7 +97,8 @@ export default async function AhnikaPremierePage() {
           <a href="/events/ahnika-already-gone" className="mt-4 inline-block text-primary underline">Reload premiere page</a>
         </section>
       )}
-      <section className="space-y-4 rounded-xl border border-border bg-card p-6" aria-labelledby="audience-heading">
+          </div>
+      <section className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 xl:border-l xl:border-t-0" aria-labelledby="audience-heading">
         <h2 id="audience-heading" className="font-heading text-2xl font-semibold">Live audience room</h2>
         <p>Join the discussion, ask the hosts a question, and respond in chat when a host opens a poll or trivia round.</p>
         {user && room ? (
@@ -91,15 +107,18 @@ export default async function AhnikaPremierePage() {
               displayName={profiles.data?.display_name || user.email?.split('@')[0] || 'Member'}
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
-              minPostTier="explorer" initialMessages={(messages.data || []).reverse()} />
+              minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
+              conciergeDrafts={conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)} />
           </div>
         ) : user ? (
           <p role="status">The audience room is temporarily unavailable.</p>
         ) : (
           <Link className="text-primary underline" href="/auth/signin?next=%2Fevents%2Fahnika-already-gone">Sign in to join the live audience room</Link>
         )}
-        <Link href="/ask" className="inline-block text-primary underline">Ask a Café Sativa concierge</Link>
+        <Link href="/ask" target="_blank" rel="noopener noreferrer" className="inline-block text-primary underline">Open private concierge chat in a new tab</Link>
       </section>
+        </div>
+      </div>
       <p className="text-sm text-muted-foreground">This performance includes AI-assisted production under Tru Skool Entertainment International Corp.’s creative direction.</p>
     </main>
   )

@@ -4,6 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 
 export async function POST(request: Request) {
+  if (request.headers.get('origin') !== new URL(request.url).origin) {
+    return NextResponse.json({ error: 'Invalid origin.' }, { status: 403 })
+  }
   const body = await request.json().catch(() => null)
   if (!body || typeof body.room_id !== 'string' || !uuid.test(body.room_id) ||
       typeof body.message_id !== 'string' || !uuid.test(body.message_id)) {

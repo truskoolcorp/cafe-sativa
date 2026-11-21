@@ -61,6 +61,10 @@ type Props = {
   isStaff: boolean
   minPostTier: Tier
   initialMessages: Message[]
+  conciergeDrafts?: boolean
+  privateRoom?: boolean
+  rehearsalDraftModerator?: boolean
+  premiereDraftModerator?: boolean
 }
 
 export function LoungeRoom({
@@ -71,6 +75,10 @@ export function LoungeRoom({
   isStaff,
   minPostTier,
   initialMessages,
+  conciergeDrafts = false,
+  privateRoom = false,
+  rehearsalDraftModerator = false,
+  premiereDraftModerator = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
@@ -80,6 +88,10 @@ export function LoungeRoom({
   const [reportStatus, setReportStatus] = useState('')
   const [flagged, setFlagged] = useState<Set<string>>(() => new Set())
   const [moderatorStatus, setModeratorStatus] = useState('')
+  const [drafting, setDrafting] = useState(false)
+  const [dryRunPaused, setDryRunPaused] = useState(true)
+  const [dryRunResult, setDryRunResult] = useState('')
+  const [draftHost, setDraftHost] = useState('ahnika')
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
@@ -171,6 +183,8 @@ export function LoungeRoom({
       )
       .subscribe()
 
+    // Never broadcast identities on the public presence channel for invite-only rooms.
+    if (privateRoom) return () => { void supabase.removeChannel(channel) }
     // Presence channel — separate from postgres_changes
     const presenceChannel = supabase.channel(`presence:lounge:${roomId}`, {
       config: { presence: { key: userId } },
@@ -198,7 +212,7 @@ export function LoungeRoom({
       supabase.removeChannel(channel)
       supabase.removeChannel(presenceChannel)
     }
-  }, [supabase, roomId, userId, displayName])
+  }, [supabase, roomId, userId, displayName, privateRoom])
 
   // ------------------------------------------------------------
   // Auto-scroll when messages grow AND user is at bottom
@@ -214,9 +228,10 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Send
   // ------------------------------------------------------------
-  async function send() {
-    const content = input.trim()
-    if (!content || sending || !canPost) return
+  async function send(asHostQuestion = false) {
+    const plain = input.trim()
+    const content = asHostQuestion ? `[Ask ${draftHost}] ${plain}` : plain
+    if (!plain || sending || !canPost || content.length > 2000) return
 
     setError(null)
     setSending(true)
@@ -247,7 +262,7 @@ export function LoungeRoom({
       if (!res.ok) {
         // Roll back optimistic message
         setMessages((prev) => prev.filter((m) => m.id !== localId))
-        setInput(content) // let them retry
+        setInput(plain) // let them retry
         if (res.status === 429) {
           setError('Slow down — up to 10 messages per minute.')
         } else if (res.status === 403 && data.code === 'tier_insufficient') {
@@ -264,7 +279,7 @@ export function LoungeRoom({
       setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
-      setInput(content)
+      setInput(plain)
       setError(err?.message || 'Could not post.')
     } finally {
       setSending(false)
@@ -330,13 +345,42 @@ export function LoungeRoom({
     }
   }
 
+  async function draftConciergeReply(message: Message, dryRun = false) {
+    if (!canDraft || drafting || (!dryRun && input.trim()) || (dryRun && !privateRoom)) return
+    setDrafting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/lounge/concierge-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: message.id, rehearsal: privateRoom, dryRun, paused: dryRunPaused, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
+      })
+      const data = await res.json()
+      if (res.ok && dryRun && data.decision) {
+        setDryRunResult(data.decision.action === 'eligible' && typeof data.decision.text === 'string'
+          ? `Would answer: ${data.decision.text}`
+          : `Would hand off (${data.decision.reason}).`)
+        return
+      }
+      if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
+        throw new Error('Draft unavailable')
+      }
+      setInput(current => current.trim() ? current : `${data.attribution}: ${data.draft}`)
+    } catch {
+      setError('Could not draft a reply. You can still reply as moderator.')
+    } finally {
+      setDrafting(false)
+    }
+  }
+
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
+  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff || premiereDraftModerator)
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}
-      <div className="flex items-center gap-2 py-3 text-xs font-body text-muted-foreground border-b border-border">
+      {!privateRoom && <div className="flex items-center gap-2 py-3 text-xs font-body text-muted-foreground border-b border-border">
         <Users className="w-3.5 h-3.5 text-primary" />
         <span className="font-semibold text-foreground">
           {presenceCount}
@@ -349,7 +393,7 @@ export function LoungeRoom({
             {presenceCount > 5 && ` +${presenceCount - 5}`}
           </span>
         )}
-      </div>
+      </div>}
 
       {/* Message list */}
       {isStaff && (
@@ -359,6 +403,22 @@ export function LoungeRoom({
         </div>
       )}
       <p role="status" className="text-xs text-muted-foreground">{reportStatus}</p>
+      {privateRoom && canDraft && (
+        <div className="space-y-1 py-2 text-xs text-muted-foreground">
+          <label><input type="checkbox" checked={dryRunPaused}
+            onChange={e => setDryRunPaused(e.target.checked)} /> Pause rehearsal simulations</label>
+          <p role="status">{dryRunResult || 'Dry run only. Results are not sent to chat.'}</p>
+        </div>
+      )}
+      {conciergeDrafts && canPost && (
+        <label className="py-2 text-xs text-muted-foreground">
+          Ask <select className="rounded border border-border bg-background p-1"
+            value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={drafting}>
+            <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
+          </select>
+          {' '}· Host questions are visible to the room. A moderator reviews concierge replies.
+        </label>
+      )}
       <div
         ref={listRef}
         onScroll={handleListScroll}
@@ -380,6 +440,11 @@ export function LoungeRoom({
               onReport={m.user_id === userId ? undefined : () => handleReport(m.id)}
               reported={reported.has(m.id)}
               flagged={isStaff && flagged.has(m.id)}
+              onDraft={canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+                ? () => draftConciergeReply(m) : undefined}
+              draftDisabled={drafting || Boolean(input.trim())}
+              onDryRun={privateRoom && canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+                ? () => draftConciergeReply(m, true) : undefined}
             />
           ))
         )}
@@ -426,7 +491,7 @@ export function LoungeRoom({
               }}
             />
             <Button
-              onClick={send}
+              onClick={() => send()}
               disabled={sending || !input.trim()}
               className="shrink-0"
             >
@@ -440,6 +505,9 @@ export function LoungeRoom({
         ) : (
           <UpgradePrompt />
         )}
+        {canPost && conciergeDrafts && <button type="button" className="mt-2 text-sm text-primary underline disabled:opacity-50"
+          disabled={sending || !input.trim() || input.trim().length > 1980}
+          onClick={() => send(true)}>Ask a host</button>}
         <p className="mt-2 text-xs text-muted-foreground font-body text-center">
           Posting as{' '}
           <span className="text-foreground font-semibold">{displayName}</span>{' '}
@@ -457,6 +525,9 @@ function MessageRow({
   onReport,
   reported,
   flagged,
+  onDraft,
+  draftDisabled,
+  onDryRun,
 }: {
   message: Message
   canDelete: boolean
@@ -464,6 +535,9 @@ function MessageRow({
   onReport?: () => void
   reported: boolean
   flagged: boolean
+  onDraft?: () => void
+  draftDisabled?: boolean
+  onDryRun?: () => void
 }) {
   const time = new Date(message.created_at).toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -501,6 +575,9 @@ function MessageRow({
           </button>
         )}
         {flagged && <span className="text-xs font-semibold text-primary">Flagged for review</span>}
+        {onDraft && <button type="button" onClick={onDraft} disabled={draftDisabled}
+          className="text-xs text-primary underline disabled:opacity-50">Draft host reply</button>}
+        {onDryRun && <button type="button" onClick={onDryRun} className="text-xs text-primary underline">Dry run</button>}
         {canDelete && (
           <button
             onClick={onDelete}

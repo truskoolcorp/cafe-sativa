@@ -4,6 +4,7 @@ import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_END, ahnikaAudiencePhase, ahnikaPlaybackOpen, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
+import { ahnikaTrackCta } from '@/lib/events/ahnika-track-cta'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -33,6 +34,7 @@ export default async function AhnikaPremierePage() {
   const chatOpen = phase === 'mingling' || phase === 'hosted'
   const started = serverNow >= audience.kickoff
   const finished = serverNow >= AHNIKA_PREMIERE_END
+  const artistTrack = ahnikaTrackCta(process.env.STAGE_AHNIKA_APPROVED_TRACK_URL, serverNow, audience.doors)
   const video = ahnikaPlaybackOpen(serverNow) ? '/api/events/ahnika-premiere' : null
   const refreshAt = [audience.doors, audience.intro, audience.kickoff, AHNIKA_PREMIERE_END, audience.closes].find(at => at > serverNow)
   const { data: auth } = chatOpen ? await supabase.auth.getUser() : { data: { user: null } }
@@ -87,6 +89,12 @@ export default async function AhnikaPremierePage() {
           <Link href="/vip/recordings" className="mt-4 inline-block text-primary underline">View VIP recordings</Link>
         </section>
       )}
+            {artistTrack && (
+              <a href={artistTrack} target="_blank" rel="noopener noreferrer"
+                className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-border px-4 py-2 font-semibold text-primary hover:border-primary">
+                Listen to “Already Gone” on Spotify
+              </a>
+            )}
           </div>
       <section className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 xl:border-l xl:border-t-0" aria-labelledby="audience-heading">
         <h2 id="audience-heading" className="font-heading text-2xl font-semibold">Live audience room</h2>

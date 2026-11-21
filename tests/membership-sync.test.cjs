@@ -5,7 +5,7 @@ const sub=(id,created,status='active')=>({id,created,status,metadata:{site:'cafe
 function setup(options={}) {
  const actions=[],reads=[];let member=options.member===null?null:{stripe_customer_id:'cus_1',stripe_subscription_id:'sub_current',updated_at:'2026-10-31T00:00:00Z',...options.member};
  const exports={};
- vm.runInNewContext(source,{exports,Date,Number,Error,require(name){if(name==='@/lib/membership-prices')return {cafeSubscriptionTier:s=>s.metadata?.site!=='other'&&s.items?.data?.[0]?.price?.id==='approved'?'regular':null};throw Error(name)}});
+ vm.runInNewContext(source,{exports,Date,Number,Error,require(name){if(name==='@/lib/membership-prices')return options.prices??{cafeSubscriptionTier:s=>s.metadata?.site!=='other'&&s.items?.data?.[0]?.price?.id==='approved'?'regular':null};throw Error(name)}});
  const db={from(table){let write=null,filters=[];const q={select(){return q},eq(k,v){filters.push([k,v]);return q},is(k,v){filters.push([k,v]);return q},update(data){write={op:'update',data};return q},upsert(data,config){write={op:'upsert',data,config};return q},async maybeSingle(){if(!write){reads.push('local');return {data:member?{...member}:null,error:options.readError}}actions.push({...write,filters});const mismatch=write.op==='update'&&filters.some(([k,v])=>k!=='user_id'&&member?.[k]!==v);return {data:options.conflict||mismatch?null:{user_id:'user_1'},error:options.writeError}}};return q}};
  const stripe={subscriptions:{async retrieve(id){reads.push(id);if(options.providerError)throw Error('provider failure');if(options.duringLookup)member={...member,updated_at:'new_revision'};return options.subscriptions?.[id]??sub(id,id==='sub_old'?100:id==='sub_current'?200:300)}}};
  return {actions,reads,run:input=>exports.syncCafeMembership(db,stripe,{userId:'user_1',subscriptionId:'sub_current',mode:'subscription',...input})};
@@ -32,3 +32,24 @@ test('legacy linked subscription without user metadata may revoke exact existing
 test('active access without valid period fails closed',async()=>{const s=sub('sub_current',200);s.items.data[0].current_period_end=undefined;const h=setup({subscriptions:{sub_current:s}});await assert.rejects(h.run(),/period/);assert.equal(h.actions.length,0)});
 
 test('local revision change during provider lookup fails compare-and-swap',async()=>{const h=setup({duringLookup:true});await assert.rejects(h.run(),/retry/);assert.equal(h.actions.length,1)});
+
+test('annual VIP checkout, renewal and cancellation use the provider period even with annual sales disabled',async()=>{
+ const id='price_ApprovedAnnualVip';
+ const {prices}=require('./load-membership-offers.cjs')({STRIPE_PRICE_VIP_ANNUAL:id});
+ const s=sub('sub_current',200);
+ s.metadata.tier='vip';
+ s.items.data[0].price={id,product:'prod_ULxsmvOgLeiyYy',type:'recurring',currency:'usd',
+  unit_amount:24990,recurring:{interval:'year',interval_count:1,usage_type:'licensed'}};
+ const options={prices,subscriptions:{sub_current:s}};
+ const checkout=setup({...options,member:null});
+ assert.equal(await checkout.run({mode:'checkout',expectedTier:'vip',expectedCustomer:'cus_1'}),'applied');
+ assert.equal(checkout.actions[0].data.tier,'vip');
+ for(const [status,periodEnd,expected] of [['active',1831536000,'active'],['canceled',1831536000,'canceled']]){
+  s.status=status;
+  s.items.data[0].current_period_end=periodEnd;
+  const h=setup(options);
+  assert.equal(await h.run(),'applied');
+  assert.equal(h.actions[0].data.status,expected);
+  assert.equal(h.actions[0].data.current_period_end,new Date(periodEnd*1000).toISOString());
+ }
+});

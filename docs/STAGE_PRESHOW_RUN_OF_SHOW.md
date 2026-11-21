@@ -54,9 +54,10 @@ candles flicker independently, without changing the room lighting.
 checked-in still and synthesizes the matching quiet, sample-exact PCM
 surf loop. No paid generation, music, third-party footage, or watermark.
 
-The reusable **Sound** switch starts on for new guests after a browser-
-permitted interaction, honors a guest's saved mute choice, and works with
-reduced motion.
+The reusable **Sound** switch tries to play for new guests on arrival.
+If the browser requires a gesture, **Enable sound** appears until the
+guest interacts. A saved mute choice stays off in either case. Sound
+works with reduced motion.
 Lobby sound plays on one continuous audio buffer, with no media restarts
 or encoder padding at the seam. At kickoff the lobby sound stops; the
 same tab carries its mute and volume choices into the performance player.

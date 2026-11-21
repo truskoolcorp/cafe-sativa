@@ -29,6 +29,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
   const [motion, setMotion] = useState(false)
   const [failed, setFailed] = useState(false)
   const [soundOn, setSoundOn] = useState(false)
+  const [soundWanted, setSoundWanted] = useState(true)
   const [soundLoading, setSoundLoading] = useState(false)
   const [soundFailed, setSoundFailed] = useState(false)
   const [volume, setVolume] = useState(100)
@@ -91,6 +92,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
     const saved = readStageVolume()
     volumeRef.current = saved
     setVolume(saved)
+    setSoundWanted(readStageSound())
   }, [])
 
   function updateVolume(value: number) {
@@ -104,11 +106,14 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
     playing.gain.gain.setTargetAtTime(LOBBY_SOUND_GAIN * value / 100, now, 0.015)
   }
 
-  const startSound = useCallback(async () => {
-    if (!sound || !lobbyOpen || audio.current) return
+  const startSound = useCallback(async (readyContext?: AudioContext) => {
+    if (!sound || !lobbyOpen || audio.current || explicitlyMuted.current) {
+      if (readyContext) void readyContext.close().catch(() => {})
+      return
+    }
     let session: SoundSession | null = null
     try {
-      const context = new AudioContext()
+      const context = readyContext || new AudioContext()
       const request = new AbortController()
       session = { context, request }
       audio.current = session
@@ -147,10 +152,19 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
   }, [sound, lobbyOpen, stopSound])
 
   useEffect(() => {
-    if (!lobbyOpen || !sound || explicitlyMuted.current || !readStageSound() || audio.current) return
+    if (!lobbyOpen || !sound || !soundWanted || explicitlyMuted.current || !readStageSound() || audio.current) return
+    let probe: AudioContext | undefined
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    function releaseProbe() {
+      clearTimeout(timeout)
+      const pending = probe
+      probe = undefined
+      if (pending) void pending.close().catch(() => {})
+    }
     function detach() {
       document.removeEventListener('click', activate)
       document.removeEventListener('keydown', activate)
+      releaseProbe()
     }
     function activate(event: Event) {
       if (!event.isTrusted || (event instanceof KeyboardEvent && !['Enter', ' '].includes(event.key))) return
@@ -159,17 +173,30 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       detach()
       if (!explicitlyMuted.current && readStageSound()) void startSound()
     }
-    if (navigator.userActivation?.isActive) void startSound()
-    else {
-      document.addEventListener('click', activate)
-      document.addEventListener('keydown', activate)
+    document.addEventListener('click', activate)
+    document.addEventListener('keydown', activate)
+    // Try audible autoplay before downloading anything. A blocked resume
+    // can stay pending indefinitely; the click path must remain available.
+    try {
+      const candidate = new AudioContext()
+      probe = candidate
+      timeout = setTimeout(releaseProbe, 500)
+      void candidate.resume().then(() => {
+        if (probe !== candidate || candidate.state !== 'running') return
+        probe = undefined
+        detach()
+        void startSound(candidate)
+      }).catch(releaseProbe)
+    } catch {
+      releaseProbe()
     }
     return detach
-  }, [lobbyOpen, sound, startSound, soundOn])
+  }, [lobbyOpen, sound, soundWanted, startSound, soundOn])
 
   function toggleSound() {
     if (audio.current) {
       explicitlyMuted.current = true
+      setSoundWanted(false)
       stopSound()
       setSoundOn(false)
       setSoundLoading(false)
@@ -177,6 +204,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       return
     }
     explicitlyMuted.current = false
+    setSoundWanted(true)
     void startSound()
   }
 
@@ -228,7 +256,12 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       <div className="space-y-3 p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="stage-lobby-heading" className="font-heading text-2xl font-semibold">Premiere lobby</h2>
-          {lobbyOpen && sound && <span data-stage-sound-control><StageSoundToggle on={soundOn} busy={soundLoading} toggle={toggleSound} /></span>}
+          {lobbyOpen && sound && (
+            <span data-stage-sound-control>
+              <StageSoundToggle on={soundOn} busy={soundLoading}
+                needsActivation={soundWanted && !soundOn && !soundLoading} toggle={toggleSound} />
+            </span>
+          )}
         </div>
         {lobbyOpen && soundFailed && <p role="status" className="text-sm text-muted-foreground">Sound is unavailable. Try again.</p>}
         <div role="status" className="space-y-2">

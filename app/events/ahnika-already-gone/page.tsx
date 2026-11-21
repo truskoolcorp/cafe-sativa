@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
+import ScheduledPremierePlayer from '@/components/events/ScheduledPremierePlayer'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -58,8 +59,11 @@ export default async function AhnikaPremierePage() {
   if (!Number.isFinite(Date.parse(startsAt)) ||
       (rehearsal ? event.title !== 'Ahnika Merlot — Already Gone (isolated rehearsal)'
         : Date.parse(event.starts_at) !== Date.parse(publicStartsAt))) notFound()
-  const started = Date.now() >= Date.parse(startsAt)
-  const video = started ? await premiereVideo(rehearsal) : null
+  const now = Date.now()
+  const endsAt = new Date(Date.parse(startsAt) + 99_700).toISOString()
+  const started = now >= Date.parse(startsAt)
+  const ended = now >= Date.parse(endsAt)
+  const video = started && !ended ? await premiereVideo(rehearsal) : null
 
   const { data: auth } = await supabase.auth.getUser()
   const user = auth.user
@@ -83,9 +87,10 @@ export default async function AhnikaPremierePage() {
         }).format(new Date(startsAt)) : 'December 1, 2026 at 12:00 a.m. Central'}</time></p>
       </header>
       {!started && <StagePremiereRefresh startsAt={startsAt} />}
-      {video ? (
-        <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
-          src={video} aria-label="Ahnika Merlot performing Already Gone" />
+      {ended ? (
+        <p>This premiere has ended. <Link href="/vip/recordings" className="text-primary underline">Visit the VIP replay archive</Link>.</p>
+      ) : video ? (
+        <ScheduledPremierePlayer src={video} startsAt={startsAt} endsAt={endsAt} />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
           <h2 className="font-heading text-2xl font-semibold">{started ? 'Playback temporarily unavailable' : 'Premiere lobby'}</h2>

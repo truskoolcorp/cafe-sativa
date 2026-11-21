@@ -1,12 +1,25 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const vm=require('node:vm');const fs=require('node:fs');const {stripTypeScriptTypes}=require('node:module');
 async function run(which,opts={}){
  const calls={inserts:0,rpc:[]};const source=stripTypeScriptTypes(fs.readFileSync(`${__dirname}/../app/api/lounge/${which}/route.ts`,'utf8').replace(/^import .*\n/gm,'')).replace('export async function POST','async function POST');
- const client={auth:{getUser:async()=>({data:{user:opts.anonymous?null:{id:'mock-user'}}})},rpc:async(name,args)=>{calls.rpc.push(name);return name==='soft_delete_lounge_message'?{data:'mock-message',error:opts.deleteError}:{data:opts.count??0,error:opts.countError}},from:table=>{const chain={select(){return chain},eq(){return chain},maybeSingle:async()=>({data:null}),insert(){calls.inserts++;return chain},single:async()=>({data:{id:'mock-message',created_at:'now'},error:opts.insertError})};return chain}};
- const context=vm.createContext({loungeMembershipTier:()=> 'explorer',NextResponse:{json:(body,options={})=>({body,status:options.status??200})},createServerClient:()=>client,cookies:()=>({get:()=>undefined}),process:{env:{}},console:{error(){}}});vm.runInContext(source+';this.post=POST;',context);
+ const client={auth:{getUser:async()=>({data:{user:opts.anonymous?null:{id:'mock-user'}}})},rpc:async(name,args)=>{calls.rpc.push(name);return name==='soft_delete_lounge_message'?{data:'mock-message',error:opts.deleteError}:{data:opts.count??0,error:opts.countError}},from:table=>{const chain={select(){return chain},eq(){return chain},maybeSingle:async()=>({data:opts.stagePhase&&['lounge_rooms','my_events_v'].includes(table)?{id:'room'}:null}),insert(){calls.inserts++;return chain},single:async()=>({data:{id:'mock-message',created_at:'now'},error:opts.insertError})};return chain}};
+ const context=vm.createContext({AHNIKA_PREMIERE_SLUG:'ahnika-already-gone',ahnikaAudiencePhase:()=>opts.stagePhase,loungeMembershipTier:()=> 'explorer',NextResponse:{json:(body,options={})=>({body,status:options.status??200})},createServerClient:()=>client,cookies:()=>({get:()=>undefined}),process:{env:{}},console:{error(){}}});vm.runInContext(source+';this.post=POST;',context);
  return {result:await context.post({json:async()=>opts.body??{room_id:'room',content:'hello',message_id:'00000000-0000-4000-8000-000000000000'}}),calls};
 }
 test('anonymous post and delete are denied',async()=>{for(const route of ['post','delete'])assert.equal((await run(route,{anonymous:true})).result.status,401)});
 test('malformed message cannot insert',async()=>{const {result,calls}=await run('post',{body:{content:42,room_id:'room'}});assert.equal(result.status,400);assert.equal(calls.inserts,0)});
 test('rate counter outage fails closed',async()=>{const {result,calls}=await run('post',{countError:{message:'unavailable'}});assert.equal(result.status,503);assert.equal(calls.inserts,0)});
 test('precheck and atomic database limit both map to 429',async()=>{assert.equal((await run('post',{count:10})).result.status,429);assert.equal((await run('post',{insertError:{message:'lounge_rate_limited'}})).result.status,429)});
+test('Stage room allows mingling but starts host questions with the cue',async()=>{
+ const early=await run('post',{stagePhase:'waiting'});
+ assert.equal(early.result.body.code,'audience_room_closed');assert.equal(early.calls.inserts,0);
+ assert.equal((await run('post',{stagePhase:'mingling'})).result.status,200);
+ const body={room_id:'room',content:'[Ask laviche] A question for the host?'};
+ const mingle=await run('post',{stagePhase:'mingling',body});
+ assert.equal(mingle.result.body.code,'host_questions_not_open');assert.equal(mingle.calls.inserts,0);
+ assert.equal((await run('post',{stagePhase:'hosted',body})).result.status,200);
+});
+test('blocked Stage content gets a neutral, actionable composer error',async()=>{
+ const r=await run('post',{stagePhase:'hosted',insertError:{message:'stage_audience_content_blocked'}});
+ assert.equal(r.result.status,422);assert.equal(r.result.body.code,'audience_content_blocked');
+});
 test('delete uses owned RPC; forbidden remains 403',async()=>{const {result,calls}=await run('delete');assert.equal(result.status,200);assert.deepEqual(calls.rpc,['soft_delete_lounge_message']);assert.equal((await run('delete',{deleteError:{code:'42501'}})).result.status,403)});

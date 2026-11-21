@@ -4,9 +4,9 @@ function preferenceKey() {
 
 export function readStageSound() {
   try {
-    return window.sessionStorage.getItem(preferenceKey()) === 'on'
+    return window.sessionStorage.getItem(preferenceKey()) !== 'off'
   } catch {
-    return false
+    return true
   }
 }
 

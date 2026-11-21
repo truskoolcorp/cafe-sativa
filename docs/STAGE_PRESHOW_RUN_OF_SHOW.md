@@ -6,9 +6,10 @@ such even when the MC or audience activity is live.
 
 | Moment | Default path | Fail-safe |
 | --- | --- | --- |
-| Arrival | Muted, pauseable ambience from the approved room visual | Static artwork for reduced motion, blocked autoplay, or media failure |
-| Final 30 seconds | Event-specific MC cue, ideally a captioned prerecorded clip | Scheduled text welcome with the approved artist and title |
-| Kickoff | Existing scheduled performance | Preserve the time gate; show the player or honest unavailable state |
+| Before doors | Muted ambience and scheduled doors-open time; no public event chat | Static artwork for reduced motion, blocked autoplay, or media failure |
+| 15 minutes before the MC cue | Doors open: signed-in audience members can mingle; moderation available; no host Q&A yet | Show sign-in or an honest room-unavailable state |
+| Final 30 seconds | MC cue, ideally a captioned prerecorded clip; existing moderator-reviewed host questions can start | Scheduled text welcome with the approved artist and title |
+| Kickoff and through Q&A | Existing scheduled performance; same audience chat remains in place | Preserve the time gate; show the player or honest unavailable state |
 
 ## Per-event prerecorded lane
 
@@ -53,7 +54,9 @@ candles flicker independently, without changing the room lighting.
 checked-in still and synthesizes the matching quiet, sample-exact PCM
 surf loop. No paid generation, music, third-party footage, or watermark.
 
-The reusable **Sound** switch defaults to off and works with reduced motion.
+The reusable **Sound** switch starts on for new guests after a browser-
+permitted interaction, honors a guest's saved mute choice, and works with
+reduced motion.
 Lobby sound plays on one continuous audio buffer, with no media restarts
 or encoder padding at the seam. At kickoff the lobby sound stops; the
 same tab carries its mute and volume choices into the performance player.
@@ -66,6 +69,11 @@ quieter lobby mix. Stop the lobby bed when spoken program audio starts;
 do not reset a guest's volume as the introduction gives way to the act.
 The current introduction is text only. A failed media asset does not
 prevent lobby use or change kickoff.
+
+The public audience room rejects clear threats, slurs, explicit requests,
+private contact details, and common spam or external links before a
+message can appear for other guests. This baseline rule filter is paired
+with existing reporting and staff removal for context and edge cases.
 
 Source SHA-256: `a734d2cbbfd01c1736931c16bd623f4a67c5826e4d78acedc688044fdb5d13ec`.
 The timed text welcome and performance kickoff are unchanged. This change

@@ -5,7 +5,8 @@ import { getHost } from '@/lib/concierge/personas'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { CONCIERGE_MODEL } from '@/lib/concierge/response-engine'
 import { PRIVATE_STAGE_REHEARSAL_ROOM } from '@/lib/events/private-stage-rehearsal'
-import { ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
+import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
+import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
 
 const slug = 'ahnika-already-gone'
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
@@ -24,6 +25,8 @@ export async function POST(req: Request) {
   if (!body || typeof body.messageId !== 'string' || !uuid.test(body.messageId) ||
       !['ahnika', 'laviche'].includes(body.host)) return reply({ error: 'Invalid draft request.' }, 400)
   const rehearsal = body.rehearsal === true
+  const dryRun = body.dryRun === true
+  if (dryRun && !rehearsal) return reply({ error: 'Dry run is private only.' }, 404)
   if (rehearsal ? !privateEnabled : !publicEnabled) return reply({ error: 'Drafts are disabled for this room.' }, 404)
   if (rehearsal) {
     const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id,can_draft')
@@ -59,6 +62,25 @@ export async function POST(req: Request) {
   }
   if (!rehearsal && (!('starts_at' in event.data) || !ahnikaConciergeWindowOpen(event.data))) {
     return reply({ error: 'Premiere Q&A is closed.' }, 409)
+  }
+  if (dryRun) {
+    const { data: fixture } = await db.from('my_events_v')
+      .select('starts_at,presenter_name,ticket_price_cents,status').eq('slug', slug).maybeSingle()
+    const verified = fixture && fixture.presenter_name === 'Ahnika Merlot'
+      && fixture.ticket_price_cents === 0 && ['scheduled', 'live'].includes(fixture.status)
+      && Date.parse(fixture.starts_at) === Date.parse(AHNIKA_PREMIERE_START)
+    const decision = decideStageAutoReply({
+      question: source.data.content.slice(prefix.length),
+      host: body.host === 'laviche' ? 'laviche' : 'ahnika',
+      enabled: true,
+      paused: body.paused !== false,
+      facts: verified ? {
+        startsAt: fixture.starts_at, format: 'scheduled-premiere',
+        enableSoundControl: false, vipReplayPublished: false,
+      } : null,
+    })
+    console.info('[stage-dry-run]', decision.action, decision.action === 'eligible' ? decision.intent : decision.reason)
+    return reply({ decision })
   }
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) return reply({ error: 'Concierge drafts are unavailable. Reply as moderator.' }, 503)

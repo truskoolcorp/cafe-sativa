@@ -8,22 +8,24 @@ const code = ts.transpileModule(fs.readFileSync('app/api/lounge/concierge-draft/
 }).outputText
 const id = '00000000-0000-4000-8000-000000000001'
 async function fixture({ enabled = true, staff = true, source = true, origin = 'https://preview.test', claimError = null,
-  privateEnabled = false, rehearsal = false, invited = false, canDraft = false, windowOpen = true, publicGrant = false } = {}) {
+  privateEnabled = false, rehearsal = false, invited = false, canDraft = false, windowOpen = true, publicGrant = false,
+  dryRun = false, paused = true } = {}) {
   const exports = {}
   let calls = 0
+  let claims = 0
   let providerRequest
   let roomBound = false
   const rows = {
     profiles: { is_staff: staff }, lounge_rooms: { id },
     lounge_messages: source ? { content: '[Ask ahnika] Tell me about the premiere' } : null,
-    my_events_v: { title: 'Already Gone', starts_at: '2026-12-01T06:00:00Z' },
+    my_events_v: { title: 'Already Gone', starts_at: '2026-12-01T06:00:00Z', presenter_name: 'Ahnika Merlot', ticket_price_cents: 0, status: 'scheduled' },
     stage_rehearsal_invites: invited ? { user_id: id, can_draft: canDraft } : null,
     stage_premiere_reply_moderators: publicGrant ? { user_id: id } : null,
   }
   const db = {
     auth: { getUser: async () => ({ data: { user: { id } } }) },
     from(table) {
-      if (table === 'stage_concierge_claims') return { insert: async () => ({ error: claimError }) }
+      if (table === 'stage_concierge_claims') return { insert: async () => { claims++; return { error: claimError } } }
       const q = { select: () => q, eq(key, value) {
         if (table === 'lounge_messages' && key === 'room_id' && value === id) roomBound = true
         return q
@@ -42,19 +44,36 @@ async function fixture({ enabled = true, staff = true, source = true, origin = '
     '@/lib/content/concierge-canon': { canonicalConciergeHost: async () => ({ context: 'Verified host' }) },
     '@/lib/concierge/response-engine': { CONCIERGE_MODEL: 'fixture' },
     '@/lib/events/private-stage-rehearsal': { PRIVATE_STAGE_REHEARSAL_ROOM: '5cafe000-0000-4000-8000-000000000001' },
-    '@/lib/events/ahnika-premiere-window': { ahnikaConciergeWindowOpen: () => windowOpen },
+    '@/lib/events/ahnika-premiere-window': { ahnikaConciergeWindowOpen: () => windowOpen, AHNIKA_PREMIERE_START: '2026-12-01T06:00:00Z' },
+    '@/lib/events/stage-auto-reply': { decideStageAutoReply: ({ paused, facts }) => {
+      assert.ok(facts)
+      assert.equal(facts.vipReplayPublished, false)
+      return paused ? { action: 'handoff', reason: 'disabled' } : { action: 'eligible', intent: 'start', text: 'Fixture reply' }
+    } },
   }
-  vm.runInNewContext(code, { exports, require: name => modules[name], URL,
+  vm.runInNewContext(code, { exports, require: name => modules[name], URL, console: { info() {} },
     process: { env: { STAGE_CONCIERGE_DRAFTS_ENABLED: String(enabled), STAGE_PRIVATE_REHEARSAL_ENABLED: String(privateEnabled), ANTHROPIC_API_KEY: 'fixture' } } })
   const response = await exports.POST({ url: 'https://preview.test/api/lounge/concierge-draft',
-    headers: { get: () => origin }, json: async () => ({ messageId: id, host: 'ahnika', rehearsal }) })
-  return { response, calls, roomBound, providerRequest }
+    headers: { get: () => origin }, json: async () => ({ messageId: id, host: 'ahnika', rehearsal, dryRun, paused }) })
+  return { response, calls, claims, roomBound, providerRequest }
 }
 
 test('disabled, cross-origin and non-moderator requests never reach the provider', async () => {
   for (const [options, expected] of [[{ enabled: false }, 404], [{ origin: 'https://elsewhere.test' }, 403], [{ staff: false }, 403]]) {
     const r = await fixture(options)
     assert.equal(r.response.status, expected)
+    assert.equal(r.calls, 0)
+  }
+})
+test('dry run is moderator-only and private; examples and pause spend no claims or provider calls', async () => {
+  assert.equal((await fixture({ dryRun: true })).response.status, 404)
+  const base = { dryRun: true, rehearsal: true, privateEnabled: true, invited: true }
+  assert.equal((await fixture(base)).response.status, 403)
+  for (const paused of [true, false]) {
+    const r = await fixture({ ...base, canDraft: true, paused })
+    assert.equal(r.response.status, 200)
+    assert.equal(r.response.body.decision.action, paused ? 'handoff' : 'eligible')
+    assert.equal(r.claims, 0)
     assert.equal(r.calls, 0)
   }
 })

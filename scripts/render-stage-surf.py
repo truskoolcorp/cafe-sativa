@@ -43,7 +43,7 @@ def surf_frames(still):
     base = np.array(still)
     tint = np.array([1.0, 0.95, 0.79], dtype=np.float32)
     # Flame centers on the existing candles, not on the electric lighting.
-    candles = [(27, 716, 1.0), (192, 416, 0.48), (321, 393, 0.36),
+    candles = [(192, 416, 0.48), (321, 393, 0.36),
                (557, 505, 0.88), (593, 427, 0.46), (869, 427, 0.42),
                (946, 446, 0.52), (1110, 505, 0.80)]
     spots = []
@@ -56,6 +56,19 @@ def surf_frames(still):
         reflection = np.exp(-0.5 * ((dx / 10.5) ** 2 + ((dy - 12) / 3.2) ** 2))
         spots.append((slice(by0, by1), slice(bx0, bx1), dx, dy, falloff, reflection))
     amber = np.array([1.0, 0.69, 0.36], dtype=np.float32)
+    # The large left candle has a nearly white core. Simply adding warm
+    # light clips it; bend the existing flame tip around a fixed wick and
+    # vary exposure on its glass and halo without moving the holder.
+    left_x, left_y = 57, 674
+    left = base[left_y:, :left_x].astype(np.float32)
+    py, px = np.mgrid[:left.shape[0], :left_x].astype(np.float32)
+    fx, fy = px - 28, py + left_y - 719
+    flame_mask = np.exp(-0.5 * ((fx / 9) ** 2 + ((fy + 3) / 11) ** 2))
+    anchor = np.clip((6 - fy) / 21, 0, 1.15)
+    halo = np.exp(-0.5 * ((fx / 15) ** 2 + (fy / 17) ** 2))
+    halo *= np.clip((56 - px) / 14, 0, 1) * np.clip(py / 12, 0, 1)
+    glass_light = np.array([1.0, 0.82, 0.54], dtype=np.float32)
+    glass_dimming = np.array([0.77, 0.91, 1.0], dtype=np.float32)
 
     for n in range(FPS * DURATION):
         t = 2 * np.pi * n / (FPS * DURATION)
@@ -75,7 +88,19 @@ def surf_frames(still):
         water += foam[..., None] * tint
         update = band + blend[..., None] * (water - band)
         patch[y0:y1, x0:x1] = np.uint8(np.clip(np.rint(update), 0, 255))
-        for i, (sy, sx, dx, dy, glow, reflection) in enumerate(spots):
+        flutter = 0.57 * np.sin(7 * t + 0.6) + 0.30 * np.sin(15 * t - 1.1) + 0.15 * np.sin(23 * t)
+        sway = 3.9 * np.sin(9 * t - 0.5) + 1.4 * np.sin(17 * t + 0.9)
+        sx = np.clip(px - sway * anchor, 0, left.shape[1] - 1.01)
+        sy = np.clip(py + 4.2 * flutter * anchor, 0, left.shape[0] - 1.01)
+        ix0, iy0 = sx.astype(int), sy.astype(int)
+        wx, wy = (sx - ix0)[..., None], (sy - iy0)[..., None]
+        top = left[iy0, ix0] * (1 - wx) + left[iy0, ix0 + 1] * wx
+        bottom = left[iy0 + 1, ix0] * (1 - wx) + left[iy0 + 1, ix0 + 1] * wx
+        warped = top * (1 - wy) + bottom * wy
+        glow = left * (0.30 * flutter * halo)[..., None] * (glass_light if flutter >= 0 else glass_dimming)
+        left_frame = left + (warped - left) * flame_mask[..., None] + glow
+        patch[left_y:, :left_x] = np.uint8(np.clip(np.rint(left_frame), 0, 255))
+        for i, (sy, sx, dx, dy, glow, reflection) in enumerate(spots, start=1):
             p = 1.83 * i
             flutter = (0.48 * np.sin((7 + i % 3) * t + p)
                        + 0.31 * np.sin((13 + i % 5) * t - 1.4 * p)
@@ -141,11 +166,11 @@ def main():
     if checksum != POSTER_SHA:
         raise ValueError("Ocean masks require the exact approved lobby frame")
     still = Image.open(POSTER).convert("RGB")
-    encode_video(still, "stage-golden-hour-surf-v2.mp4",
-                 ["-vf", "addroi=x=38:y=250:w=144:h=45:qoffset=-0.28",
+    encode_video(still, "stage-golden-hour-surf-v3.mp4",
+                 ["-vf", "addroi=x=38:y=250:w=144:h=45:qoffset=-0.28,addroi=x=0:y=504:w=48:h=60:qoffset=-0.25",
                   "-c:v", "libx264", "-crf", "21", "-preset", "slow",
                   "-tune", "grain", "-movflags", "+faststart"])
-    encode_video(still, "stage-golden-hour-surf-v2.webm",
+    encode_video(still, "stage-golden-hour-surf-v3.webm",
                  ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "22", "-cpu-used", "2",
                   "-lag-in-frames", "0", "-auto-alt-ref", "0"])
     encode_sound()

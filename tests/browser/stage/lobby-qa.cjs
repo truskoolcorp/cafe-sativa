@@ -28,6 +28,12 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 window.mountLobby = props => root.render(React.createElement(require("lobby").default, props));
 window.mountPerformance = props => root.render(React.createElement(require("performance").default, props));
 window.bufferPlayback = [];
+window.soundRamps = [];
+const ramp = AudioParam.prototype.linearRampToValueAtTime;
+AudioParam.prototype.linearRampToValueAtTime = function (value, endTime) {
+  window.soundRamps.push(value);
+  return ramp.call(this, value, endTime);
+};
 const createSource = AudioContext.prototype.createBufferSource;
 AudioContext.prototype.createBufferSource = function () {
   const node = createSource.call(this);
@@ -42,13 +48,14 @@ const html = '<!doctype html><meta charset="utf-8"><title>Lobby fixture</title><
 const asset = (type, file) => `data:${type};base64,${fs.readFileSync(file).toString('base64')}`
 const eventPage = fs.readFileSync('app/events/ahnika-already-gone/page.tsx', 'utf8')
 assert.ok(eventPage.includes('/rooms/stage-beach-terrace-v2.webp'))
-for (const ext of ['webm', 'mp4', 'wav']) {
-  assert.ok(eventPage.includes(`/rooms/stage-golden-hour-surf-v2.${ext}`))
+assert.ok(eventPage.includes('/rooms/stage-golden-hour-surf-v2.wav'))
+for (const ext of ['webm', 'mp4']) {
+  assert.ok(eventPage.includes(`/rooms/stage-golden-hour-surf-v3.${ext}`))
 }
 const poster = asset('image/webp', 'public/rooms/stage-beach-terrace-v2.webp')
 const loop = {
-  webm: asset('video/webm', 'public/rooms/stage-golden-hour-surf-v2.webm'),
-  mp4: asset('video/mp4', 'public/rooms/stage-golden-hour-surf-v2.mp4'),
+  webm: asset('video/webm', 'public/rooms/stage-golden-hour-surf-v3.webm'),
+  mp4: asset('video/mp4', 'public/rooms/stage-golden-hour-surf-v3.mp4'),
 }
 const sound = asset('audio/wav', 'public/rooms/stage-golden-hour-surf-v2.wav')
 const intro = 'Fixture welcome: tonight on The Stage.'
@@ -84,6 +91,7 @@ async function main() {
       return { state: context.state, loop: node.loop, start: node.loopStart, end: node.loopEnd }
     })
     assert.deepEqual(playback, { state: 'running', loop: true, start: 0, end: 8 })
+    assert.deepEqual(await room.evaluate(() => window.soundRamps), [0.46])
     // Render past the seam in the real browser audio engine and compare the
     // first post-wrap samples to the original samples (no silence or padding).
     const audioSeam = await room.evaluate(async input => {

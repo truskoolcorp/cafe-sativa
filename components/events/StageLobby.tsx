@@ -11,6 +11,9 @@ type SoundSession = {
   source?: AudioBufferSourceNode
 }
 
+// Keep the optional lobby bed under foreground audio; this does not affect the show.
+const LOBBY_SOUND_GAIN = 0.46
+
 type Props = {
   startsAt: string
   serverNow: number
@@ -113,7 +116,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       source.connect(gain)
       gain.connect(context.destination)
       gain.gain.setValueAtTime(0, context.currentTime)
-      gain.gain.linearRampToValueAtTime(1, context.currentTime + 0.08)
+      gain.gain.linearRampToValueAtTime(LOBBY_SOUND_GAIN, context.currentTime + 0.08)
       source.start()
       session.source = source
       setSoundOn(true)

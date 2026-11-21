@@ -14,6 +14,7 @@ const slug = 'ahnika-already-gone'
 const startsAt = AHNIKA_PREMIERE_START
 const lobbyIntro = 'Good evening, Café Sativa! Let’s give our artist a warm welcome in the chat. Tonight on The Stage: an intimate acoustic performance of “Already Gone.” Please welcome Ahnika Merlot.'
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
+const mediaRelayTimeoutMs = 3500
 
 async function premiereVideo(): Promise<string | null> {
   const relayUrl = process.env.STAGE_RELEASE_MEDIA_RELAY_URL
@@ -27,6 +28,7 @@ async function premiereVideo(): Promise<string | null> {
       headers: { 'x-canary-key': key },
       cache: 'no-store',
       redirect: 'error',
+      signal: AbortSignal.timeout(mediaRelayTimeoutMs),
     })
     if (!response.ok) return null
     const payload = await response.json()

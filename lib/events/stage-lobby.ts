@@ -1,12 +1,13 @@
 export const STAGE_INTRO_LEAD_MS = 30_000
-export const STAGE_MINGLE_LEAD_MS = 15 * 60_000
+export const STAGE_DOORS_LEAD_MS = 15 * 60_000
 export const STAGE_AFTER_SHOW_MS = 15 * 60_000
 
 export function stageAudienceSchedule(startsAt: string, durationMs: number) {
   const kickoff = Date.parse(startsAt)
   if (!Number.isFinite(kickoff) || !Number.isFinite(durationMs) || durationMs <= 0) return null
   const intro = kickoff - STAGE_INTRO_LEAD_MS
-  return { doors: intro - STAGE_MINGLE_LEAD_MS, intro, kickoff, closes: kickoff + durationMs + STAGE_AFTER_SHOW_MS }
+  // Anchor guest-facing doors to the advertised showtime, not the internal cue.
+  return { doors: kickoff - STAGE_DOORS_LEAD_MS, intro, kickoff, closes: kickoff + durationMs + STAGE_AFTER_SHOW_MS }
 }
 
 export function stageAudiencePhase(schedule: ReturnType<typeof stageAudienceSchedule>, now: number) {

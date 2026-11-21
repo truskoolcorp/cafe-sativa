@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
-import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
+import { AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_DURATION_MS, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
+import { scheduledPlayback } from '@/lib/events/scheduled-playback'
+import ScheduledPremierePlayer from '@/components/events/ScheduledPremierePlayer'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -25,6 +27,7 @@ async function premiereVideo(): Promise<string | null> {
       headers: { 'x-canary-key': key },
       cache: 'no-store',
       redirect: 'error',
+      signal: AbortSignal.timeout(3500),
     })
     if (!response.ok) return null
     const payload = await response.json()
@@ -50,8 +53,8 @@ export default async function AhnikaPremierePage() {
       Date.parse(event.starts_at) !== Date.parse(startsAt) ||
       !['scheduled', 'live'].includes(event.status)) notFound()
 
-  const started = Date.now() >= Date.parse(startsAt)
-  const video = started ? await premiereVideo() : null
+  const admission = scheduledPlayback(startsAt, AHNIKA_PREMIERE_DURATION_MS, Date.now())
+  const signedVideo = admission.phase === 'premiere' ? await premiereVideo() : null
 
   const { data: auth } = await supabase.auth.getUser()
   const user = auth.user
@@ -68,6 +71,11 @@ export default async function AhnikaPremierePage() {
     ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
       .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
     : { data: null }
+  const serverNow = Date.now()
+  const phase = scheduledPlayback(startsAt, AHNIKA_PREMIERE_DURATION_MS, serverNow).phase
+  const started = phase !== 'lobby'
+  const ended = phase === 'ended'
+  const video = phase === 'premiere' ? signedVideo : null
 
   return (
     <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
@@ -81,15 +89,16 @@ export default async function AhnikaPremierePage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">Café Sativa · The Stage</p>
           <span className="rounded-full border border-border px-3 py-1 text-xs" aria-live="polite">
-            {!started ? 'Pre-show lobby' : video ? 'Premiere viewing' : 'Playback unavailable'}
+            {ended ? 'Premiere ended' : !started ? 'Pre-show lobby' : video ? 'Premiere in progress' : 'Playback unavailable'}
           </span>
         </div>
         <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
           <div className="min-w-0 p-4 sm:p-5">
-      {!started && <StagePremiereRefresh startsAt={startsAt} />}
-      {video ? (
-        <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
-          src={video} aria-label="Ahnika Merlot performing Already Gone" />
+      {!ended && admission.phase === 'lobby' && <StagePremiereRefresh startsAt={startsAt} />}
+      {ended ? (
+        <p>This premiere has ended. <Link href="/vip/recordings" className="text-primary underline">Visit the VIP replay archive</Link>.</p>
+      ) : video ? (
+        <ScheduledPremierePlayer src={video} startsAt={startsAt} durationMs={AHNIKA_PREMIERE_DURATION_MS} serverNow={serverNow} />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
           <h2 className="font-heading text-2xl font-semibold">{started ? 'Playback temporarily unavailable' : 'Premiere lobby'}</h2>

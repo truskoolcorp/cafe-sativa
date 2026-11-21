@@ -19,17 +19,19 @@ export async function POST(req: Request) {
   const db = createClient()
   const { data: { user } } = await db.auth.getUser()
   if (!user || user.is_anonymous) return reply({ error: 'Sign in as a moderator.' }, 401)
-  const { data: profile } = await db.from('profiles').select('is_staff,is_admin').eq('id', user.id).maybeSingle()
-  if (!profile?.is_staff && !profile?.is_admin) return reply({ error: 'Moderator access required.' }, 403)
   const body = await req.json().catch(() => null)
   if (!body || typeof body.messageId !== 'string' || !uuid.test(body.messageId) ||
       !['ahnika', 'laviche'].includes(body.host)) return reply({ error: 'Invalid draft request.' }, 400)
   const rehearsal = body.rehearsal === true
   if (rehearsal ? !privateEnabled : !publicEnabled) return reply({ error: 'Drafts are disabled for this room.' }, 404)
   if (rehearsal) {
-    const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id')
+    const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id,can_draft')
       .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
     if (!invitation) return reply({ error: 'Stage room unavailable.' }, 404)
+    if (invitation.can_draft !== true) return reply({ error: 'Rehearsal moderator access required.' }, 403)
+  } else {
+    const { data: profile } = await db.from('profiles').select('is_staff,is_admin').eq('id', user.id).maybeSingle()
+    if (!profile?.is_staff && !profile?.is_admin) return reply({ error: 'Moderator access required.' }, 403)
   }
   const host = getHost(body.host)!
   const rooms = db.from('lounge_rooms').select('id')

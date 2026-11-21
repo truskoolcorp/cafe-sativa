@@ -8,7 +8,7 @@ const code = ts.transpileModule(fs.readFileSync('app/api/lounge/concierge-draft/
 }).outputText
 const id = '00000000-0000-4000-8000-000000000001'
 async function fixture({ enabled = true, staff = true, source = true, origin = 'https://preview.test', claimError = null,
-  privateEnabled = false, rehearsal = false, invited = false } = {}) {
+  privateEnabled = false, rehearsal = false, invited = false, canDraft = false } = {}) {
   const exports = {}
   let calls = 0
   let providerRequest
@@ -17,7 +17,7 @@ async function fixture({ enabled = true, staff = true, source = true, origin = '
     profiles: { is_staff: staff }, lounge_rooms: { id },
     lounge_messages: source ? { content: '[Ask ahnika] Tell me about the premiere' } : null,
     my_events_v: { title: 'Already Gone' },
-    stage_rehearsal_invites: invited ? { user_id: id } : null,
+    stage_rehearsal_invites: invited ? { user_id: id, can_draft: canDraft } : null,
   }
   const db = {
     auth: { getUser: async () => ({ data: { user: { id } } }) },
@@ -80,7 +80,10 @@ test('private rehearsal requires invitation and does not enable public drafts', 
     assert.equal(r.response.status, 404)
     assert.equal(r.calls, 0)
   }
-  const r = await fixture({ enabled: false, privateEnabled: true, rehearsal: true, invited: true })
+  const attendee = await fixture({ enabled: false, privateEnabled: true, rehearsal: true, invited: true, staff: true })
+  assert.equal(attendee.response.status, 403)
+  assert.equal(attendee.calls, 0)
+  const r = await fixture({ enabled: false, privateEnabled: true, rehearsal: true, invited: true, canDraft: true, staff: false })
   assert.equal(r.response.status, 200)
   assert.match(r.providerRequest.system, /not a public performance/)
 })

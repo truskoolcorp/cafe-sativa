@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { createMembershipStateLoader } from '@/lib/membership-state-loader'
+import { annualMembershipEnabled, MEMBERSHIP_OFFER_CENTS, type MembershipCadence } from '@/lib/membership-offers'
 
 /**
  * /membership — the full tier feature matrix and paid-tier checkout.
@@ -136,7 +137,7 @@ const TIERS: TierCard[] = [
     name: 'Regular',
     price: '$9.99',
     cadence: 'per month',
-    description: 'A monthly virtual membership with extended host memory.',
+    description: 'A virtual membership with extended host memory.',
     highlights: [
       'Eligible confirmed events included',
       'Event availability announced separately',
@@ -172,6 +173,7 @@ function MembershipInner() {
   const [membership, setMembership] = useState<MembershipState | null>(null)
   const [isContentAdmin, setIsContentAdmin] = useState(false)
   const [loadingTier, setLoadingTier] = useState<Tier | null>(null)
+  const [cadence, setCadence] = useState<MembershipCadence>('monthly')
   const [error, setError] = useState<string | null>(null)
 
   // Load auth + membership state, with live subscription so sign-in
@@ -241,16 +243,18 @@ function MembershipInner() {
     }
   }
 
-  async function startCheckout(tier: Tier) {
+  async function startCheckout(tier: Tier, selectedCadence: MembershipCadence) {
     if (isContentAdmin) { router.push('/admin/content'); return }
     setError(null)
+    const params = new URLSearchParams({ intent: tier, cadence: selectedCadence })
+    const release = searchParams.get('release')
+    if (release) params.set('release', release)
+    const signIn = `/auth/signin?redirect=${encodeURIComponent(`/membership?${params}`)}`
 
     // Not signed in: bounce through signin and come back here.
     // Intent carries the tier so we know what to auto-resume.
     if (!isSignedIn) {
-      router.push(
-        `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}${searchParams.get('release') ? '&release='+encodeURIComponent(searchParams.get('release')!) : ''}`)}`
-      )
+      router.push(signIn)
       return
     }
 
@@ -260,15 +264,14 @@ function MembershipInner() {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier, releaseSlug: searchParams.get('release') || undefined }),
+        body: JSON.stringify({ tier, cadence: selectedCadence, releaseSlug: release || undefined }),
       })
 
       const data = await res.json().catch(() => ({}))
 
       if (res.status === 401 || data?.code === 'not_authenticated') {
-        router.push(
-          `/auth/signin?redirect=${encodeURIComponent(`/membership?intent=${tier}${searchParams.get('release') ? '&release='+encodeURIComponent(searchParams.get('release')!) : ''}`)}`
-        )
+        setLoadingTier(null)
+        router.push(signIn)
         return
       }
 
@@ -299,7 +302,14 @@ function MembershipInner() {
     if (authLoaded && isSignedIn && !isContentAdmin && (intent === 'regular' || intent === 'vip')) {
       // Drop the intent param so refresh doesn't re-trigger
       router.replace('/membership')
-      startCheckout(intent)
+      const requestedCadence = searchParams.get('cadence')
+      if (requestedCadence !== null && requestedCadence !== 'monthly' && requestedCadence !== 'annual') {
+        setError('Select a billing cadence to continue.')
+        return
+      }
+      const resumed = requestedCadence ?? 'monthly'
+      if (resumed === 'annual' && annualMembershipEnabled()) setCadence('annual')
+      startCheckout(intent, resumed)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoaded, isSignedIn, isContentAdmin])
@@ -391,7 +401,7 @@ function MembershipInner() {
       <Button
         variant={tier.featured ? 'default' : 'outline'}
         className="w-full"
-        onClick={() => startCheckout(paidTier)}
+        onClick={() => startCheckout(paidTier, cadence)}
         disabled={loadingTier !== null}
       >
         {label}
@@ -504,6 +514,19 @@ function MembershipInner() {
           )}
         </div>
 
+        {annualMembershipEnabled() && (
+          <fieldset className="mt-10 flex flex-wrap items-center justify-center gap-3">
+            <legend className="sr-only">Billing cadence for new paid memberships</legend>
+            {(['monthly', 'annual'] as const).map(option => (
+              <label key={option} className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2">
+                <input type="radio" name="membership-cadence" value={option}
+                  checked={cadence === option} disabled={loadingTier !== null} onChange={() => setCadence(option)} />
+                {option === 'monthly' ? 'Monthly' : 'Annual · 2 months free'}
+              </label>
+            ))}
+          </fieldset>
+        )}
+
         {/* Tier cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
           {TIERS.map((tier) => (
@@ -535,11 +558,16 @@ function MembershipInner() {
 
               <div className="mb-8">
                 <span className="font-heading text-5xl font-bold text-foreground">
-                  {tier.price}
+                  {tier.id !== 'explorer' && cadence === 'annual'
+                    ? `$${(MEMBERSHIP_OFFER_CENTS[tier.id].annual / 100).toFixed(2)}`
+                    : tier.price}
                 </span>
                 <span className="text-sm text-muted-foreground font-body ml-2">
-                  {tier.cadence}
+                  {tier.id !== 'explorer' && cadence === 'annual' ? 'per year' : tier.cadence}
                 </span>
+                {tier.id !== 'explorer' && cadence === 'annual' && (
+                  <p className="mt-2 text-xs text-muted-foreground">Billed yearly, plus applicable tax. Renews annually unless canceled.</p>
+                )}
               </div>
 
               <ul className="space-y-3 mb-8 flex-1">

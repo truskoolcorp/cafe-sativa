@@ -45,17 +45,13 @@ the exact approved recording or the text fallback and keep kickoff fixed.
 
 ## Ahnika canary
 
-This PR implements the muted lobby and timed text welcome. It does not render
-an unapproved MC clip, dispatch generation, hire a host, or enable a live
-voice. The ambience is an eight-second, cyclical lighting pass over the
-existing empty-room design still; orientation and geometry are unchanged.
-Review it as an illustrative virtual-room visual, not an approved layout
-for the physical venue.
+The public canary uses `Stage_Beach_Terrace_Current(1).png` for both the
+lobby still and the eight-second silent loop (`public/rooms/stage-beach-terrace-v2.*`).
+The full frame keeps the Stage centered and the beachside terrace and ocean
+visible on the left. The encode adds only a subtle cyclic brightness change:
+no crop, camera move, new geometry, or paid generation. The original
+interior-only reference is not the public lobby shot.
 
-```sh
-ffmpeg -loop 1 -framerate 18 -i public/references/2026-10-10/stage-design-v1.jpg \
-  -t 8 -an -vf "scale=768:512:flags=lanczos,setsar=1,eq=brightness='0.007*(1-cos(2*PI*t/8))':eval=frame,format=yuv420p" \
-  -c:v libx264 -preset veryslow -crf 26 -movflags +faststart public/rooms/stage-ambience-v1.mp4
-ffmpeg -i public/rooms/stage-ambience-v1.mp4 -an -vf scale=648:432 \
-  -c:v libvpx-vp9 -b:v 0 -crf 40 -pix_fmt yuv420p public/rooms/stage-ambience-v1.webm
-```
+Source SHA-256: `a734d2cbbfd01c1736931c16bd623f4a67c5826e4d78acedc688044fdb5d13ec`.
+The timed text welcome and performance kickoff are unchanged. This change
+does not authorize an MC clip or enable a live voice.

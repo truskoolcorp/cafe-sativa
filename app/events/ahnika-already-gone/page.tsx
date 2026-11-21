@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import StageLobby from '@/components/events/StageLobby'
+import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
@@ -93,12 +94,11 @@ export default async function AhnikaPremierePage() {
       {!started ? (
         <StageLobby startsAt={startsAt} serverNow={serverNow}
           poster="/rooms/stage-beach-terrace-v2.webp"
-          loop={{ webm: '/rooms/stage-golden-hour-surf-v1.webm', mp4: '/rooms/stage-golden-hour-surf-v1.mp4' }}
-          sound="/rooms/stage-golden-hour-surf-v1.mp3"
+          loop={{ webm: '/rooms/stage-golden-hour-surf-v2.webm', mp4: '/rooms/stage-golden-hour-surf-v2.mp4' }}
+          sound="/rooms/stage-golden-hour-surf-v2.wav"
           intro={lobbyIntro} />
       ) : video ? (
-        <video className="aspect-video w-full rounded-xl bg-black" controls playsInline preload="metadata"
-          src={video} aria-label="Ahnika Merlot performing Already Gone" />
+        <StagePremiereVideo src={video} label="Ahnika Merlot performing Already Gone" />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
           <h2 className="font-heading text-2xl font-semibold">Playback temporarily unavailable</h2>

@@ -46,13 +46,19 @@ the exact approved recording or the text fallback and keep kickoff fixed.
 ## Ahnika canary
 
 The lobby still comes from `Stage_Beach_Terrace_Current(1).png` and stays
-unchanged. The eight-second golden-hour cinemagraph keeps the Stage and
-terrace locked, with only the waves moving in the masked ocean openings.
-`scripts/render-stage-surf.py` reproduces the WebM, MP4 and a quiet,
-procedural surf-sound loop from the checked-in approved still. There is
-no paid generation, music, third-party footage, or watermark. The video
-is silent; sound is separately opt-in, available with reduced motion,
-and stopped at kickoff. The still remains usable if either media file fails.
+unchanged. The eight-second golden-hour loop keeps the camera, Stage and
+terrace locked. The masked waves advance toward shore and the existing
+candles flicker independently, without changing the room lighting.
+`scripts/render-stage-surf.py` reproduces the WebM and MP4 from the
+checked-in still and synthesizes the matching quiet, sample-exact PCM
+surf loop. No paid generation, music, third-party footage, or watermark.
+
+The reusable **Sound** switch defaults to off and works with reduced motion.
+Lobby sound plays on one continuous audio buffer, with no media restarts
+or encoder padding at the seam. At kickoff the lobby sound stops; the
+same tab carries its selection into the performance player. A future
+recorded or live MC segment should use the same sound control. A failed
+media asset does not prevent lobby use or change kickoff.
 
 Source SHA-256: `a734d2cbbfd01c1736931c16bd623f4a67c5826e4d78acedc688044fdb5d13ec`.
 The timed text welcome and performance kickoff are unchanged. This change

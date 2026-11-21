@@ -1,7 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { stageLobbyPhase, STAGE_INTRO_LEAD_MS } from '@/lib/events/stage-lobby'
+import { writeStageSound } from '@/lib/events/stage-sound'
+import StageSoundToggle from './StageSoundToggle'
+
+type SoundSession = {
+  context: AudioContext
+  request: AbortController
+  source?: AudioBufferSourceNode
+}
 
 type Props = {
   startsAt: string
@@ -17,9 +25,18 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
   const [motion, setMotion] = useState(false)
   const [failed, setFailed] = useState(false)
   const [soundOn, setSoundOn] = useState(false)
+  const [soundLoading, setSoundLoading] = useState(false)
   const [soundFailed, setSoundFailed] = useState(false)
   const video = useRef<HTMLVideoElement>(null)
-  const audio = useRef<HTMLAudioElement>(null)
+  const audio = useRef<SoundSession | null>(null)
+  const stopSound = useCallback(() => {
+    const playing = audio.current
+    if (!playing) return
+    audio.current = null
+    playing.request.abort()
+    playing.source?.stop()
+    void playing.context.close().catch(() => {})
+  }, [])
 
   useEffect(() => {
     const anchor = performance.now()
@@ -33,7 +50,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
         const boundary = Date.parse(startsAt) - (next === 'lobby' ? STAGE_INTRO_LEAD_MS : 0)
         timer = setTimeout(tick, Math.min(Math.max(1, boundary - now), 60_000))
       } else {
-        audio.current?.pause()
+        stopSound()
       }
     }
     tick()
@@ -42,7 +59,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [startsAt, serverNow])
+  }, [startsAt, serverNow, stopSound])
 
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -61,22 +78,51 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
     return () => { mounted = false }
   }, [showMotion])
 
-  useEffect(() => {
-    const player = audio.current
-    return () => player?.pause()
-  }, [])
+  useEffect(() => stopSound, [stopSound])
 
-  function toggleSound() {
-    const player = audio.current
-    if (!player || !lobbyOpen) return
-    if (!player.paused) {
-      player.pause()
+  async function toggleSound() {
+    if (!sound || !lobbyOpen) return
+    if (audio.current) {
+      stopSound()
+      setSoundOn(false)
+      setSoundLoading(false)
+      writeStageSound(false)
       return
     }
-    void player.play().catch(error => {
-      if (error?.name !== 'AbortError') setSoundFailed(true)
+    let session: SoundSession | null = null
+    try {
+      const context = new AudioContext()
+      const request = new AbortController()
+      session = { context, request }
+      audio.current = session
+      setSoundFailed(false)
+      setSoundLoading(true)
+      // Resume synchronously from the click, before starting the network work.
+      const [, response] = await Promise.all([context.resume(), fetch(sound, { signal: request.signal })])
+      if (!response.ok) throw new Error('Lobby audio unavailable')
+      const buffer = await context.decodeAudioData(await response.arrayBuffer())
+      if (audio.current !== session) return
+      const source = context.createBufferSource()
+      const gain = context.createGain()
+      source.buffer = buffer
+      source.loop = true
+      source.loopEnd = buffer.duration
+      source.connect(gain)
+      gain.connect(context.destination)
+      gain.gain.setValueAtTime(0, context.currentTime)
+      gain.gain.linearRampToValueAtTime(1, context.currentTime + 0.08)
+      source.start()
+      session.source = source
+      setSoundOn(true)
+      setSoundLoading(false)
+      writeStageSound(true)
+    } catch {
+      if (audio.current !== session) return
+      stopSound()
       setSoundOn(false)
-    })
+      setSoundLoading(false)
+      setSoundFailed(true)
+    }
   }
 
   return (
@@ -105,21 +151,11 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
                   {showMotion ? 'Pause Stage ambience' : 'Play Stage ambience'}
                 </button>
               )}
-              {sound && !soundFailed && (
-                <button type="button" className="text-sm text-primary underline underline-offset-4"
-                  aria-pressed={soundOn} onClick={toggleSound}>
-                  Surf sounds<span aria-hidden="true">: {soundOn ? 'on' : 'off'}</span>
-                </button>
-              )}
+              {sound && <StageSoundToggle on={soundOn} busy={soundLoading} toggle={toggleSound} />}
             </div>
           )}
         </div>
-        {sound && (
-          <audio ref={audio} src={sound} loop preload="none"
-            onPlay={() => setSoundOn(true)} onPause={() => setSoundOn(false)}
-            onError={() => { setSoundOn(false); setSoundFailed(true) }} />
-        )}
-        {lobbyOpen && soundFailed && <p role="status" className="text-sm text-muted-foreground">Surf audio is unavailable.</p>}
+        {lobbyOpen && soundFailed && <p role="status" className="text-sm text-muted-foreground">Sound is unavailable. Try again.</p>}
         <div role="status" className="space-y-2">
           {phase === 'intro' ? (
             <>

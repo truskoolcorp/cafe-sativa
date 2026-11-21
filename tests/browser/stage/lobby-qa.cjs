@@ -25,10 +25,14 @@ window.mountLobby = props => ReactDOM.createRoot(document.getElementById("root")
   .render(React.createElement(require("lobby").default, props));`
 const html = '<!doctype html><meta charset="utf-8"><title>Lobby fixture</title><div id="root"></div>'
 const asset = (type, file) => `data:${type};base64,${fs.readFileSync(file).toString('base64')}`
-const poster = asset('image/jpeg', 'public/references/2026-10-10/stage-design-v1.jpg')
+const eventPage = fs.readFileSync('app/events/ahnika-already-gone/page.tsx', 'utf8')
+for (const ext of ['webp', 'webm', 'mp4']) {
+  assert.ok(eventPage.includes(`/rooms/stage-beach-terrace-v2.${ext}`))
+}
+const poster = asset('image/webp', 'public/rooms/stage-beach-terrace-v2.webp')
 const loop = {
-  webm: asset('video/webm', 'public/rooms/stage-ambience-v1.webm'),
-  mp4: asset('video/mp4', 'public/rooms/stage-ambience-v1.mp4'),
+  webm: asset('video/webm', 'public/rooms/stage-beach-terrace-v2.webm'),
+  mp4: asset('video/mp4', 'public/rooms/stage-beach-terrace-v2.mp4'),
 }
 const intro = 'Fixture welcome: tonight on The Stage.'
 

@@ -56,10 +56,10 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, intro }:
 
   return (
     <section aria-labelledby="stage-lobby-heading" className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="relative aspect-[3/2] min-h-48 bg-black">
+      <div className="relative aspect-video min-h-48 bg-black">
         {/* Decorative venue imagery: the schedule and welcome are available as text below. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={poster} alt="" width={1536} height={1024} className="absolute inset-0 size-full object-contain" />
+        <img src={poster} alt="" width={1344} height={752} className="absolute inset-0 size-full object-contain" />
         {showMotion && (
           <video ref={video} poster={poster} muted loop playsInline preload="metadata"
             aria-hidden="true" className="pointer-events-none absolute inset-0 size-full object-contain"

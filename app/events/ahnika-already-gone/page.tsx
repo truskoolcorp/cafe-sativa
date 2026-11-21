@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
+import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 const slug = 'ahnika-already-gone'
-const startsAt = '2026-12-01T06:00:00.000Z'
+const startsAt = AHNIKA_PREMIERE_START
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
 
 async function premiereVideo(): Promise<string | null> {
@@ -102,7 +103,7 @@ export default async function AhnikaPremierePage() {
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
-              conciergeDrafts={process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true'} />
+              conciergeDrafts={process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && ahnikaConciergeWindowOpen(event)} />
           </div>
         ) : user ? (
           <p role="status">The audience room is temporarily unavailable.</p>

@@ -22,6 +22,7 @@ export const AHNIKA_STAGE_CANARY = Object.freeze({
     accessibleLabel: 'Ahnika Merlot performing Already Gone on the Café Sativa Stage',
   },
   lobby: {
+    startsAt: '2026-12-01T06:00:00.000Z', // December 1 at midnight in America/Chicago.
     accessibility: 'An intimate prerecorded acoustic performance in the warm, lounge-style Café Sativa Stage environment.',
     chatRules: ['Keep conversation welcoming.', 'Do not post private information.', 'Messages may be held or removed by a moderator.'],
   },

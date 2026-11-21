@@ -11,7 +11,7 @@ export default async function Rehearsal() {
   const db = createClient()
   const { data: { user } } = await db.auth.getUser()
   if (!user || user.is_anonymous) notFound()
-  const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id')
+  const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id,can_draft')
     .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
   if (!invitation) notFound()
   const { data: room } = await db.from('lounge_rooms')
@@ -30,7 +30,8 @@ export default async function Rehearsal() {
       <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
         <LoungeRoom roomId={room.id} userId={user.id} displayName={profile.data?.display_name || 'Rehearsal guest'}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
-          initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom />
+          initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
+          rehearsalDraftModerator={invitation.can_draft === true} />
       </section>
     </main>
   )

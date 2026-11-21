@@ -63,6 +63,7 @@ type Props = {
   initialMessages: Message[]
   conciergeDrafts?: boolean
   privateRoom?: boolean
+  rehearsalDraftModerator?: boolean
 }
 
 export function LoungeRoom({
@@ -75,6 +76,7 @@ export function LoungeRoom({
   initialMessages,
   conciergeDrafts = false,
   privateRoom = false,
+  rehearsalDraftModerator = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
@@ -306,7 +308,7 @@ export function LoungeRoom({
   }
 
   async function draftConciergeReply(message: Message) {
-    if (!conciergeDrafts || !isStaff || drafting || input.trim()) return
+    if (!canDraft || drafting || input.trim()) return
     setDrafting(true)
     setError(null)
     try {
@@ -330,6 +332,7 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
+  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff)
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}
@@ -376,7 +379,7 @@ export function LoungeRoom({
               message={m}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
-              onDraft={conciergeDrafts && isStaff && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+              onDraft={canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
                 ? () => draftConciergeReply(m) : undefined}
               draftDisabled={drafting || Boolean(input.trim())}
             />

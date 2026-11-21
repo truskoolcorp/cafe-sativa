@@ -90,16 +90,34 @@ test('event-only grant permits a non-staff moderator but not outside the public 
 })
 
 test('public window rejects early, expired, changed and canceled premieres', () => {
+  const lobby = {}
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/events/stage-lobby.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports: lobby, Date })
   const exports = {}
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/events/ahnika-premiere-window.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS },
-  }).outputText, { exports, Date })
-  const { AHNIKA_PREMIERE_START: start, AHNIKA_QA_END: end, ahnikaConciergeWindowOpen: open } = exports
+  }).outputText, { exports, Date, require: name => {
+    assert.equal(name, './stage-lobby')
+    return lobby
+  } })
+  const {
+    AHNIKA_PREMIERE_START: start, AHNIKA_QA_END: end, AHNIKA_AUDIENCE_SCHEDULE: times,
+    ahnikaConciergeWindowOpen: open, ahnikaAudiencePhase: phase,
+  } = exports
   const row = { starts_at: start, presenter_name: 'Ahnika Merlot', ticket_price_cents: 0, status: 'scheduled' }
-  assert.equal(open(row, Date.parse(start) - 1), false)
+  assert.equal(new Date(times.doors).toISOString(), '2026-12-01T05:44:30.000Z')
+  assert.equal(times.intro - times.doors, 15 * 60_000)
+  assert.equal(phase(row, times.doors - 1), 'waiting')
+  assert.equal(phase(row, times.doors), 'mingling')
+  assert.equal(phase(row, times.intro - 1), 'mingling')
+  assert.equal(open(row, times.intro - 1), false)
+  assert.equal(phase(row, times.intro), 'hosted')
+  assert.equal(open(row, times.intro), true)
   assert.equal(open(row, Date.parse(start)), true)
   assert.equal(open(row, Date.parse(end) - 1), true)
   assert.equal(open(row, Date.parse(end)), false)
+  assert.equal(phase(row, Date.parse(end)), 'closed')
   assert.equal(open({ ...row, status: 'canceled' }, Date.parse(start)), false)
   assert.equal(open({ ...row, starts_at: end }, Date.parse(start)), false)
 })

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
-import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
+import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, ahnikaAudiencePhase, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -11,8 +11,12 @@ import { createClient } from '@/lib/supabase/server'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const slug = 'ahnika-already-gone'
 const startsAt = AHNIKA_PREMIERE_START
+const audience = AHNIKA_AUDIENCE_SCHEDULE
+const localDoors = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago', month: 'long', day: 'numeric',
+  hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
+}).format(audience.doors)
 const lobbyIntro = 'Good evening, Café Sativa! Let’s give our artist a warm welcome in the chat. Tonight on The Stage: an intimate acoustic performance of “Already Gone.” Please welcome Ahnika Merlot.'
 const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
 
@@ -49,14 +53,18 @@ export default async function AhnikaPremierePage() {
   const { data: event } = await supabase.from('my_events_v')
     .select('slug, starts_at, ticket_price_cents, status, presenter_name')
     .eq('slug', slug).maybeSingle()
-  if (!event || event.presenter_name !== 'Ahnika Merlot' || event.ticket_price_cents !== 0 ||
-      Date.parse(event.starts_at) !== Date.parse(startsAt) ||
-      !['scheduled', 'live'].includes(event.status)) notFound()
+  if (!event || !isCanonicalAhnikaPremiere(event)) notFound()
 
-  const started = Date.now() >= Date.parse(startsAt)
-  const video = started ? await premiereVideo() : null
+  const serverNow = Date.now()
+  const phase = ahnikaAudiencePhase(event, serverNow)
+  const chatOpen = phase === 'mingling' || phase === 'hosted'
+  const started = serverNow >= audience.kickoff
+  const refreshAt = [audience.doors, audience.intro, audience.kickoff, audience.closes].find(at => at > serverNow)
+  const [video, { data: auth }] = await Promise.all([
+    started ? premiereVideo() : Promise.resolve(null),
+    chatOpen ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
+  ])
 
-  const { data: auth } = await supabase.auth.getUser()
   const user = auth.user
   const { data: room } = user ? await supabase.from('lounge_rooms')
     .select('id').eq('slug', slug).maybeSingle() : { data: null }
@@ -66,15 +74,16 @@ export default async function AhnikaPremierePage() {
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
   ]) : [{ data: null }, { data: null }, { data: null }]
-  const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && ahnikaConciergeWindowOpen(event)
+  const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && phase === 'hosted'
   const { data: premiereGrant } = user && room && conciergeOpen
     ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
       .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
     : { data: null }
-  const serverNow = Date.now()
-
   return (
     <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
+      {refreshAt !== undefined && (
+        <StagePremiereRefresh key={refreshAt} startsAt={new Date(refreshAt).toISOString()} serverNow={serverNow} />
+      )}
       <Link href="/stage" className="text-primary underline">The Stage</Link>
       <header className="space-y-3">
         <h1 className="font-heading text-4xl font-bold">Ahnika Merlot — Already Gone</h1>
@@ -90,7 +99,6 @@ export default async function AhnikaPremierePage() {
         </div>
         <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
           <div className="min-w-0 p-4 sm:p-5">
-      {!started && <StagePremiereRefresh startsAt={startsAt} serverNow={serverNow} />}
       {!started ? (
         <StageLobby startsAt={startsAt} serverNow={serverNow}
           poster="/rooms/stage-beach-terrace-v2.webp"
@@ -109,8 +117,24 @@ export default async function AhnikaPremierePage() {
           </div>
       <section className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 xl:border-l xl:border-t-0" aria-labelledby="audience-heading">
         <h2 id="audience-heading" className="font-heading text-2xl font-semibold">Live audience room</h2>
-        <p>Join the discussion, ask the hosts a question, and respond in chat when a host opens a poll or trivia round.</p>
-        {user && room ? (
+        <div role="status" className="space-y-2">
+          {phase === 'waiting' ? (
+            <>
+              <p className="font-semibold">Doors open <time dateTime={new Date(audience.doors).toISOString()}>{localDoors}</time>.</p>
+              <p>Come early for 15 minutes of audience chat before the house introduction. You can stay right here.</p>
+            </>
+          ) : phase === 'mingling' ? (
+            <>
+              <p className="font-semibold text-primary">Doors are open</p>
+              <p>Get comfortable and say hello to the room. The house introduction is next.</p>
+            </>
+          ) : phase === 'hosted' ? (
+            <p>Chat with the audience and moderators throughout the show.{conciergeOpen ? ' Use Ask a host to send a question for moderator review.' : ''}</p>
+          ) : (
+            <p>The live audience room is closed.</p>
+          )}
+        </div>
+        {!chatOpen ? null : user && room ? (
           <div className="flex h-[28rem] min-h-0 flex-col">
             <LoungeRoom roomId={room.id} userId={user.id}
               displayName={profiles.data?.display_name || user.email?.split('@')[0] || 'Member'}
@@ -124,7 +148,7 @@ export default async function AhnikaPremierePage() {
         ) : (
           <Link className="text-primary underline" href="/auth/signin?next=%2Fevents%2Fahnika-already-gone">Sign in to join the live audience room</Link>
         )}
-        <Link href="/ask" target="_blank" rel="noopener noreferrer" className="inline-block text-primary underline">Open private concierge chat in a new tab</Link>
+        {phase === 'hosted' && <Link href="/ask" target="_blank" rel="noopener noreferrer" className="inline-block text-primary underline">Open private concierge chat in a new tab</Link>}
       </section>
         </div>
       </div>

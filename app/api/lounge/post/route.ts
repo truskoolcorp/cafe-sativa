@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
+import { AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } from '@/lib/events/ahnika-premiere-window'
 
 /**
  * POST /api/lounge/post
@@ -82,6 +83,23 @@ export async function POST(req: Request) {
       { error: 'room_id is required.', code: 'missing_room' },
       { status: 400 }
     )
+  }
+
+  // Give the event room an explicit closed response. The database policy
+  // also checks the canonical schedule for direct clients and Realtime.
+  const { data: stageRoom } = await supabase.from('lounge_rooms')
+    .select('id').eq('id', body.room_id).eq('slug', AHNIKA_PREMIERE_SLUG).maybeSingle()
+  if (stageRoom) {
+    const { data: event } = await supabase.from('my_events_v')
+      .select('starts_at,presenter_name,ticket_price_cents,status')
+      .eq('slug', AHNIKA_PREMIERE_SLUG).maybeSingle()
+    const phase = event ? ahnikaAudiencePhase(event) : 'closed'
+    if (phase !== 'mingling' && phase !== 'hosted') {
+      return NextResponse.json({ error: 'The live audience room is closed.', code: 'audience_room_closed' }, { status: 409 })
+    }
+    if (phase === 'mingling' && /^\[Ask (ahnika|laviche)\] /.test(content)) {
+      return NextResponse.json({ error: 'Host questions open with the house introduction.', code: 'host_questions_not_open' }, { status: 409 })
+    }
   }
 
   // Rate limit check via DB function. Runs as security-definer so RLS

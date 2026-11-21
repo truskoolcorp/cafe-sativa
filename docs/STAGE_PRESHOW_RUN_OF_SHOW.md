@@ -6,9 +6,10 @@ such even when the MC or audience activity is live.
 
 | Moment | Default path | Fail-safe |
 | --- | --- | --- |
-| Arrival | Muted, pauseable ambience from the approved room visual | Static artwork for reduced motion, blocked autoplay, or media failure |
-| Final 30 seconds | Event-specific MC cue, ideally a captioned prerecorded clip | Scheduled text welcome with the approved artist and title |
-| Kickoff | Existing scheduled performance | Preserve the time gate; show the player or honest unavailable state |
+| Before doors | Muted ambience and scheduled doors-open time; no public event chat | Static artwork for reduced motion, blocked autoplay, or media failure |
+| 15 minutes before the MC cue | Doors open: signed-in audience members can mingle; moderation available; no host Q&A yet | Show sign-in or an honest room-unavailable state |
+| Final 30 seconds | MC cue, ideally a captioned prerecorded clip; existing moderator-reviewed host questions can start | Scheduled text welcome with the approved artist and title |
+| Kickoff and through Q&A | Existing scheduled performance; same audience chat remains in place | Preserve the time gate; show the player or honest unavailable state |
 
 ## Per-event prerecorded lane
 

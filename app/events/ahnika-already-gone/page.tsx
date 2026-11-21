@@ -114,7 +114,11 @@ export default async function AhnikaPremierePage() {
         ) : (
           <Link className="text-primary underline" href="/auth/signin?next=%2Fevents%2Fahnika-already-gone">Sign in to join the live audience room</Link>
         )}
-        <Link href="/ask" className="inline-block text-primary underline">Ask a Café Sativa concierge</Link>
+        {rehearsal ? (
+          <p className="text-sm text-muted-foreground">For rehearsal Q&amp;A, post your question in this room for the moderator. Automated concierge replies are not enabled in this preview.</p>
+        ) : (
+          <Link href="/ask" target="_blank" rel="noopener noreferrer" className="inline-block text-primary underline">Open the separate Café Sativa concierge chat</Link>
+        )}
       </section>
       <p className="text-sm text-muted-foreground">This performance includes AI-assisted production under Tru Skool Entertainment International Corp.’s creative direction.</p>
     </main>

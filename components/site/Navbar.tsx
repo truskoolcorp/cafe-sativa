@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
@@ -116,7 +117,7 @@ export function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span className="inline-flex items-center gap-2"><img src="/brand/cafe-sativa/2026-10-07/cafe-sativa-logo-web.webp" alt="" className="h-12 w-12 object-contain" onError={(event) => { event.currentTarget.style.display = 'none' }} /><span className="font-heading text-xl font-bold tracking-tight text-primary">Café Sativa</span></span>
+            <span className="inline-flex items-center gap-2"><Image src="/brand/cafe-sativa/official-v1.png" alt="" width={48} height={48} sizes="48px" className="h-12 w-12 object-contain" /><span className="font-heading text-xl font-bold tracking-tight text-primary">Café Sativa</span></span>
           </Link>
 
           {/* Desktop nav */}

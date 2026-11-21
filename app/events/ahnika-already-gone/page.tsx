@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
-import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, ahnikaAudiencePhase, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
+import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_END, ahnikaAudiencePhase, ahnikaPlaybackOpen, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -18,33 +18,6 @@ const localDoors = new Intl.DateTimeFormat('en-US', {
   hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
 }).format(audience.doors)
 const lobbyIntro = 'Good evening, Café Sativa! Let’s give our artist a warm welcome in the chat. Tonight on The Stage: an intimate acoustic performance of “Already Gone.” Please welcome Ahnika Merlot.'
-const storageOrigin = 'https://ekaukffotzujkkpdvpgj.supabase.co'
-
-async function premiereVideo(): Promise<string | null> {
-  const relayUrl = process.env.STAGE_RELEASE_MEDIA_RELAY_URL
-  const key = process.env.STAGE_RELEASE_MEDIA_RELAY_KEY
-  if (!relayUrl || !key) return null
-  try {
-    const relay = new URL(relayUrl)
-    if (relay.origin !== storageOrigin || relay.pathname !== '/functions/v1/cafe-sativa-stage-canary') return null
-    relay.searchParams.set('asset', 'video')
-    const response = await fetch(relay, {
-      headers: { 'x-canary-key': key },
-      cache: 'no-store',
-      redirect: 'error',
-    })
-    if (!response.ok) return null
-    const payload = await response.json()
-    if (typeof payload.url !== 'string') return null
-    const video = new URL(payload.url)
-    if (video.origin !== storageOrigin ||
-        video.pathname !== '/storage/v1/object/sign/cafe-sativa-content/Ahnika_Merlot_Cafe_Sativa_Stage_Premiere_Cut.mp4' ||
-        !video.searchParams.has('token')) return null
-    return video.href
-  } catch {
-    return null
-  }
-}
 
 export const metadata = { title: 'Ahnika Merlot — Already Gone' }
 
@@ -59,11 +32,10 @@ export default async function AhnikaPremierePage() {
   const phase = ahnikaAudiencePhase(event, serverNow)
   const chatOpen = phase === 'mingling' || phase === 'hosted'
   const started = serverNow >= audience.kickoff
-  const refreshAt = [audience.doors, audience.intro, audience.kickoff, audience.closes].find(at => at > serverNow)
-  const [video, { data: auth }] = await Promise.all([
-    started ? premiereVideo() : Promise.resolve(null),
-    chatOpen ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
-  ])
+  const finished = serverNow >= AHNIKA_PREMIERE_END
+  const video = ahnikaPlaybackOpen(serverNow) ? '/api/events/ahnika-premiere' : null
+  const refreshAt = [audience.doors, audience.intro, audience.kickoff, AHNIKA_PREMIERE_END, audience.closes].find(at => at > serverNow)
+  const { data: auth } = chatOpen ? await supabase.auth.getUser() : { data: { user: null } }
 
   const user = auth.user
   const { data: room } = user ? await supabase.from('lounge_rooms')
@@ -94,7 +66,7 @@ export default async function AhnikaPremierePage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">Café Sativa · The Stage</p>
           <span className="rounded-full border border-border px-3 py-1 text-xs" aria-live="polite">
-            {!started ? 'Pre-show lobby' : video ? 'Premiere viewing' : 'Playback unavailable'}
+            {!started ? 'Pre-show lobby' : finished ? 'Premiere ended' : 'Premiere viewing'}
           </span>
         </div>
         <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
@@ -106,12 +78,13 @@ export default async function AhnikaPremierePage() {
           sound="/rooms/stage-golden-hour-surf-v2.wav"
           intro={lobbyIntro} />
       ) : video ? (
-        <StagePremiereVideo src={video} label="Ahnika Merlot performing Already Gone" />
+        <StagePremiereVideo src={video} label="Ahnika Merlot performing Already Gone"
+          kickoff={audience.kickoff} serverNow={serverNow} />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
-          <h2 className="font-heading text-2xl font-semibold">Playback temporarily unavailable</h2>
-          <p className="mt-3">Reload the page to try playback again.</p>
-          <a href="/events/ahnika-already-gone" className="mt-4 inline-block text-primary underline">Reload premiere page</a>
+          <h2 className="font-heading text-2xl font-semibold">Thanks for joining us on The Stage</h2>
+          <p className="mt-3">The premiere has ended. When a replay is published, eligible VIP members can find it in the recordings archive.</p>
+          <Link href="/vip/recordings" className="mt-4 inline-block text-primary underline">View VIP recordings</Link>
         </section>
       )}
           </div>
@@ -142,7 +115,8 @@ export default async function AhnikaPremierePage() {
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
-              conciergeDrafts={conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)} />
+              conciergeDrafts={conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)}
+              applauseFor={finished ? 'Ahnika Merlot' : undefined} />
           </div>
         ) : user ? (
           <p role="status">The audience room is temporarily unavailable.</p>

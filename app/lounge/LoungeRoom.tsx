@@ -65,6 +65,7 @@ type Props = {
   privateRoom?: boolean
   rehearsalDraftModerator?: boolean
   premiereDraftModerator?: boolean
+  applauseFor?: string
 }
 
 export function LoungeRoom({
@@ -79,6 +80,7 @@ export function LoungeRoom({
   privateRoom = false,
   rehearsalDraftModerator = false,
   premiereDraftModerator = false,
+  applauseFor,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
@@ -224,8 +226,8 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Send
   // ------------------------------------------------------------
-  async function send(asHostQuestion = false) {
-    const plain = input.trim()
+  async function send(asHostQuestion = false, reaction?: string) {
+    const plain = reaction ?? input.trim()
     const content = asHostQuestion ? `[Ask ${draftHost}] ${plain}` : plain
     if (!plain || sending || !canPost || content.length > 2000) return
 
@@ -245,7 +247,7 @@ export function LoungeRoom({
       created_at: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, optimistic])
-    setInput('')
+    if (!reaction) setInput('')
 
     try {
       const res = await fetch('/api/lounge/post', {
@@ -258,7 +260,7 @@ export function LoungeRoom({
       if (!res.ok) {
         // Roll back optimistic message
         setMessages((prev) => prev.filter((m) => m.id !== localId))
-        setInput(plain) // let them retry
+        if (!reaction) setInput(plain) // let them retry
         if (res.status === 429) {
           setError('Slow down — up to 10 messages per minute.')
         } else if (res.status === 403 && data.code === 'tier_insufficient') {
@@ -275,7 +277,7 @@ export function LoungeRoom({
       setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
-      setInput(plain)
+      if (!reaction) setInput(plain)
       setError(err?.message || 'Could not post.')
     } finally {
       setSending(false)
@@ -464,6 +466,12 @@ export function LoungeRoom({
         {canPost && conciergeDrafts && <button type="button" className="mt-2 text-sm text-primary underline disabled:opacity-50"
           disabled={sending || !input.trim() || input.trim().length > 1980}
           onClick={() => send(true)}>Ask a host</button>}
+        {canPost && applauseFor && (
+          <button type="button" className="ml-3 mt-2 text-sm text-primary underline disabled:opacity-50"
+            disabled={sending} onClick={() => send(false, `👏 Applause for ${applauseFor}!`)}>
+            Applaud {applauseFor}
+          </button>
+        )}
         <p className="mt-2 text-xs text-muted-foreground font-body text-center">
           Posting as{' '}
           <span className="text-foreground font-semibold">{displayName}</span>{' '}

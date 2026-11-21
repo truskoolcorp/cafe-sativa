@@ -61,6 +61,8 @@ type Props = {
   isStaff: boolean
   minPostTier: Tier
   initialMessages: Message[]
+  conciergeDrafts?: boolean
+  privateRoom?: boolean
 }
 
 export function LoungeRoom({
@@ -71,11 +73,15 @@ export function LoungeRoom({
   isStaff,
   minPostTier,
   initialMessages,
+  conciergeDrafts = false,
+  privateRoom = false,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [drafting, setDrafting] = useState(false)
+  const [draftHost, setDraftHost] = useState('ahnika')
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
@@ -167,6 +173,8 @@ export function LoungeRoom({
       )
       .subscribe()
 
+    // Never broadcast identities on the public presence channel for invite-only rooms.
+    if (privateRoom) return () => { void supabase.removeChannel(channel) }
     // Presence channel — separate from postgres_changes
     const presenceChannel = supabase.channel(`presence:lounge:${roomId}`, {
       config: { presence: { key: userId } },
@@ -194,7 +202,7 @@ export function LoungeRoom({
       supabase.removeChannel(channel)
       supabase.removeChannel(presenceChannel)
     }
-  }, [supabase, roomId, userId, displayName])
+  }, [supabase, roomId, userId, displayName, privateRoom])
 
   // ------------------------------------------------------------
   // Auto-scroll when messages grow AND user is at bottom
@@ -210,9 +218,10 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Send
   // ------------------------------------------------------------
-  async function send() {
-    const content = input.trim()
-    if (!content || sending || !canPost) return
+  async function send(asHostQuestion = false) {
+    const plain = input.trim()
+    const content = asHostQuestion ? `[Ask ${draftHost}] ${plain}` : plain
+    if (!plain || sending || !canPost || content.length > 2000) return
 
     setError(null)
     setSending(true)
@@ -243,7 +252,7 @@ export function LoungeRoom({
       if (!res.ok) {
         // Roll back optimistic message
         setMessages((prev) => prev.filter((m) => m.id !== localId))
-        setInput(content) // let them retry
+        setInput(plain) // let them retry
         if (res.status === 429) {
           setError('Slow down — up to 10 messages per minute.')
         } else if (res.status === 403 && data.code === 'tier_insufficient') {
@@ -260,7 +269,7 @@ export function LoungeRoom({
       setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
-      setInput(content)
+      setInput(plain)
       setError(err?.message || 'Could not post.')
     } finally {
       setSending(false)
@@ -296,13 +305,35 @@ export function LoungeRoom({
     }
   }
 
+  async function draftConciergeReply(message: Message) {
+    if (!conciergeDrafts || !isStaff || drafting || input.trim()) return
+    setDrafting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/lounge/concierge-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: message.id, rehearsal: privateRoom, host: message.content.startsWith('[Ask laviche] ') ? 'laviche' : 'ahnika' }),
+      })
+      const data = await res.json()
+      if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
+        throw new Error('Draft unavailable')
+      }
+      setInput(current => current.trim() ? current : `${data.attribution}: ${data.draft}`)
+    } catch {
+      setError('Could not draft a reply. You can still reply as moderator.')
+    } finally {
+      setDrafting(false)
+    }
+  }
+
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}
-      <div className="flex items-center gap-2 py-3 text-xs font-body text-muted-foreground border-b border-border">
+      {!privateRoom && <div className="flex items-center gap-2 py-3 text-xs font-body text-muted-foreground border-b border-border">
         <Users className="w-3.5 h-3.5 text-primary" />
         <span className="font-semibold text-foreground">
           {presenceCount}
@@ -315,9 +346,18 @@ export function LoungeRoom({
             {presenceCount > 5 && ` +${presenceCount - 5}`}
           </span>
         )}
-      </div>
+      </div>}
 
       {/* Message list */}
+      {conciergeDrafts && canPost && (
+        <label className="py-2 text-xs text-muted-foreground">
+          Ask <select className="rounded border border-border bg-background p-1"
+            value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={drafting}>
+            <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
+          </select>
+          {' '}· Host questions are visible to the room. A moderator reviews concierge replies.
+        </label>
+      )}
       <div
         ref={listRef}
         onScroll={handleListScroll}
@@ -336,6 +376,9 @@ export function LoungeRoom({
               message={m}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
+              onDraft={conciergeDrafts && isStaff && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+                ? () => draftConciergeReply(m) : undefined}
+              draftDisabled={drafting || Boolean(input.trim())}
             />
           ))
         )}
@@ -382,7 +425,7 @@ export function LoungeRoom({
               }}
             />
             <Button
-              onClick={send}
+              onClick={() => send()}
               disabled={sending || !input.trim()}
               className="shrink-0"
             >
@@ -396,6 +439,9 @@ export function LoungeRoom({
         ) : (
           <UpgradePrompt />
         )}
+        {canPost && conciergeDrafts && <button type="button" className="mt-2 text-sm text-primary underline disabled:opacity-50"
+          disabled={sending || !input.trim() || input.trim().length > 1980}
+          onClick={() => send(true)}>Ask a host</button>}
         <p className="mt-2 text-xs text-muted-foreground font-body text-center">
           Posting as{' '}
           <span className="text-foreground font-semibold">{displayName}</span>{' '}
@@ -410,10 +456,14 @@ function MessageRow({
   message,
   canDelete,
   onDelete,
+  onDraft,
+  draftDisabled,
 }: {
   message: Message
   canDelete: boolean
   onDelete: () => void
+  onDraft?: () => void
+  draftDisabled?: boolean
 }) {
   const time = new Date(message.created_at).toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -444,6 +494,8 @@ function MessageRow({
         <span className="text-[11px] text-muted-foreground font-body">
           {time}
         </span>
+        {onDraft && <button type="button" onClick={onDraft} disabled={draftDisabled}
+          className="text-xs text-primary underline disabled:opacity-50">Draft host reply</button>}
         {canDelete && (
           <button
             onClick={onDelete}

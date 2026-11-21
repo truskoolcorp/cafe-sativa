@@ -1,4 +1,4 @@
-"""Render the approved lobby still as an eight-second surf cinemagraph.
+"""Render the approved lobby still as an eight-second surf and candle loop.
 
 Run from the repository root with Python, Pillow, NumPy and FFmpeg.
 No network, generative provider, or stock audio is used.
@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter
 ROOMS = Path("public/rooms")
 POSTER = ROOMS / "stage-beach-terrace-v2.webp"
 POSTER_SHA = "4d7e14453c93815d2c79dca3b0f708b22413c20b"  # Git blob hash
-DURATION, FPS, RATE = 8, 24, 44100
+DURATION, FPS, RATE = 8, 24, 24000
 SIZE = 1008, 564
 
 
@@ -42,6 +42,20 @@ def surf_frames(still):
     crest_phase = 2 * np.pi * (depth + 0.12 * depth ** 2)
     base = np.array(still)
     tint = np.array([1.0, 0.95, 0.79], dtype=np.float32)
+    # Flame centers on the existing candles, not on the electric lighting.
+    candles = [(27, 716, 1.0), (192, 416, 0.48), (321, 393, 0.36),
+               (557, 505, 0.88), (593, 427, 0.46), (869, 427, 0.42),
+               (946, 446, 0.52), (1110, 505, 0.80)]
+    spots = []
+    for cx, cy, size in candles:
+        bx0, bx1 = max(0, cx - 22), min(still.width, cx + 23)
+        by0, by1 = max(0, cy - 20), min(still.height, cy + 23)
+        gy, gx = np.mgrid[by0:by1, bx0:bx1].astype(np.float32)
+        dx, dy = (gx - cx) / size, (gy - cy) / size
+        falloff = np.exp(-0.5 * ((dx / 8) ** 2 + (dy / 9) ** 2))
+        reflection = np.exp(-0.5 * ((dx / 10.5) ** 2 + ((dy - 12) / 3.2) ** 2))
+        spots.append((slice(by0, by1), slice(bx0, bx1), dx, dy, falloff, reflection))
+    amber = np.array([1.0, 0.69, 0.36], dtype=np.float32)
 
     for n in range(FPS * DURATION):
         t = 2 * np.pi * n / (FPS * DURATION)
@@ -61,6 +75,16 @@ def surf_frames(still):
         water += foam[..., None] * tint
         update = band + blend[..., None] * (water - band)
         patch[y0:y1, x0:x1] = np.uint8(np.clip(np.rint(update), 0, 255))
+        for i, (sy, sx, dx, dy, glow, reflection) in enumerate(spots):
+            p = 1.83 * i
+            flutter = (0.48 * np.sin((7 + i % 3) * t + p)
+                       + 0.31 * np.sin((13 + i % 5) * t - 1.4 * p)
+                       + 0.14 * np.sin((23 + i % 4) * t + 0.9 * p))
+            sway = 0.65 * np.sin((9 + i % 3) * t + 1.3 * p)
+            core = np.exp(-0.5 * (((dx - sway) / 2.3) ** 2 + ((dy + flutter) / 4) ** 2))
+            still_core = np.exp(-0.5 * ((dx / 2.3) ** 2 + (dy / 4) ** 2))
+            change = flutter * (30 * core + 13 * glow + 6 * reflection) + 12 * (core - still_core)
+            patch[sy, sx] = np.uint8(np.clip(np.rint(base[sy, sx] + change[..., None] * amber), 0, 255))
         yield Image.fromarray(patch).resize(SIZE, Image.Resampling.LANCZOS).tobytes()
 
 
@@ -97,14 +121,17 @@ def encode_sound():
     hush = (0.50 + 0.50 * np.cos(2 * t - 1.25 + 0.33 * np.sin(t))) ** 2.8
     wash = noise(45, 380) * (0.44 + 0.66 * swell)
     foam = noise(240, 1650) * (0.10 + 0.44 * hush)
-    side = noise(120, 840) * 0.22
-    stereo = np.stack((wash + foam + side, wash + foam - side), axis=1)
-    stereo *= 0.17 / np.max(np.abs(stereo))
+    surf = wash + foam
+    surf *= 0.17 / np.max(np.abs(surf))
+    # Rotate the periodic waveform to a quiet zero crossing. PCM stores the
+    # exact sample count without encoder delay, padding, or a loop gap.
+    head = RATE // 6
+    seam = np.abs(surf - np.roll(surf, 1)) + 0.20 * np.abs(surf)
+    surf = np.roll(surf, -int(np.argmin(seam[:head])))
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", "2",
-         "-i", "pipe:0", "-c:a", "libmp3lame", "-b:a", "80k",
-         str(ROOMS / "stage-golden-hour-surf-v1.mp3")],
-        input=stereo.astype("<f4").tobytes(), check=True,
+        ["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", "1",
+         "-i", "pipe:0", "-c:a", "pcm_s16le", str(ROOMS / "stage-golden-hour-surf-v2.wav")],
+        input=surf.astype("<f4").tobytes(), check=True,
     )
 
 
@@ -114,11 +141,11 @@ def main():
     if checksum != POSTER_SHA:
         raise ValueError("Ocean masks require the exact approved lobby frame")
     still = Image.open(POSTER).convert("RGB")
-    encode_video(still, "stage-golden-hour-surf-v1.mp4",
+    encode_video(still, "stage-golden-hour-surf-v2.mp4",
                  ["-vf", "addroi=x=38:y=250:w=144:h=45:qoffset=-0.28",
                   "-c:v", "libx264", "-crf", "21", "-preset", "slow",
                   "-tune", "grain", "-movflags", "+faststart"])
-    encode_video(still, "stage-golden-hour-surf-v1.webm",
+    encode_video(still, "stage-golden-hour-surf-v2.webm",
                  ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "22", "-cpu-used", "2",
                   "-lag-in-frames", "0", "-auto-alt-ref", "0"])
     encode_sound()

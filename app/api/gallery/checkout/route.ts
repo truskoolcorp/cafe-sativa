@@ -200,10 +200,11 @@ export async function POST(req: Request) {
   try {
     if (shipping) {
       const rate = await stripe.shippingRates.retrieve(shipping.rateId)
+      const amount = rate.fixed_amount
       if (rate.id !== shipping.rateId || !rate.active || rate.type !== 'fixed_amount' ||
-          rate.fixed_amount?.currency !== currency || rate.fixed_amount.amount !== shipping.amountCents ||
+          !amount || amount.currency !== currency || amount.amount !== shipping.amountCents ||
           // Alternate currency amounts are not part of this reviewed quote.
-          Object.keys(rate.fixed_amount.currency_options ?? {}).some(option => option !== currency)) {
+          Object.keys(amount.currency_options ?? {}).some(option => option !== currency)) {
         return shippingUnavailable()
       }
     }

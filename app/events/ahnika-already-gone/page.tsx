@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import ScheduledPremierePlayer from '@/components/events/ScheduledPremierePlayer'
+import { scheduledPlayback } from '@/lib/events/scheduled-playback'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -59,11 +60,9 @@ export default async function AhnikaPremierePage() {
   if (!Number.isFinite(Date.parse(startsAt)) ||
       (rehearsal ? event.title !== 'Ahnika Merlot — Already Gone (isolated rehearsal)'
         : Date.parse(event.starts_at) !== Date.parse(publicStartsAt))) notFound()
-  const now = Date.now()
-  const endsAt = new Date(Date.parse(startsAt) + 99_700).toISOString()
-  const started = now >= Date.parse(startsAt)
-  const ended = now >= Date.parse(endsAt)
-  const video = started && !ended ? await premiereVideo(rehearsal) : null
+  const durationMs = 99_700
+  const admission = scheduledPlayback(startsAt, durationMs, Date.now())
+  const signedVideo = admission.phase === 'premiere' ? await premiereVideo(rehearsal) : null
 
   const { data: auth } = await supabase.auth.getUser()
   const user = auth.user
@@ -75,6 +74,11 @@ export default async function AhnikaPremierePage() {
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
   ]) : [{ data: null }, { data: null }, { data: null }]
+  const serverNow = Date.now()
+  const phase = scheduledPlayback(startsAt, durationMs, serverNow).phase
+  const started = phase !== 'lobby'
+  const ended = phase === 'ended'
+  const video = phase === 'premiere' ? signedVideo : null
 
   return (
     <main className="mx-auto min-h-screen max-w-screen-2xl space-y-6 px-4 pb-16 pt-28 sm:px-8">
@@ -95,11 +99,11 @@ export default async function AhnikaPremierePage() {
         </div>
         <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
           <div className="min-w-0 p-4 sm:p-5">
-      {!started && <StagePremiereRefresh startsAt={startsAt} />}
+      {!ended && admission.phase === 'lobby' && <StagePremiereRefresh startsAt={startsAt} />}
       {ended ? (
         <p>This premiere has ended. <Link href="/vip/recordings" className="text-primary underline">Visit the VIP replay archive</Link>.</p>
       ) : video ? (
-        <ScheduledPremierePlayer src={video} startsAt={startsAt} endsAt={endsAt} />
+        <ScheduledPremierePlayer src={video} startsAt={startsAt} durationMs={durationMs} serverNow={serverNow} />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
           <h2 className="font-heading text-2xl font-semibold">{started ? 'Playback temporarily unavailable' : 'Premiere lobby'}</h2>

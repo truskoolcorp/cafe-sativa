@@ -34,10 +34,16 @@ const preflight=createSpeechProbeHandler({
     waitForProvider=provider.whenSettled
     const db=createAdminClient(network.fetch)
     const store=createIncludedOperationStore(candidate,db.storage,signal)
-    const [observation]=await Promise.all([provider.inspect(),store.preflight()])
+    const [observation,,prior]=await Promise.all([
+     provider.inspect(),store.preflight(),
+     db.storage.from('cafe-sativa-characters').list(`production-speech-operations/${stageLavicheSpeech.key}`,{limit:1}),
+    ])
     signal.throwIfAborted()
+    if(prior.error||!Array.isArray(prior.data))throw Error('operation_history_unconfirmed')
+    const unused=prior.data.length===0
     return {
-     status:'read_only_preflight', canonicalRevision:canon.revision_sha256,
+     status:unused?'read_only_preflight':'reconcile_existing_operation',
+     operationUnused:unused,canonicalRevision:canon.revision_sha256,
      pinnedRevisionMatches:configured?.canonicalRevision===canon.revision_sha256,
      scopeActive:Date.now()<stageLavicheSpeech.expiresAt,
      armed:process.env.CS_STAGE_LAVICHE_SPEECH_ENABLED==='true',

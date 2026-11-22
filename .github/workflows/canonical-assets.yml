@@ -1,0 +1,30 @@
+name: Café Sativa Canonical Asset Resolver QA
+on:
+  pull_request:
+    paths:
+      - 'lib/canonical-asset-resolver.ts'
+      - 'tests/canonical-asset-resolver.test.ts'
+      - 'lib/zaria-voice-guard.ts'
+      - 'tests/zaria-voice-guard.test.ts'
+      - 'lib/private-character-assets.ts'
+      - 'lib/content/zaria-render-preflight.ts'
+      - 'lib/content/zaria-render-approval.ts'
+      - 'lib/content/zaria-dispatch-readiness.ts'
+      - 'tests/zaria-dispatch-readiness.test.ts'
+      - 'tests/zaria-render-preflight.test.ts'
+      - 'app/api/content/glyph/zaria-preflight/route.ts'
+      - 'tests/private-character-assets.test.ts'
+      - '.github/workflows/canonical-assets.yml'
+  workflow_dispatch:
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run fail-closed asset resolver tests (mocked, no production credentials)
+        run: node --experimental-strip-types --test tests/canonical-asset-resolver.test.ts tests/zaria-voice-guard.test.ts tests/private-character-assets.test.ts tests/zaria-render-preflight.test.ts tests/zaria-dispatch-readiness.test.ts

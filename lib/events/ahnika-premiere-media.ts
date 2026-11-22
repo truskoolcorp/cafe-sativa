@@ -7,7 +7,11 @@ export const CLEAN_REHEARSAL_OBJECT = 'Cafe-Sativa-Private-Rehearsal-Clean-Run.m
 const CLEAN_REHEARSAL_ORIGIN = 'https://nwfxvhqbjtfvoopcadff.supabase.co'
 const CLEAN_REHEARSAL_PATH = `/storage/v1/object/sign/cafe-sativa-content/${CLEAN_REHEARSAL_OBJECT}`
 const CLEAN_REHEARSAL_BYTES = 37_583_936
-export const CLEAN_REHEARSAL_SLOT = '2026-11-22T20:17:00Z'
+const ORIGINAL_CLEAN_REHEARSAL_SLOT = '2026-11-22T20:17:00Z'
+
+export function isCleanRehearsalSlot(slot: { onDemand: boolean; startsAt: string }, env: Record<string, string | undefined>) {
+  return slot.onDemand && slot.startsAt === (env.STAGE_PRIVATE_PROD_CLEAN_PLAYBACK_STARTS_AT ?? ORIGINAL_CLEAN_REHEARSAL_SLOT)
+}
 const NO_STORE = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }
 
 type Dependencies = {

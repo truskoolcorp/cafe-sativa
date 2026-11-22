@@ -101,14 +101,16 @@ export function LoungeRoom({
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
+  const [postingName, setPostingName] = useState(displayName)
+  useEffect(() => { setPostingName(displayName) }, [displayName, roomId])
   const namesByUser = useMemo(() => {
     const names = new Map<string, string>()
     for (const message of messages) {
       names.set(message.user_id, loungeDisplayName(message.author_name, roomId, message.user_id))
     }
-    names.set(userId, displayName)
+    names.set(userId, postingName)
     return names
-  }, [messages, roomId, userId, displayName])
+  }, [messages, roomId, userId, postingName])
   const duplicateNames = useMemo(() => {
     const seen = new Set<string>()
     const duplicates = new Set<string>()
@@ -228,7 +230,7 @@ export function LoungeRoom({
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ name: displayName })
+          await presenceChannel.track({ name: postingName })
         }
       })
 
@@ -236,7 +238,7 @@ export function LoungeRoom({
       supabase.removeChannel(channel)
       supabase.removeChannel(presenceChannel)
     }
-  }, [supabase, roomId, userId, displayName, privateRoom])
+  }, [supabase, roomId, userId, postingName, privateRoom])
 
   // ------------------------------------------------------------
   // Auto-scroll when messages grow AND user is at bottom
@@ -267,7 +269,7 @@ export function LoungeRoom({
     const optimistic: Message = {
       id: localId,
       user_id: userId,
-      author_name: displayName,
+      author_name: postingName,
       author_tier: tier,
       is_staff: isStaff,
       content,
@@ -304,7 +306,11 @@ export function LoungeRoom({
       if (typeof data?.id !== 'string' || typeof data?.created_at !== 'string') {
         throw new Error('Could not confirm the post. Check the conversation before trying again.')
       }
-      setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
+      const authorName = typeof data.author_name === 'string'
+        ? loungeDisplayName(data.author_name, roomId, userId) : postingName
+      const receipt = { id: data.id, created_at: data.created_at, author_name: authorName }
+      setPostingName(authorName)
+      setMessages((prev) => confirmLoungeMessage(prev, localId, receipt))
       if (asHostQuestion) {
         setPostStatus(`Question for ${hostName} posted in this room. A moderator reviews concierge replies before they appear.`)
       }
@@ -537,7 +543,7 @@ export function LoungeRoom({
         )}
         <p className="mt-2 text-xs text-muted-foreground font-body text-center">
           Posting as{' '}
-          <span className="text-foreground font-semibold">{displayName}</span>{' '}
+          <span className="text-foreground font-semibold">{postingName}</span>{' '}
           &middot; Enter to send, Shift+Enter for newline
         </p>
       </div>

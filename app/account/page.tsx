@@ -244,6 +244,9 @@ export default function AccountPage() {
                   <p className="font-heading text-lg font-bold text-foreground mt-1">
                     {email || 'Unknown user'}
                   </p>
+                  {process.env.NEXT_PUBLIC_LOUNGE_USERNAMES_ENABLED === 'true' && (
+                    <Link href="/account/chat-username" className="mt-2 inline-block text-sm text-primary underline">Manage chat username</Link>
+                  )}
                 </div>
                 {(membership.isStaff || membership.isAdmin) && (
                   <div className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/5 px-3 py-1.5">

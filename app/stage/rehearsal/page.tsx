@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeDisplayName } from '@/lib/lounge-speaker'
+import { readLoungeUsername } from '@/lib/lounge-usernames'
 import { createClient } from '@/lib/supabase/server'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
@@ -21,7 +22,8 @@ export default async function Rehearsal() {
   const { data: room } = await db.from('lounge_rooms')
     .select('id').eq('id', PRIVATE_STAGE_REHEARSAL_ROOM).maybeSingle()
   if (!room) notFound()
-  const [profile, messages] = await Promise.all([
+  const [username, profile, messages] = await Promise.all([
+    readLoungeUsername(db, user.id),
     db.from('profiles').select('display_name,is_staff,is_admin').eq('id', user.id).maybeSingle(),
     db.from('lounge_messages').select('id,user_id,author_name,author_tier,is_staff,content,created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
@@ -49,7 +51,7 @@ export default async function Rehearsal() {
         <p role="status">The rehearsal playback window has ended. The private chat remains available for invited participants.</p>
       ))}
       <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
-        <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}
+        <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(username ?? profile.data?.display_name, room.id, user.id)}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
           rehearsalDraftModerator={invitation.can_draft === true} />

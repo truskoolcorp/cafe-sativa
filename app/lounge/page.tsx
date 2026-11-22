@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { LoungeRoom } from './LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { loungeDisplayName } from '@/lib/lounge-speaker'
+import { readLoungeUsername } from '@/lib/lounge-usernames'
 
 /**
  * /lounge — the member chat room.
@@ -81,7 +82,8 @@ async function loadLoungeData() {
   }
 
   // Determine tier + staff
-  const [{ data: membership }, { data: profile }] = await Promise.all([
+  const [username, { data: membership }, { data: profile }] = await Promise.all([
+    readLoungeUsername(supabase, user.id),
     supabase
       .from('memberships')
       .select('tier, status, current_period_end')
@@ -120,7 +122,7 @@ async function loadLoungeData() {
     messages: initialMessages,
     tier,
     isStaff,
-    displayName: loungeDisplayName(profile?.display_name, room.id, user.id),
+    displayName: loungeDisplayName(username ?? profile?.display_name, room.id, user.id),
   }
 }
 

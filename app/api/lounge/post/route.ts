@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { loungeDisplayName } from '@/lib/lounge-speaker'
+import { loungeUsernamesEnabled } from '@/lib/lounge-usernames'
 import { AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } from '@/lib/events/ahnika-premiere-window'
 
 /**
@@ -142,7 +143,13 @@ export async function POST(req: Request) {
     .eq('user_id', authData.user.id)
     .maybeSingle()
 
-  const authorName = loungeDisplayName(profile?.display_name, body.room_id, authData.user.id)
+  const username = loungeUsernamesEnabled && !authData.user.is_anonymous
+    ? (await supabase.rpc('save_lounge_username', { p_username: null })).data
+    : null
+  if (loungeUsernamesEnabled && typeof username !== 'string') {
+    return NextResponse.json({ error: 'Couldn’t verify your chat username. Please try again shortly.', code: 'username_unavailable' }, { status: 503 })
+  }
+  const authorName = loungeDisplayName(typeof username === 'string' ? username : profile?.display_name, body.room_id, authData.user.id)
   const authorTier = loungeMembershipTier(membership)
   const isStaff = Boolean(profile?.is_staff || profile?.is_admin)
 
@@ -156,7 +163,7 @@ export async function POST(req: Request) {
       is_staff: isStaff,
       content,
     })
-    .select('id, created_at')
+    .select('id, created_at, author_name')
     .single()
 
   if (insertError) {
@@ -190,5 +197,5 @@ export async function POST(req: Request) {
     )
   }
 
-  return NextResponse.json({ id: inserted.id, created_at: inserted.created_at })
+  return NextResponse.json({ id: inserted.id, created_at: inserted.created_at, author_name: inserted.author_name ?? authorName })
 }

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto'
 import {verifyIncludedSpeechReceipt} from './character-production-speech-receipt.ts'
 import type {IncludedSpeechOperation,IncludedOperationStore} from './character-production-included-speech-operation.ts'
+import {stageLavicheSpeech} from './character-production-stage-laviche-policy.ts'
 type ReadStore=Pick<IncludedOperationStore,'preflight'|'readClaim'|'readProviderReceipt'|'readReceipt'|'readAudio'>
 /** Fixed operation only. Authenticated private bytes, never signed URLs/provider calls. */
 export function createPrivateSpeechPlayback(s:IncludedSpeechOperation,d:{authorize():Promise<boolean>;open(signal:AbortSignal):{store:ReadStore;whenSettled():Promise<void>};timeoutMs?:number;authMs?:number}){
@@ -21,7 +22,8 @@ export function createPrivateSpeechPlayback(s:IncludedSpeechOperation,d:{authori
    if(life.signal.aborted)throw Error('Cancelled')
    const bytes=await opened.store.readAudio(receipt.audioSha256,receipt.audioBytes)
    if(life.signal.aborted||bytes.length!==receipt.audioBytes||createHash('sha256').update(bytes).digest('hex')!==receipt.audioSha256)throw Error('Audio changed after receipt verification')
-   return new Response(Uint8Array.from(bytes),{status:200,headers:{...headers,'Content-Type':'audio/mpeg','Content-Length':String(bytes.length),'Content-Disposition':'inline; filename="zaria-look-again-private.mp3"','Accept-Ranges':'none'}})
+   const filename=scope.key===stageLavicheSpeech.key?'stage-laviche-intro-private.mp3':'zaria-look-again-private.mp3'
+   return new Response(Uint8Array.from(bytes),{status:200,headers:{...headers,'Content-Type':'audio/mpeg','Content-Length':String(bytes.length),'Content-Disposition':`inline; filename="${filename}"`,'Accept-Ranges':'none'}})
   })()
   void task.finally(()=>opened?.whenSettled()).catch(()=>{})
   try{return await Promise.race([task,new Promise<Response>(resolve=>{

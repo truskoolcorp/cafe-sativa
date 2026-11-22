@@ -9,7 +9,7 @@ const code = ts.transpileModule(fs.readFileSync('app/api/lounge/concierge-draft/
 const id = '00000000-0000-4000-8000-000000000001'
 async function fixture({ enabled = true, staff = true, source = true, origin = 'https://preview.test', claimError = null,
   privateEnabled = false, rehearsal = false, invited = false, canDraft = false, windowOpen = true, publicGrant = false,
-  dryRun = false, paused = true } = {}) {
+  dryRun = false, paused = true, performing = false, startsDuringDraft = false } = {}) {
   const exports = {}
   let calls = 0
   let claims = 0
@@ -36,6 +36,7 @@ async function fixture({ enabled = true, staff = true, source = true, origin = '
   const modules = {
     '@anthropic-ai/sdk': class { messages = { create: async args => {
       calls++; providerRequest = args
+      if (startsDuringDraft) performing = true
       return { content: [{ type: 'text', text: 'Welcome to The Stage.' }] }
     } } },
     'next/server': { NextResponse: { json: (body, options) => ({ body, ...options }) } },
@@ -45,6 +46,7 @@ async function fixture({ enabled = true, staff = true, source = true, origin = '
     '@/lib/concierge/response-engine': { CONCIERGE_MODEL: 'fixture' },
     '@/lib/events/private-stage-rehearsal': { PRIVATE_STAGE_REHEARSAL_ROOM: '5cafe000-0000-4000-8000-000000000001' },
     '@/lib/events/ahnika-premiere-window': { ahnikaConciergeWindowOpen: () => windowOpen, AHNIKA_PREMIERE_START: '2026-12-01T06:00:00Z' },
+    '@/lib/events/stage-host-availability': { stageHostIsPerforming: host => host === 'ahnika' && performing, STAGE_HOST_ON_STAGE: 'Ahnika is on The Stage.' },
     '@/lib/events/stage-auto-reply': { decideStageAutoReply: ({ paused, facts }) => {
       assert.ok(facts)
       assert.equal(facts.vipReplayPublished, false)
@@ -81,6 +83,16 @@ test('public concierge refuses drafts outside the premiere window before any pro
   const r = await fixture({ windowOpen: false })
   assert.equal(r.response.status, 409)
   assert.equal(r.calls, 0)
+})
+test('a public Ahnika draft is blocked on stage and never delivered across kickoff', async () => {
+  const onStage = await fixture({ performing: true })
+  assert.equal(onStage.response.status, 409)
+  assert.equal(onStage.calls, 0)
+  assert.equal(onStage.claims, 0)
+  const crossing = await fixture({ startsDuringDraft: true })
+  assert.equal(crossing.calls, 1)
+  assert.equal(crossing.response.status, 409)
+  assert.equal(crossing.response.body.draft, undefined)
 })
 test('event-only grant permits a non-staff moderator but not outside the public window', async () => {
   assert.equal((await fixture({ staff: false, publicGrant: true })).response.status, 200)

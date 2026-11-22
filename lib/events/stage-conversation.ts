@@ -3,7 +3,8 @@ import { generateConciergeResponse, type ConciergeMessage } from '@/lib/concierg
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getUpcomingEvents } from '@/lib/events'
 import { voiceProgrammingContext } from '@/lib/concierge/programming'
-import { safeStageConversationText, stageConversationOutcome, STAGE_CONVERSATION_RULES } from './stage-conversation-policy'
+import { safeStageConversationText, stageConversationOutcome, STAGE_CONVERSATION_RULES, qualifyAhnikaPremiereTime } from './stage-conversation-policy'
+import { AHNIKA_PREMIERE_SLUG, isCanonicalAhnikaPremiere } from './ahnika-premiere-window'
 
 const stageReplySchema = {
   type: 'object',
@@ -15,11 +16,12 @@ const stageReplySchema = {
   additionalProperties: false,
 }
 
-export async function answerSoloStageQuestion(input: {
+export async function answerStageQuestion(input: {
   host: 'ahnika' | 'laviche'
   persona: string
   question: string
   history: ConciergeMessage[]
+  publicPremiere?: true
 }) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
@@ -36,9 +38,13 @@ export async function answerSoloStageQuestion(input: {
     return null
   }
   const provider = new Anthropic({ apiKey, timeout: 12000, maxRetries: 0 })
+  const knownPremiere = input.publicPremiere === true || events.some(event => event.slug === AHNIKA_PREMIERE_SLUG && isCanonicalAhnikaPremiere(event))
+  const context = input.publicPremiere
+    ? 'This is private attendee Q&A during the scheduled Stage premiere. For this verified room, Ahnika Merlot’s “Already Gone” starts Tuesday, December 1, 2026 at midnight Central. Watching is free and joining attendee chat requires signing in. The premiere and its live audience chat are distinct. Ahnika does not answer while she is on stage. Never claim to see or hear the audience or to have taken moderation actions.'
+    : 'This is a solo rehearsal. The current viewer can start, pause and rewind their own playback without affecting the public premiere or anyone else. No moderator is on duty for this test. The rehearsal is not the scheduled public premiere.'
   try {
     const result = await generateConciergeResponse({
-      hostSystemPrompt: `${input.persona}\n\n${STAGE_CONVERSATION_RULES}`,
+      hostSystemPrompt: `${input.persona}\n\n${STAGE_CONVERSATION_RULES}\n${context}`,
       canonicalContext: canonical.context,
       liveProgramming: voiceProgrammingContext(events),
       messages: [...input.history, { role: 'user', content: input.question }],
@@ -47,7 +53,10 @@ export async function answerSoloStageQuestion(input: {
       output_config: { format: { type: 'json_schema', schema: stageReplySchema } },
     }))
     const answer = stageConversationOutcome(result)
-    if (answer.action === 'answer') return answer.reply
+    if (answer.action === 'answer') {
+      const reply = knownPremiere ? qualifyAhnikaPremiereTime(answer.reply) : answer.reply
+      return safeStageConversationText(reply) ? reply : null
+    }
     console.info('[stage-conversation] completion_held', answer.action)
     return null
   } catch (error) {

@@ -7,7 +7,8 @@ import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
 import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
 import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
 import { safeStageConversationText } from '@/lib/events/stage-conversation-policy'
-import { answerSoloStageQuestion } from '@/lib/events/stage-conversation'
+import { answerStageQuestion } from '@/lib/events/stage-conversation'
+import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } from '@/lib/events/ahnika-premiere-window'
 import type { ConciergeMessage } from '@/lib/concierge/response-engine'
 
 export const dynamic = 'force-dynamic'
@@ -20,12 +21,28 @@ const unavailable = () => json({ error: 'Stage questions are temporarily unavail
 
 // Resolve all access with the attendee's own session before invoking a privileged client.
 async function roomAccess(roomId: unknown) {
-  if (roomId !== PRIVATE_STAGE_REHEARSAL_ROOM) return { error: json({ error: 'Stage room unavailable.' }, 404) }
+  if (typeof roomId !== 'string' || !uuid.test(roomId)) return { error: json({ error: 'Stage room unavailable.' }, 404) }
+  const rehearsal = roomId === PRIVATE_STAGE_REHEARSAL_ROOM
+  if (!rehearsal && process.env.STAGE_PREMIERE_HOST_CHAT_ENABLED !== 'true') {
+    return { error: json({ error: 'Stage room unavailable.' }, 404) }
+  }
   const db = createClient()
   const { data: { user } } = await db.auth.getUser()
   if (!user || user.is_anonymous) return { error: json({ error: 'Sign in to use Stage questions.' }, 401) }
-  const { data: room, error: roomError } = await db.from('lounge_rooms').select('id').eq('id', roomId).maybeSingle()
+  const roomQuery = db.from('lounge_rooms').select('id').eq('id', roomId)
+  const { data: room, error: roomError } = await (rehearsal ? roomQuery : roomQuery.eq('slug', AHNIKA_PREMIERE_SLUG)).maybeSingle()
   if (roomError || !room) return { error: json({ error: 'Stage room unavailable.' }, 404) }
+
+  if (!rehearsal) {
+    const { data: event, error } = await db.from('my_events_v').select('starts_at,presenter_name,ticket_price_cents,status')
+      .eq('slug', AHNIKA_PREMIERE_SLUG).maybeSingle()
+    const phase = event && !error ? ahnikaAudiencePhase(event) : 'closed'
+    if (phase !== 'mingling' && phase !== 'hosted') return { error: json({ error: 'Premiere Q&A is closed.' }, 404) }
+    const { data: grant } = await db.from('stage_premiere_reply_moderators').select('user_id')
+      .eq('user_id', user.id).eq('room_id', roomId).maybeSingle()
+    return { attendeeId: user.id, roomId, moderator: Boolean(grant), startsAt: event!.starts_at,
+      threadFrom: new Date(AHNIKA_AUDIENCE_SCHEDULE.doors).toISOString(), solo: false, publicPremiere: true as const }
+  }
 
   const { data: invite } = await db.from('stage_rehearsal_invites').select('can_draft,expires_at')
     .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
@@ -38,7 +55,8 @@ async function roomAccess(roomId: unknown) {
   if (!solo && (process.env.VERCEL_ENV === 'production' || process.env.STAGE_HOST_INBOX_ENABLED !== 'true')) {
     return { error: json({ error: 'Stage questions are closed.' }, 404) }
   }
-  return { attendeeId: user.id, roomId, moderator: !solo && invite.can_draft === true, startsAt: slot.startsAt, solo }
+  return { attendeeId: user.id, roomId, moderator: !solo && invite.can_draft === true,
+    startsAt: slot.startsAt, threadFrom: slot.startsAt, solo, publicPremiere: false as const }
 }
 
 export async function GET(request: Request) {
@@ -49,9 +67,10 @@ export async function GET(request: Request) {
     const admin = createAdminClient()
     const [mine, pending] = await Promise.all([
       admin.from(inbox).select(itemFields).eq('room_id', access.roomId).eq('attendee_id', access.attendeeId)
+        .gte('created_at', access.threadFrom)
         .order('created_at', { ascending: false }).limit(30),
       access.moderator ? admin.from(inbox).select(itemFields).eq('room_id', access.roomId)
-        .is('answer', null).order('created_at').limit(40) : Promise.resolve({ data: [], error: null }),
+        .gte('created_at', access.threadFrom).is('answer', null).order('created_at').limit(40) : Promise.resolve({ data: [], error: null }),
     ])
     if (mine.error || pending.error) return unavailable()
     return json({ mine: mine.data, pending: pending.data, moderator: access.moderator })
@@ -76,7 +95,7 @@ export async function POST(request: Request) {
     // solo path runs the persona only after the private insert wins dedup/rate checks.
     const decision = decideStageAutoReply({ question, host: host.id as 'laviche' | 'ahnika',
       facts: { startsAt: access.startsAt, format: 'scheduled-premiere', enableSoundControl: false, vipReplayPublished: false },
-      enabled: !access.solo && process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
+      enabled: !access.solo && !access.publicPremiere && process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
         (!laviche || process.env.STAGE_LAVICHE_MODERATOR_ENABLED === 'true'), paused: false })
     const canonical = decision.action === 'eligible'
       ? await canonicalConciergeHost(host.id, AbortSignal.timeout(2500)).catch(() => null) : null
@@ -90,10 +109,16 @@ export async function POST(request: Request) {
     }
     if (error) return unavailable()
     if (data) {
-      if (access.solo && safeStageConversationText(question)) {
+      if ((access.solo || access.publicPremiere) && safeStageConversationText(question)) {
+        if (access.publicPremiere) {
+          const claim = await admin.rpc('claim_stage_premiere_conversation', {
+            p_question_id: data.id, p_room_id: access.roomId, p_attendee_id: access.attendeeId,
+          }).then(value => value, () => null)
+          if (claim?.error || claim?.data !== true) return json({ item: data }, 201)
+        }
         const prior = await admin.from(inbox).select('question,answer').eq('room_id', access.roomId)
           .eq('attendee_id', access.attendeeId).eq('host', host.id).eq('answer_source', 'verified_host')
-          .gte('created_at', access.startsAt).lt('created_at', data.created_at)
+          .gte('created_at', access.threadFrom).lt('created_at', data.created_at)
           .order('created_at', { ascending: false }).limit(4)
         if (prior.error) {
           console.info('[stage-conversation] scoped_history_unavailable')
@@ -103,13 +128,16 @@ export async function POST(request: Request) {
           typeof row.answer === 'string' && !row.answer.startsWith('Automated test reply:') &&
           safeStageConversationText(row.question) && safeStageConversationText(row.answer)
             ? [{ role: 'user', content: row.question }, { role: 'assistant', content: row.answer }] : [])
-        const reply = await answerSoloStageQuestion({ host: body.host, persona: host.system_prompt, question, history }).catch(() => {
+        const reply = await answerStageQuestion({ host: body.host, persona: host.system_prompt, question, history,
+          ...(access.publicPremiere ? { publicPremiere: true } : {}),
+        }).catch(() => {
           console.info('[stage-conversation] dependencies_unavailable')
           return null
         })
         if (reply && !stageHostIsPerforming(host.id)) {
           const current = await roomAccess(access.roomId)
-          if (current.solo && current.attendeeId === access.attendeeId && current.startsAt === access.startsAt) {
+          if ((access.publicPremiere ? current.publicPremiere : current.solo) &&
+              current.attendeeId === access.attendeeId && current.startsAt === access.startsAt && !stageHostIsPerforming(host.id)) {
             const saved = await admin.from(inbox).update({ answer: reply, answer_source: 'verified_host' })
               .eq('id', data.id).eq('room_id', access.roomId).eq('attendee_id', access.attendeeId)
               .eq('host', host.id).is('answer', null).select(itemFields).maybeSingle()
@@ -130,7 +158,7 @@ export async function POST(request: Request) {
       return json({ item: data }, 201)
     }
     const existing = await admin.from(inbox).select(itemFields).eq('id', body.id)
-      .eq('room_id', access.roomId).eq('attendee_id', access.attendeeId).maybeSingle()
+      .eq('room_id', access.roomId).eq('attendee_id', access.attendeeId).gte('created_at', access.threadFrom).maybeSingle()
     if (existing.error) return unavailable()
     if (existing.data?.host !== host.id || existing.data?.question !== question) return json({ error: 'Question could not be confirmed.' }, 409)
     return json({ item: existing.data })
@@ -150,7 +178,7 @@ export async function PATCH(request: Request) {
     if (!access.moderator) return json({ error: 'Moderator access required.' }, 403)
     const { data, error } = await createAdminClient().from(inbox)
       .update({ answer, answer_source: 'moderator', resolved_by: access.attendeeId })
-      .eq('room_id', access.roomId).eq('id', body.id).is('answer', null).select('id').maybeSingle()
+      .eq('room_id', access.roomId).eq('id', body.id).gte('created_at', access.threadFrom).is('answer', null).select('id').maybeSingle()
     if (error) return unavailable()
     return data ? json({ resolved: true }) : json({ error: 'Question is no longer pending.' }, 409)
   } catch { return unavailable() }

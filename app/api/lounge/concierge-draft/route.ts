@@ -7,6 +7,7 @@ import { CONCIERGE_MODEL } from '@/lib/concierge/response-engine'
 import { PRIVATE_STAGE_REHEARSAL_ROOM } from '@/lib/events/private-stage-rehearsal'
 import { AHNIKA_PREMIERE_START, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
 import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
+import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
 
 const slug = 'ahnika-already-gone'
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
   if (!rehearsal && (!('starts_at' in event.data) || !ahnikaConciergeWindowOpen(event.data))) {
     return reply({ error: 'Premiere Q&A is closed.' }, 409)
   }
+  if (!rehearsal && stageHostIsPerforming(host.id)) return reply({ error: STAGE_HOST_ON_STAGE }, 409)
   if (dryRun) {
     const { data: fixture } = await db.from('my_events_v')
       .select('starts_at,presenter_name,ticket_price_cents,status').eq('slug', slug).maybeSingle()
@@ -104,6 +106,7 @@ export async function POST(req: Request) {
       messages: [{ role: 'user', content: JSON.stringify({ audienceMessage: source.data.content.slice(prefix.length, prefix.length + 500) }) }],
     })
     const text = result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join(' ').trim()
+    if (!rehearsal && stageHostIsPerforming(host.id)) return reply({ error: STAGE_HOST_ON_STAGE }, 409)
     if (!text || text.length > 600) return reply({ error: 'Draft unavailable. Reply as moderator.' }, 503)
     return reply({ draft: text, attribution: host.display_name + ' (concierge draft, moderator approved)' })
   } catch {

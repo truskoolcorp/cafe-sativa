@@ -7,15 +7,18 @@ const { decideStageAutoReply } = require('../lib/events/stage-auto-reply.ts')
 const { safeStageConversationText } = require('../lib/events/stage-conversation-policy.ts')
 
 const room = '5cafe000-0000-4000-8000-000000000001'
+const premiereRoom = '5cafe000-0000-4000-8000-000000000002'
+const doors = Date.parse('2026-12-01T05:45:00Z')
 const id = '5cafe000-0000-4000-8000-000000000009'
 const rowFields = ['id', 'host', 'question', 'answer', 'answer_source', 'created_at']
 const src = stripTypeScriptTypes(readFileSync(`${__dirname}/../app/api/lounge/stage-questions/route.ts`, 'utf8')
   .replace(/^import .*\n/gm, '')).replace(/export /g, '')
 
 function fixture() {
-  const rows = [], session = { id: 'guest-a', moderator: false, invited: true, ended: false, performing: false }
+  const rows = [], session = { id: 'guest-a', moderator: false, invited: true, ended: false, performing: false,
+    premierePhase: 'waiting', validPremiere: true, premiereGrant: false, budget: true }
   const env = { STAGE_HOST_INBOX_ENABLED: 'true', STAGE_AUTO_TEXT_REPLIES_ENABLED: 'true' }
-  const observed = { admin: 0, canon: 0, serviceCalls: 0, conversations: [] }
+  const observed = { admin: 0, canon: 0, serviceCalls: 0, reservations: 0, conversations: [] }
   let answerDuring = () => 'A warm, substantive reply from the fixture host.'
   let canonical = true
   let serviceGrant = false
@@ -24,6 +27,9 @@ function fixture() {
     const apply = () => {
       if (user) {
         const data = table === 'lounge_rooms' && filter.id === room ? { id: room, slug: 'private-rehearsal' }
+          : table === 'lounge_rooms' && filter.id === premiereRoom && filter.slug === 'ahnika-already-gone' ? { id: premiereRoom }
+          : table === 'my_events_v' && session.validPremiere ? { starts_at: '2026-12-01T06:00:00Z' }
+          : table === 'stage_premiere_reply_moderators' && session.premiereGrant ? { user_id: session.id }
           : table === 'stage_rehearsal_invites' && session.invited ? { can_draft: session.moderator, expires_at: 'test' } : null
         return { data, error: null }
       }
@@ -33,7 +39,8 @@ function fixture() {
       if (actions.upsert) {
         if (rows.some(row => row.id === actions.upsert.id)) matched = []
         else {
-          rows.push({ ...actions.upsert, created_at: new Date(Date.parse('2026-11-22T20:04:00Z') + rows.length * 1000).toISOString() })
+          const base = actions.upsert.room_id === premiereRoom ? doors : Date.parse('2026-11-22T20:04:00Z')
+          rows.push({ ...actions.upsert, created_at: new Date(base + (rows.length + 1) * 1000).toISOString() })
           matched = [rows.at(-1)]
         }
       }
@@ -51,14 +58,21 @@ function fixture() {
   }
   const context = vm.createContext({ URL, Date, AbortSignal, process: { env }, NextResponse: { json:(body,opts)=>({body,status:opts.status}) },
     PRIVATE_STAGE_REHEARSAL_ROOM: room, AHNIKA_PREMIERE_SLUG: 'ahnika-already-gone',
+    AHNIKA_AUDIENCE_SCHEDULE: { doors }, ahnikaAudiencePhase:()=>session.premierePhase,
     privateStagePlaybackSlot:()=>({ onDemand:true, startsAt:'2026-11-22T20:03:00Z', start:0, end:session.ended ? 0 : Number.MAX_SAFE_INTEGER }), rehearsalInviteCoversCut:()=>true,
     soloStageHostTest:(slot, id, e)=>e.VERCEL_ENV==='production' && slot.onDemand && slot.startsAt===e.STAGE_PRIVATE_SOLO_HOST_STARTS_AT && id===e.STAGE_PRIVATE_SOLO_HOST_USER_ID,
     getHost:id=>({id,system_prompt:`Persona for ${id}`}), decideStageAutoReply, safeStageConversationText,
     stageHostIsPerforming:host=>host==='ahnika' && session.performing, STAGE_HOST_ON_STAGE:'Ahnika is on The Stage.',
-    answerSoloStageQuestion:async input=>{observed.conversations.push(input);return answerDuring(input)},
+    answerStageQuestion:async input=>{observed.conversations.push(input);return answerDuring(input)},
     canonicalConciergeHost:async()=>{observed.canon++;return canonical ? {id:'verified'} : null},
     createClient:()=>({auth:{getUser:async()=>({data:{user:session.id?{id:session.id}:null}})},from:table=>builders(table,true)}),
     createAdminClient:()=>{observed.admin++;return {from:table=>builders(table),rpc:async(name,args)=>{
+      if (name==='claim_stage_premiere_conversation') {
+        observed.reservations++
+        assert.equal(args.p_room_id,premiereRoom)
+        assert.equal(args.p_attendee_id,session.id)
+        return { data: session.budget }
+      }
       observed.serviceCalls++
       assert.equal(name,'stage_resolve_laviche_question')
       assert.equal(args.p_room_id,room)
@@ -182,5 +196,48 @@ test('solo reply fails closed when the model declines or a performer quiet perio
   f.session.performing=false
   f.setAnswer(()=>{f.session.performing=true;return 'A reply that arrived after the set started.'})
   assert.equal((await f.call('POST',{id:'5cafe000-0000-4000-8000-000000000013',host:'ahnika',question:'What song is next?'})).body.item.answer,null)
+})
+
+test('public premiere: flag, canonical event, audience hours, budget and quiet period are enforced', async () => {
+  const f=fixture(), publicRoom={roomId:premiereRoom}
+  f.env.VERCEL_ENV='production'
+  assert.equal((await f.call('GET',publicRoom)).status,404)
+  f.env.STAGE_PREMIERE_HOST_CHAT_ENABLED='true'
+  assert.equal((await f.call('GET',publicRoom)).status,404)
+  f.session.premierePhase='mingling';f.session.validPremiere=false
+  assert.equal((await f.call('GET',publicRoom)).status,404)
+  f.session.validPremiere=true
+  assert.equal((await f.call('GET',{roomId:id})).status,404)
+  f.session.id=null;assert.equal((await f.call('GET',publicRoom)).status,401);f.session.id='guest-a'
+  const question={...publicRoom,question:'What time is the premiere?'}
+  assert.match((await f.call('POST',question)).body.item.answer,/substantive/)
+  assert.equal(f.observed.conversations[0].publicPremiere,true)
+  assert.equal((await f.call('POST',question)).status,200)
+  assert.equal(f.observed.reservations,1)
+  const follow={...question,id:'5cafe000-0000-4000-8000-000000000020',host:'ahnika'}
+  f.session.premierePhase='hosted';f.session.performing=true
+  assert.equal((await f.call('POST',follow)).status,409)
+  f.session.performing=false
+  f.session.budget=false
+  assert.equal((await f.call('POST',follow)).body.item.answer,null)
+  assert.equal(f.observed.conversations.length,1)
+  f.session.premierePhase='closed'
+  assert.equal((await f.call('GET',publicRoom)).status,404)
+})
+
+test('premiere review: an ordinary guest cannot see or resolve another guest’s held message', async () => {
+  const f=fixture(), roomId=premiereRoom
+  f.env.STAGE_PREMIERE_HOST_CHAT_ENABLED='true';f.session.premierePhase='hosted'
+  const held=await f.call('POST',{roomId,question:'Can you check my payment?'})
+  assert.equal(held.body.item.answer,null)
+  assert.equal(f.observed.reservations,0)
+  f.session.id='guest-b'
+  assert.equal((await f.call('GET',{roomId})).body.pending.length,0)
+  assert.equal((await f.call('PATCH',{roomId,answer:'No access'})).status,403)
+  f.session.premiereGrant=true
+  assert.equal((await f.call('GET',{roomId})).body.pending.length,1)
+  assert.equal((await f.call('PATCH',{roomId,answer:'Please use the account support channel.'})).status,200)
+  f.session.id='guest-a';f.session.premiereGrant=false
+  assert.equal((await f.call('GET',{roomId})).body.mine[0].answer_source,'moderator')
 })
 }

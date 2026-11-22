@@ -50,8 +50,9 @@ export default async function AhnikaPremierePage() {
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
   ]) : [{ data: null }, { data: null }, { data: null }]
+  const hostChatOpen = process.env.STAGE_PREMIERE_HOST_CHAT_ENABLED === 'true' && chatOpen
   const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && phase === 'hosted'
-  const { data: premiereGrant } = user && room && conciergeOpen
+  const { data: premiereGrant } = user && room && conciergeOpen && !hostChatOpen
     ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
       .eq('user_id', user.id).eq('room_id', room.id).maybeSingle()
     : { data: null }
@@ -108,7 +109,7 @@ export default async function AhnikaPremierePage() {
               <p>Get comfortable and say hello to the room. The house introduction is next.</p>
             </>
           ) : phase === 'hosted' ? (
-            <p>Chat with the audience and moderators throughout the show.{conciergeOpen ? ' Use Ask a host to send a question for moderator review.' : ''}</p>
+            <p>Chat with the audience throughout the show.{hostChatOpen ? ' Use Ask a host for private text Q&A.' : conciergeOpen ? ' Use Ask a host to send a question for moderator review.' : ''}</p>
           ) : (
             <p>The live audience room is closed.</p>
           )}
@@ -121,7 +122,8 @@ export default async function AhnikaPremierePage() {
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
-              conciergeDrafts={conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)}
+              conciergeDrafts={hostChatOpen || conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)}
+              stageHostInbox={hostChatOpen} ahnikaOnStage={ahnikaPlaybackOpen(serverNow)}
               applauseFor={finished ? 'Ahnika Merlot' : undefined} />
           </div>
         ) : user ? (

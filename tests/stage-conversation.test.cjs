@@ -20,6 +20,7 @@ function fixture({ key = 'synthetic', canon = true, result, failure = false } = 
     if (name.endsWith('/concierge-canon')) return { canonicalConciergeHost: async id => canon ? { context: `Verified identity for ${id}` } : null }
     if (name === '@/lib/events') return { getUpcomingEvents: async options => { calls.events++; assert.equal(options.futureOnly, true); return [] } }
     if (name.endsWith('/stage-conversation-policy')) return policy
+    if (name.endsWith('/ahnika-premiere-window')) return { AHNIKA_PREMIERE_SLUG: 'ahnika-already-gone', isCanonicalAhnikaPremiere: () => true }
     if (name.endsWith('/concierge/programming')) return { voiceProgrammingContext: () => 'Verified rehearsal facts' }
     if (name.endsWith('/concierge/response-engine')) return { generateConciergeResponse: async (input, provider) => {
       const completion = await provider(input)
@@ -31,8 +32,8 @@ function fixture({ key = 'synthetic', canon = true, result, failure = false } = 
     compilerOptions: { module: ts.ModuleKind.CommonJS },
   }).outputText, context)
   const history = [{ role: 'user', content: 'How does the rehearsal player work?' }, { role: 'assistant', content: 'Play it whenever you are ready.' }]
-  return { calls, ask: (question = 'Can I rewind to your welcome?') => context.exports.answerSoloStageQuestion({
-    host: 'laviche', persona: 'Approved Laviche voice and character', question, history,
+  return { calls, ask: (question = 'Can I rewind to your welcome?', publicPremiere) => context.exports.answerStageQuestion({
+    host: 'laviche', persona: 'Approved Laviche voice and character', question, history, publicPremiere,
   }) }
 }
 
@@ -74,4 +75,14 @@ test('a single JSON presentation fence is accepted without weakening output chec
   assert.equal(policy.stageConversationOutcome(reply + '\nExtra text').action, 'invalid_output')
   assert.equal(policy.stageConversationOutcome('{"action":"review","reply":""}').action, 'review')
   assert.equal(policy.stageConversationOutcome('{"action":"answer","reply":"Message guest@example.com"}').action, 'unsafe_output')
+})
+
+test('the public context is not rehearsal copy and the verified December 1 midnight reply names Central', async () => {
+  const f = fixture({ result: '{"action":"answer","reply":"The premiere starts December 1st at midnight. It’s free."}' })
+  assert.equal(await f.ask('What time is the premiere?', true), 'The premiere starts December 1st at midnight Central. It’s free.')
+  assert.match(f.calls.model.hostSystemPrompt, /scheduled Stage premiere/)
+  assert.doesNotMatch(f.calls.model.hostSystemPrompt, /This is a solo rehearsal/)
+  assert.equal(policy.qualifyAhnikaPremiereTime('December 1 at midnight Central.'), 'December 1 at midnight Central.')
+  assert.equal(policy.qualifyAhnikaPremiereTime('December 1 at midnight (CST).'), 'December 1 at midnight (CST).')
+  assert.equal(policy.qualifyAhnikaPremiereTime('December 2 at midnight.'), 'December 2 at midnight.')
 })

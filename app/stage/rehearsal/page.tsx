@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
-import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut } from '@/lib/events/private-stage-rehearsal'
+import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
 import { isCleanRehearsalSlot } from '@/lib/events/ahnika-premiere-media'
 import { signCleanRehearsalCut } from '@/lib/events/stage-rehearsal-storage'
 
@@ -32,6 +32,8 @@ export default async function Rehearsal() {
   const configured = privateStagePlaybackSlot(process.env)
   const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end, configured.inviteUntil) ? configured : null
   const now = Date.now()
+  const hostSlotActive = Boolean(slot && now >= slot.start && now < slot.end)
+  const soloHost = Boolean(slot && hostSlotActive && soloStageHostTest(slot, user.id, process.env))
   const boundary = slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
   const cleanAvailable = slot && isCleanRehearsalSlot(slot, process.env) && now >= slot.start && now < slot.end
     ? Boolean(await signCleanRehearsalCut()) : false
@@ -60,7 +62,8 @@ export default async function Rehearsal() {
         <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
-          rehearsalDraftModerator={invitation.can_draft === true} />
+          rehearsalDraftModerator={invitation.can_draft === true && !soloHost} soloStageHostTest={soloHost}
+          stageHostInbox={soloHost || (hostSlotActive && process.env.VERCEL_ENV !== 'production' && process.env.STAGE_HOST_INBOX_ENABLED === 'true')} />
       </section>
     </main>
   )

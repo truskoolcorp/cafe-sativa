@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { confirmLoungeMessage, restoreLoungeMessage } from '@/lib/lounge-message-state'
+import { loungeDisplayName, loungeGuestCode, loungeSpeakerAccent } from '@/lib/lounge-speaker'
 
 /**
  * Client-side Lounge room.
@@ -86,13 +87,38 @@ export function LoungeRoom({
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [composerMode, setComposerMode] = useState<'chat' | 'host'>('chat')
+  const [postStatus, setPostStatus] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [dryRunPaused, setDryRunPaused] = useState(true)
   const [dryRunResult, setDryRunResult] = useState('')
   const [draftHost, setDraftHost] = useState('ahnika')
+  const askingHost = conciergeDrafts && composerMode === 'host'
+  const hostName = draftHost === 'laviche' ? 'Laviche' : 'Ahnika'
+  const hostPrefix = `[Ask ${draftHost}] `
+  const maxComposerLength = askingHost ? 2000 - hostPrefix.length : 2000
+  const canSendInput = !sending && Boolean(input.trim()) && input.trim().length <= maxComposerLength
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
+  const namesByUser = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const message of messages) {
+      names.set(message.user_id, loungeDisplayName(message.author_name, roomId, message.user_id))
+    }
+    names.set(userId, displayName)
+    return names
+  }, [messages, roomId, userId, displayName])
+  const duplicateNames = useMemo(() => {
+    const seen = new Set<string>()
+    const duplicates = new Set<string>()
+    for (const name of namesByUser.values()) {
+      const key = name.toLowerCase()
+      if (seen.has(key)) duplicates.add(key)
+      seen.add(key)
+    }
+    return duplicates
+  }, [namesByUser])
 
   const listRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -228,10 +254,11 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   async function send(asHostQuestion = false, reaction?: string) {
     const plain = reaction ?? input.trim()
-    const content = asHostQuestion ? `[Ask ${draftHost}] ${plain}` : plain
-    if (!plain || sending || !canPost || content.length > 2000) return
+    const content = asHostQuestion ? `${hostPrefix}${plain}` : plain
+    if (!plain || sending || !canPost || content.length > 2000 || (asHostQuestion && !conciergeDrafts)) return
 
     setError(null)
+    setPostStatus('')
     setSending(true)
 
     // Optimistic update — we append immediately, then dedupe when
@@ -274,7 +301,13 @@ export function LoungeRoom({
 
       // Replace the optimistic message with the real one so the id matches
       // when the Realtime echo arrives.
+      if (typeof data?.id !== 'string' || typeof data?.created_at !== 'string') {
+        throw new Error('Could not confirm the post. Check the conversation before trying again.')
+      }
       setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
+      if (asHostQuestion) {
+        setPostStatus(`Question for ${hostName} posted in this room. A moderator reviews concierge replies before they appear.`)
+      }
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
       if (!reaction) setInput(plain)
@@ -285,9 +318,9 @@ export function LoungeRoom({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
-      send()
+      void send(askingHost)
     }
   }
 
@@ -333,6 +366,8 @@ export function LoungeRoom({
       if (!res.ok || typeof data.draft !== 'string' || typeof data.attribution !== 'string') {
         throw new Error('Draft unavailable')
       }
+      setComposerMode('chat')
+      setPostStatus('')
       setInput(current => current.trim() ? current : `${data.attribution}: ${data.draft}`)
     } catch {
       setError('Could not draft a reply. You can still reply as moderator.')
@@ -371,15 +406,6 @@ export function LoungeRoom({
           <p role="status">{dryRunResult || 'Dry run only. Results are not sent to chat.'}</p>
         </div>
       )}
-      {conciergeDrafts && canPost && (
-        <label className="py-2 text-xs text-muted-foreground">
-          Ask <select className="rounded border border-border bg-background p-1"
-            value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={drafting}>
-            <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
-          </select>
-          {' '}· Host questions are visible to the room. A moderator reviews concierge replies.
-        </label>
-      )}
       <div
         ref={listRef}
         onScroll={handleListScroll}
@@ -396,6 +422,11 @@ export function LoungeRoom({
             <MessageRow
               key={m.id}
               message={m}
+              roomId={roomId}
+              own={m.user_id === userId}
+              authorName={namesByUser.get(m.user_id) ?? loungeDisplayName(m.author_name, roomId, m.user_id)}
+              duplicateName={duplicateNames.has(namesByUser.get(m.user_id)?.toLowerCase() ?? '')}
+              formatHostQuestion={conciergeDrafts}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
               onDraft={canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
@@ -422,7 +453,7 @@ export function LoungeRoom({
       {/* Composer or upgrade prompt */}
       <div className="border-t border-border pt-4 pb-2">
         {error && (
-          <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+          <div role="alert" className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
             <div className="flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
               <p className="text-sm text-foreground font-body">{error}</p>
@@ -430,17 +461,43 @@ export function LoungeRoom({
           </div>
         )}
 
+        {canPost && conciergeDrafts && (
+          <div className="mb-3 space-y-2">
+            <div role="group" aria-label="Message destination" className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant={askingHost ? 'outline' : 'default'}
+                aria-pressed={!askingHost} disabled={sending || drafting} onClick={() => setComposerMode('chat')}>
+                Room chat
+              </Button>
+              <Button type="button" size="sm" variant={askingHost ? 'default' : 'outline'}
+                aria-pressed={askingHost} disabled={sending || drafting} onClick={() => setComposerMode('host')}>
+                Ask a host
+              </Button>
+              {askingHost && <label className="flex items-center gap-2 text-sm text-foreground">
+                Host <select className="rounded border border-border bg-background p-1"
+                  value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={sending || drafting}>
+                  <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
+                </select>
+              </label>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {askingHost
+                ? 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
+                : 'Send a message to the room, or choose Ask a host to direct a question to Ahnika or Laviche.'}
+            </p>
+          </div>
+        )}
         {canPost ? (
           <div className="flex items-end gap-2">
             <textarea
+              aria-label={askingHost ? `Question for ${hostName}` : 'Message to the room'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Message ${displayName}…`}
+              placeholder={askingHost ? `Ask ${hostName} a question…` : 'Message the room…'}
               rows={1}
-              maxLength={2000}
+              maxLength={maxComposerLength}
               disabled={sending}
-              className="flex-1 resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+              className="min-w-0 flex-1 resize-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
               style={{ minHeight: '44px', maxHeight: '160px' }}
               onInput={(e) => {
                 const el = e.currentTarget
@@ -449,23 +506,29 @@ export function LoungeRoom({
               }}
             />
             <Button
-              onClick={() => send()}
-              disabled={sending || !input.trim()}
-              className="shrink-0"
+              type="button"
+              onClick={() => send(askingHost)}
+              disabled={!canSendInput}
+              aria-label={askingHost ? 'Send question' : 'Send message'}
+              className="shrink-0 gap-1.5"
             >
               {sending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
+              {conciergeDrafts && <span>{askingHost ? 'Send question' : 'Send'}</span>}
             </Button>
           </div>
         ) : (
           <UpgradePrompt />
         )}
-        {canPost && conciergeDrafts && <button type="button" className="mt-2 text-sm text-primary underline disabled:opacity-50"
-          disabled={sending || !input.trim() || input.trim().length > 1980}
-          onClick={() => send(true)}>Ask a host</button>}
+        {canPost && askingHost && input.trim().length > maxComposerLength && (
+          <p className="mt-2 text-xs text-muted-foreground">Shorten your question to {maxComposerLength} characters to send it.</p>
+        )}
+        <p role="status" aria-atomic="true" className={postStatus ? 'mt-2 text-sm text-primary' : 'sr-only'}>
+          {postStatus}
+        </p>
         {canPost && applauseFor && (
           <button type="button" className="ml-3 mt-2 text-sm text-primary underline disabled:opacity-50"
             disabled={sending} onClick={() => send(false, `👏 Applause for ${applauseFor}!`)}>
@@ -484,6 +547,11 @@ export function LoungeRoom({
 
 function MessageRow({
   message,
+  roomId,
+  own,
+  authorName,
+  duplicateName,
+  formatHostQuestion,
   canDelete,
   onDelete,
   onDraft,
@@ -491,6 +559,11 @@ function MessageRow({
   onDryRun,
 }: {
   message: Message
+  roomId: string
+  own: boolean
+  authorName: string
+  duplicateName: boolean
+  formatHostQuestion: boolean
   canDelete: boolean
   onDelete: () => void
   onDraft?: () => void
@@ -501,24 +574,23 @@ function MessageRow({
     hour: 'numeric',
     minute: '2-digit',
   })
+  const hostQuestion = formatHostQuestion ? /^\[Ask (ahnika|laviche)\] /.exec(message.content) : null
 
   return (
     <div className="group rounded-lg px-3 py-2 hover:bg-card/50 transition-colors">
-      <div className="flex items-baseline gap-2 mb-0.5">
+      <div className="mb-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span
-          className={cn(
-            'font-body font-semibold text-sm',
-            message.is_staff
-              ? 'text-primary'
-              : message.author_tier === 'vip'
-                ? 'text-primary'
-                : 'text-foreground'
-          )}
+          className={cn('break-all font-body text-sm font-semibold', message.is_staff && 'text-primary')}
+          style={message.is_staff ? undefined : { color: loungeSpeakerAccent(roomId, message.user_id) }}
         >
-          {message.author_name}
+          {authorName}
         </span>
+        {duplicateName && <span className="text-[11px] text-muted-foreground">{loungeGuestCode(roomId, message.user_id)}</span>}
+        {own && <span className="rounded border border-border px-1.5 text-[11px] text-muted-foreground">You</span>}
         {message.is_staff && (
-          <ShieldCheck className="w-3 h-3 text-primary" />
+          <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+            <ShieldCheck className="h-3 w-3" aria-hidden="true" /> Staff
+          </span>
         )}
         {message.author_tier === 'vip' && !message.is_staff && (
           <Crown className="w-3 h-3 text-primary" />
@@ -539,8 +611,11 @@ function MessageRow({
           </button>
         )}
       </div>
+      {hostQuestion && <p className="mb-1 text-xs font-semibold text-primary">
+        Question for {hostQuestion[1] === 'laviche' ? 'Laviche' : 'Ahnika'}
+      </p>}
       <p className="text-sm text-foreground font-body leading-relaxed whitespace-pre-wrap break-words">
-        {message.content}
+        {hostQuestion ? message.content.slice(hostQuestion[0].length) : message.content}
       </p>
     </div>
   )

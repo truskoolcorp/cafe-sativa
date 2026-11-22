@@ -7,6 +7,7 @@ import { cookies } from 'next/headers'
 import { Button } from '@/components/ui/button'
 import { LoungeRoom } from './LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
+import { loungeDisplayName } from '@/lib/lounge-speaker'
 
 /**
  * /lounge — the member chat room.
@@ -119,8 +120,7 @@ async function loadLoungeData() {
     messages: initialMessages,
     tier,
     isStaff,
-    displayName:
-      profile?.display_name || user.email?.split('@')[0] || 'Member',
+    displayName: loungeDisplayName(profile?.display_name, room.id, user.id),
   }
 }
 

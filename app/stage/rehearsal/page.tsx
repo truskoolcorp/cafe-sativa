@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
+import { loungeDisplayName } from '@/lib/lounge-speaker'
 import { createClient } from '@/lib/supabase/server'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
@@ -48,7 +49,7 @@ export default async function Rehearsal() {
         <p role="status">The rehearsal playback window has ended. The private chat remains available for invited participants.</p>
       ))}
       <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
-        <LoungeRoom roomId={room.id} userId={user.id} displayName={profile.data?.display_name || 'Rehearsal guest'}
+        <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
           rehearsalDraftModerator={invitation.can_draft === true} />

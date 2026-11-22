@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertCircle,
@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { confirmLoungeMessage, restoreLoungeMessage } from '@/lib/lounge-message-state'
 import { loungeDisplayName, loungeGuestCode, loungeSpeakerAccent } from '@/lib/lounge-speaker'
+import { insertLoungeMention, loungeMentionHandles, loungeMentionParts, loungeMentionQuery } from '@/lib/lounge-mentions'
 
 /**
  * Client-side Lounge room.
@@ -85,6 +86,11 @@ export function LoungeRoom({
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
+  const composer = useRef<HTMLTextAreaElement>(null)
+  const mentionListId = useId()
+  const [caret, setCaret] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionsDismissed, setMentionsDismissed] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [composerMode, setComposerMode] = useState<'chat' | 'host'>('chat')
@@ -109,6 +115,19 @@ export function LoungeRoom({
     names.set(userId, displayName)
     return names
   }, [messages, roomId, userId, displayName])
+  const mentionHandles = useMemo(() => privateRoom ? loungeMentionHandles(namesByUser, roomId) : new Map<string, string>(), [namesByUser, roomId, privateRoom])
+  const knownMentions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const handle of mentionHandles.values()) counts.set(handle.toLowerCase(), (counts.get(handle.toLowerCase()) ?? 0) + 1)
+    return new Set([...counts].filter(([, count]) => count === 1).map(([handle]) => handle))
+  }, [mentionHandles])
+  const ownMention = mentionHandles.get(userId)?.toLowerCase()
+  const mentionQuery = privateRoom && !askingHost && !mentionsDismissed ? loungeMentionQuery(input.slice(0, caret)) : null
+  const mentionOptions = mentionQuery === null ? [] : [...mentionHandles].reverse().filter(([id, handle]) =>
+    id !== userId && knownMentions.has(handle.toLowerCase()) &&
+    (handle.toLowerCase().includes(mentionQuery.toLowerCase()) || namesByUser.get(id)?.toLowerCase().includes(mentionQuery.toLowerCase())),
+  ).slice(0, 8)
+  const selectedMention = Math.min(mentionIndex, mentionOptions.length - 1)
   const duplicateNames = useMemo(() => {
     const seen = new Set<string>()
     const duplicates = new Set<string>()
@@ -317,7 +336,36 @@ export function LoungeRoom({
     }
   }
 
+  function selectMention(handle: string) {
+    const next = insertLoungeMention(input, caret, handle)
+    if (next.text.length > maxComposerLength) return
+    setInput(next.text)
+    setCaret(next.caret)
+    setMentionsDismissed(true)
+    requestAnimationFrame(() => {
+      composer.current?.focus()
+      composer.current?.setSelectionRange(next.caret, next.caret)
+    })
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionOptions.length && !e.nativeEvent.isComposing) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex((selectedMention + (e.key === 'ArrowDown' ? 1 : -1) + mentionOptions.length) % mentionOptions.length)
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        selectMention(mentionOptions[selectedMention][1])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionsDismissed(true)
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       void send(askingHost)
@@ -426,6 +474,9 @@ export function LoungeRoom({
               own={m.user_id === userId}
               authorName={namesByUser.get(m.user_id) ?? loungeDisplayName(m.author_name, roomId, m.user_id)}
               duplicateName={duplicateNames.has(namesByUser.get(m.user_id)?.toLowerCase() ?? '')}
+              knownMentions={knownMentions} ownMention={ownMention}
+              onMention={canPost && !askingHost && !sending && m.user_id !== userId && knownMentions.has(mentionHandles.get(m.user_id)?.toLowerCase() ?? '')
+                ? () => selectMention(mentionHandles.get(m.user_id)!) : undefined}
               formatHostQuestion={conciergeDrafts}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
@@ -482,16 +533,25 @@ export function LoungeRoom({
             <p className="text-xs text-muted-foreground">
               {askingHost
                 ? 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
-                : 'Send a message to the room, or choose Ask a host to direct a question to Ahnika or Laviche.'}
+                : privateRoom ? 'Type @ to choose a guest, or use Ask a host for Ahnika or Laviche.'
+                  : 'Send a message to the room, or choose Ask a host to direct a question to Ahnika or Laviche.'}
             </p>
           </div>
         )}
         {canPost ? (
           <div className="flex items-end gap-2">
             <textarea
+              ref={composer}
               aria-label={askingHost ? `Question for ${hostName}` : 'Message to the room'}
+              aria-controls={mentionOptions.length ? mentionListId : undefined}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value)
+                setCaret(e.target.selectionStart)
+                setMentionIndex(0)
+                setMentionsDismissed(false)
+              }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
               onKeyDown={handleKeyDown}
               placeholder={askingHost ? `Ask ${hostName} a question…` : 'Message the room…'}
               rows={1}
@@ -523,6 +583,16 @@ export function LoungeRoom({
         ) : (
           <UpgradePrompt />
         )}
+        {canPost && mentionOptions.length > 0 && (
+          <div id={mentionListId} role="group" aria-label="Suggested mentions" className="mt-2 max-h-40 overflow-auto rounded-lg border border-border bg-background p-1">
+            {mentionOptions.map(([id, handle], i) => (
+              <button key={id} type="button" onClick={() => selectMention(handle)}
+                className={cn('block w-full rounded px-3 py-2 text-left text-sm hover:bg-card', i === selectedMention && 'bg-card')}>
+                {namesByUser.get(id)} <span className="text-muted-foreground">@{handle}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {canPost && askingHost && input.trim().length > maxComposerLength && (
           <p className="mt-2 text-xs text-muted-foreground">Shorten your question to {maxComposerLength} characters to send it.</p>
         )}
@@ -551,6 +621,9 @@ function MessageRow({
   own,
   authorName,
   duplicateName,
+  knownMentions,
+  ownMention,
+  onMention,
   formatHostQuestion,
   canDelete,
   onDelete,
@@ -563,6 +636,9 @@ function MessageRow({
   own: boolean
   authorName: string
   duplicateName: boolean
+  knownMentions: ReadonlySet<string>
+  ownMention?: string
+  onMention?: () => void
   formatHostQuestion: boolean
   canDelete: boolean
   onDelete: () => void
@@ -575,6 +651,7 @@ function MessageRow({
     minute: '2-digit',
   })
   const hostQuestion = formatHostQuestion ? /^\[Ask (ahnika|laviche)\] /.exec(message.content) : null
+  const body = hostQuestion ? message.content.slice(hostQuestion[0].length) : message.content
 
   return (
     <div className="group rounded-lg px-3 py-2 hover:bg-card/50 transition-colors">
@@ -587,6 +664,7 @@ function MessageRow({
         </span>
         {duplicateName && <span className="text-[11px] text-muted-foreground">{loungeGuestCode(roomId, message.user_id)}</span>}
         {own && <span className="rounded border border-border px-1.5 text-[11px] text-muted-foreground">You</span>}
+        {onMention && <button type="button" className="text-xs text-primary" aria-label={`Mention ${authorName}`} onClick={onMention}>@</button>}
         {message.is_staff && (
           <span className="inline-flex items-center gap-1 text-[11px] text-primary">
             <ShieldCheck className="h-3 w-3" aria-hidden="true" /> Staff
@@ -615,7 +693,12 @@ function MessageRow({
         Question for {hostQuestion[1] === 'laviche' ? 'Laviche' : 'Ahnika'}
       </p>}
       <p className="text-sm text-foreground font-body leading-relaxed whitespace-pre-wrap break-words">
-        {hostQuestion ? message.content.slice(hostQuestion[0].length) : message.content}
+        {!hostQuestion && knownMentions.size > 0 ? loungeMentionParts(body).map((part, i) =>
+          part.handle && knownMentions.has(part.handle)
+            ? <mark key={i} className={cn('rounded px-0.5 text-primary', part.handle === ownMention ? 'bg-primary/25 font-semibold' : 'bg-primary/10')}>
+                {part.text}{part.handle === ownMention && <span className="sr-only"> (mentions you)</span>}
+              </mark>
+            : part.text) : body}
       </p>
     </div>
   )

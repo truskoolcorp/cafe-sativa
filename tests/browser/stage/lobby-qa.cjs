@@ -12,6 +12,7 @@ const modules = {};
 const sources = {
   "@/lib/events/stage-lobby": function(exports, require) { ${build('lib/events/stage-lobby.ts')} },
   "@/lib/events/stage-sound": function(exports, require) { ${build('lib/events/stage-sound.ts')} },
+  "@/lib/events/stage-player-start": function(exports, require) { ${build('lib/events/stage-player-start.ts')} },
   "./StageSoundToggle": function(exports, require) { ${build('components/events/StageSoundToggle.tsx')} },
   lobby: function(exports, require) { ${build('components/events/StageLobby.tsx')} },
   performance: function(exports, require) { ${build('components/events/StagePremiereVideo.tsx')} },

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { privateStagePlaybackSlot, rehearsalInviteCoversCut } from '@/lib/events/private-stage-rehearsal'
 import { AHNIKA_PREMIERE_SLUG, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
-import { CLEAN_REHEARSAL_SLOT, servePrivateAhnikaCut } from '@/lib/events/ahnika-premiere-media'
+import { isCleanRehearsalSlot, servePrivateAhnikaCut } from '@/lib/events/ahnika-premiere-media'
 import { signCleanRehearsalCut } from '@/lib/events/stage-rehearsal-storage'
 
 export const dynamic = 'force-dynamic'
@@ -11,7 +11,7 @@ export const maxDuration = 120
 export function GET(request: Request) {
   const slot = privateStagePlaybackSlot(process.env)
   const clean = new URL(request.url).searchParams.get('cut') === 'clean'
-  if (!slot || (clean && (!slot.onDemand || slot.startsAt !== CLEAN_REHEARSAL_SLOT))) {
+  if (!slot || (clean && !isCleanRehearsalSlot(slot, process.env))) {
     return new Response(null, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })
   }
   return servePrivateAhnikaCut(request, slot, {

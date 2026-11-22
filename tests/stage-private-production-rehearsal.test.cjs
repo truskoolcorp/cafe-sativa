@@ -110,3 +110,12 @@ test('clean rehearsal ranges require the invite gate and exact private object wi
     assert.equal(result.headers.get('x-stage-rehearsal-cut'), scenario === 'invited' ? 'laviche-ahnika-clean' : null)
   }
 })
+
+test('clean cut can only select the explicitly matching private production slot', () => {
+  const media = load('lib/events/ahnika-premiere-media.ts', { './ahnika-premiere-window': event })
+  const cleanEnv = { STAGE_PRIVATE_PROD_CLEAN_PLAYBACK_STARTS_AT: start }
+  assert.equal(media.isCleanRehearsalSlot(slot, cleanEnv), true)
+  assert.equal(media.isCleanRehearsalSlot(slot, {}), false)
+  assert.equal(media.isCleanRehearsalSlot({ ...slot, onDemand: false }, cleanEnv), false)
+  assert.equal(media.isCleanRehearsalSlot({ ...slot, startsAt: '2026-11-22T20:17:00Z' }, {}), true)
+})

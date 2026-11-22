@@ -36,3 +36,11 @@ end;
 $$;
 revoke all on function public.claim_stage_premiere_conversation(uuid, uuid, uuid) from public, anon, authenticated;
 grant execute on function public.claim_stage_premiere_conversation(uuid, uuid, uuid) to service_role;
+
+-- The moderator's own grant must be readable from the advertised 11:45 p.m.
+-- Central doors-open, not just the final 30-second intro cue. Preserve actor
+-- ownership, the rule's original audience, and the existing grant expiry.
+alter policy stage_premiere_moderator_read_own on public.stage_premiere_reply_moderators
+  using (user_id = (select auth.uid())
+    and now() >= timestamptz '2026-12-01 05:45:00+00'
+    and now() < expires_at);

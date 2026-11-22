@@ -134,9 +134,7 @@ function SignInForm() {
             >
               Password
             </label>
-            {/* Placeholder link for a future /auth/reset flow. We
-                leave the link off the DOM for now rather than ship
-                a dead click. */}
+            <Link href="/auth/reset" className="text-sm text-primary underline">Forgot password?</Link>
           </div>
           <Input
             id="password"

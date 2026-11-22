@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
+import StageTimedArtistLink from '@/components/events/StageTimedArtistLink'
 import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_END, ahnikaAudiencePhase, ahnikaPlaybackOpen, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
+import { ahnikaTrackCta } from '@/lib/events/ahnika-track-cta'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -33,6 +35,7 @@ export default async function AhnikaPremierePage() {
   const chatOpen = phase === 'mingling' || phase === 'hosted'
   const started = serverNow >= audience.kickoff
   const finished = serverNow >= AHNIKA_PREMIERE_END
+  const artistTrack = ahnikaTrackCta(process.env.STAGE_AHNIKA_APPROVED_TRACK_URL, audience.kickoff, AHNIKA_PREMIERE_END)
   const video = ahnikaPlaybackOpen(serverNow) ? '/api/events/ahnika-premiere' : null
   const refreshAt = [audience.doors, audience.intro, audience.kickoff, AHNIKA_PREMIERE_END, audience.closes].find(at => at > serverNow)
   const { data: auth } = chatOpen ? await supabase.auth.getUser() : { data: { user: null } }
@@ -87,6 +90,8 @@ export default async function AhnikaPremierePage() {
           <Link href="/vip/recordings" className="mt-4 inline-block text-primary underline">View VIP recordings</Link>
         </section>
       )}
+            {started && artistTrack && <StageTimedArtistLink href={artistTrack.url}
+              label="Listen to “Already Gone” on Spotify" showAt={artistTrack.showAt} serverNow={serverNow} />}
           </div>
       <section className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 xl:border-l xl:border-t-0" aria-labelledby="audience-heading">
         <h2 id="audience-heading" className="font-heading text-2xl font-semibold">Live audience room</h2>

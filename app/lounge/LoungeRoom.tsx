@@ -76,6 +76,7 @@ type Props = {
   rehearsalDraftModerator?: boolean
   premiereDraftModerator?: boolean
   stageHostInbox?: boolean
+  ahnikaOnStage?: boolean
   soloStageHostTest?: boolean
   applauseFor?: string
 }
@@ -93,6 +94,7 @@ export function LoungeRoom({
   rehearsalDraftModerator = false,
   premiereDraftModerator = false,
   stageHostInbox = false,
+  ahnikaOnStage = false,
   soloStageHostTest = false,
   applauseFor,
 }: Props) {
@@ -109,6 +111,7 @@ export function LoungeRoom({
   const [postStatus, setPostStatus] = useState('')
   const [ownQuestions, setOwnQuestions] = useState<HostQuestion[]>([])
   const [pendingQuestions, setPendingQuestions] = useState<HostQuestion[]>([])
+  const [inboxModerator, setInboxModerator] = useState(false)
   const [reviewId, setReviewId] = useState<string | null>(null)
   const [reviewText, setReviewText] = useState('')
   const [reviewing, setReviewing] = useState(false)
@@ -117,7 +120,8 @@ export function LoungeRoom({
   const [drafting, setDrafting] = useState(false)
   const [dryRunPaused, setDryRunPaused] = useState(true)
   const [dryRunResult, setDryRunResult] = useState('')
-  const [draftHost, setDraftHost] = useState('ahnika')
+  const [selectedHost, setDraftHost] = useState('ahnika')
+  const draftHost = ahnikaOnStage ? 'laviche' : selectedHost
   const askingHost = conciergeDrafts && composerMode === 'host'
   const hostName = draftHost === 'laviche' ? 'Laviche' : 'Ahnika'
   const hostPrefix = `[Ask ${draftHost}] `
@@ -188,6 +192,7 @@ export function LoungeRoom({
         if (!abort.signal.aborted && revision === inboxRevision.current && Array.isArray(data.mine) && Array.isArray(data.pending)) {
           setOwnQuestions(data.mine)
           setPendingQuestions(data.pending)
+          setInboxModerator(data.moderator === true)
         }
       } catch { /* preserve the last confirmed receipts */ }
       finally { reading = false }
@@ -225,7 +230,7 @@ export function LoungeRoom({
   }
 
   async function reviewQuestion(id: string) {
-    if (!canDraft || reviewing || !reviewText.trim()) return
+    if (!inboxModerator || reviewing || !reviewText.trim()) return
     setReviewing(true)
     setError(null)
     try {
@@ -574,7 +579,7 @@ export function LoungeRoom({
               formatHostQuestion={conciergeDrafts}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
-              onDraft={canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
+              onDraft={!stageHostInbox && canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
                 ? () => draftConciergeReply(m) : undefined}
               draftDisabled={drafting || Boolean(input.trim())}
               onDryRun={privateRoom && canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
@@ -620,7 +625,7 @@ export function LoungeRoom({
               {askingHost && <label className="flex items-center gap-2 text-sm text-foreground">
                 Host <select className="rounded border border-border bg-background p-1"
                   value={draftHost} onChange={event => setDraftHost(event.target.value)} disabled={sending || drafting}>
-                  <option value="ahnika">Ahnika</option><option value="laviche">Laviche</option>
+                  <option value="ahnika" disabled={ahnikaOnStage}>{ahnikaOnStage ? 'Ahnika (on stage)' : 'Ahnika'}</option><option value="laviche">Laviche</option>
                 </select>
               </label>}
             </div>
@@ -628,7 +633,7 @@ export function LoungeRoom({
               {askingHost
                 ? stageHostInbox
                   ? soloStageHostTest ? 'Private rehearsal: ask the host a question or follow up. Replies are text only. No moderator is on duty.'
-                    : 'Ask privately. Routine questions may get a verified text reply; others go to moderator review. Do not include passwords or payment details.'
+                    : 'Ask privately. Routine questions may get a host text reply; other questions may be reviewed by a moderator. Do not include passwords or payment details.'
                   : privateRoom ? 'This posts to room chat. Automatic host replies are not enabled in this rehearsal.'
                     : 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
                 : privateRoom ? 'Type @ to choose a guest, or use Ask a host for Ahnika or Laviche.'
@@ -697,7 +702,7 @@ export function LoungeRoom({
         <p role="status" aria-atomic="true" className={postStatus ? 'mt-2 text-sm text-primary' : 'sr-only'}>
           {postStatus}
         </p>
-        {stageHostInbox && (askingHost || ownQuestions.length > 0 || canDraft) && (
+        {stageHostInbox && (askingHost || ownQuestions.length > 0 || inboxModerator) && (
           <details open={askingHost || Boolean(reviewId) || undefined} className="mt-3 rounded-lg border border-border p-3 text-sm">
             <summary className="cursor-pointer font-semibold">Private Stage Q&amp;A</summary>
             <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
@@ -706,7 +711,7 @@ export function LoungeRoom({
                 <p>{item.host === 'laviche' ? 'To Laviche' : 'To Ahnika'}: {item.question}</p>
                 <p className="mt-1 text-muted-foreground">{item.answer ? `${item.answer_source === 'moderator' ? 'Moderator' : item.host === 'laviche' ? 'Laviche' : 'Ahnika'}: ${item.answer}` : soloStageHostTest ? 'Saved privately; no moderator is on duty.' : 'Awaiting moderator review.'}</p>
               </div>)}
-              {canDraft && <div className="space-y-2 border-t border-border pt-2">
+              {inboxModerator && <div className="space-y-2 border-t border-border pt-2">
                 <p className="font-semibold">Moderator queue ({pendingQuestions.length})</p>
                 {pendingQuestions.map(item => <div key={item.id} className="rounded bg-background p-2 [overflow-wrap:anywhere]">
                   <p>{item.question}</p>

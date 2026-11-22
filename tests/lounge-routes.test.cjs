@@ -2,8 +2,8 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const {loungeDisplayName}=require('../lib/lounge-speaker.ts');
 async function run(which,opts={}){
  const calls={inserts:0,rpc:[]};const source=stripTypeScriptTypes(fs.readFileSync(`${__dirname}/../app/api/lounge/${which}/route.ts`,'utf8').replace(/^import .*\n/gm,'')).replace('export async function POST','async function POST');
- const client={auth:{getUser:async()=>({data:{user:opts.anonymous?null:{id:'mock-user',email:'private-address@example.org'}}})},rpc:async(name,args)=>{calls.rpc.push(name);return name==='soft_delete_lounge_message'?{data:'mock-message',error:opts.deleteError}:{data:opts.count??0,error:opts.countError}},from:table=>{const chain={select(){return chain},eq(){return chain},maybeSingle:async()=>({data:table==='profiles'&&opts.profile?opts.profile:opts.stagePhase&&['lounge_rooms','my_events_v'].includes(table)?{id:'room'}:null}),insert(row){calls.inserts++;calls.insertedRow=row;return chain},single:async()=>({data:{id:'mock-message',created_at:'now'},error:opts.insertError})};return chain}};
- const context=vm.createContext({AHNIKA_PREMIERE_SLUG:'ahnika-already-gone',ahnikaAudiencePhase:()=>opts.stagePhase,loungeMembershipTier:()=> 'explorer',loungeDisplayName,NextResponse:{json:(body,options={})=>({body,status:options.status??200})},createServerClient:()=>client,cookies:()=>({get:()=>undefined}),process:{env:{}},console:{error(){}}});vm.runInContext(source+';this.post=POST;',context);
+ const client={auth:{getUser:async()=>({data:{user:opts.anonymous?null:{id:'mock-user',email:'private-address@example.org'}}})},rpc:async(name,args)=>{calls.rpc.push(name);return name==='soft_delete_lounge_message'?{data:'mock-message',error:opts.deleteError}:name==='save_lounge_username'?{data:opts.username??null}:{data:opts.count??0,error:opts.countError}},from:table=>{const chain={select(){return chain},eq(){return chain},maybeSingle:async()=>({data:table==='profiles'&&opts.profile?opts.profile:opts.stagePhase&&['lounge_rooms','my_events_v'].includes(table)?{id:'room'}:null}),insert(row){calls.inserts++;calls.insertedRow=row;return chain},single:async()=>({data:{id:'mock-message',created_at:'now'},error:opts.insertError})};return chain}};
+ const context=vm.createContext({AHNIKA_PREMIERE_SLUG:'ahnika-already-gone',ahnikaAudiencePhase:()=>opts.stagePhase,loungeMembershipTier:()=> 'explorer',loungeDisplayName,loungeUsernamesEnabled:Boolean(opts.usernamesEnabled),NextResponse:{json:(body,options={})=>({body,status:options.status??200})},createServerClient:()=>client,cookies:()=>({get:()=>undefined}),process:{env:{}},console:{error(){}}});vm.runInContext(source+';this.post=POST;',context);
  return {result:await context.post({json:async()=>opts.body??{room_id:'room',content:'hello',message_id:'00000000-0000-4000-8000-000000000000'}}),calls};
 }
 test('anonymous post and delete are denied',async()=>{for(const route of ['post','delete'])assert.equal((await run(route,{anonymous:true})).result.status,401)});
@@ -12,6 +12,12 @@ test('public author label never falls back to the auth email',async()=>{
  const result=await run('post');assert.match(result.calls.insertedRow.author_name,/^Guest [A-Z0-9]{6}$/);
  const named=await run('post',{profile:{display_name:' Terrace Listener '}});assert.equal(named.calls.insertedRow.author_name,'Terrace Listener');
  const address=await run('post',{profile:{display_name:'private-address@example.org'}});assert.equal(address.calls.insertedRow.author_name,result.calls.insertedRow.author_name);
+});
+test('enabled Lounge posts use the server-owned username and confirm it to the guest',async()=>{
+ const {result,calls}=await run('post',{usernamesEnabled:true,username:'terrace-listener',body:{room_id:'room',content:'hello',author_name:'pretend-staff'}});
+ assert.equal(calls.insertedRow.author_name,'terrace-listener');assert.equal(result.body.author_name,'terrace-listener');
+ const off=await run('post',{username:'terrace-listener'});assert.ok(!off.calls.rpc.includes('save_lounge_username'));
+ const unavailable=await run('post',{usernamesEnabled:true});assert.equal(unavailable.result.status,503);assert.equal(unavailable.calls.inserts,0);
 });
 test('rate counter outage fails closed',async()=>{const {result,calls}=await run('post',{countError:{message:'unavailable'}});assert.equal(result.status,503);assert.equal(calls.inserts,0)});
 test('precheck and atomic database limit both map to 429',async()=>{assert.equal((await run('post',{count:10})).result.status,429);assert.equal((await run('post',{insertError:{message:'lounge_rate_limited'}})).result.status,429)});

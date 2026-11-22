@@ -9,6 +9,7 @@ import { ahnikaTrackCta } from '@/lib/events/ahnika-track-cta'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { loungeDisplayName } from '@/lib/lounge-speaker'
+import { readLoungeUsername } from '@/lib/lounge-usernames'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -44,12 +45,13 @@ export default async function AhnikaPremierePage() {
   const user = auth.user
   const { data: room } = user ? await supabase.from('lounge_rooms')
     .select('id').eq('slug', slug).maybeSingle() : { data: null }
-  const [profiles, memberships, messages] = user && room ? await Promise.all([
+  const [username, profiles, memberships, messages] = user && room ? await Promise.all([
+    readLoungeUsername(supabase, user.id),
     supabase.from('profiles').select('display_name, is_staff, is_admin').eq('id', user.id).maybeSingle(),
     supabase.from('memberships').select('tier, status, current_period_end').eq('user_id', user.id).maybeSingle(),
     supabase.from('lounge_messages').select('id, user_id, author_name, author_tier, is_staff, content, created_at')
       .eq('room_id', room.id).is('deleted_at', null).order('created_at', { ascending: false }).limit(50),
-  ]) : [{ data: null }, { data: null }, { data: null }]
+  ]) : [null, { data: null }, { data: null }, { data: null }]
   const conciergeOpen = process.env.STAGE_CONCIERGE_DRAFTS_ENABLED === 'true' && phase === 'hosted'
   const { data: premiereGrant } = user && room && conciergeOpen
     ? await supabase.from('stage_premiere_reply_moderators').select('user_id')
@@ -117,7 +119,7 @@ export default async function AhnikaPremierePage() {
         {!chatOpen ? null : user && room ? (
           <div className="flex h-[28rem] min-h-0 flex-col">
             <LoungeRoom roomId={room.id} userId={user.id}
-              displayName={loungeDisplayName(profiles.data?.display_name, room.id, user.id)}
+              displayName={loungeDisplayName(username ?? profiles.data?.display_name, room.id, user.id)}
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}

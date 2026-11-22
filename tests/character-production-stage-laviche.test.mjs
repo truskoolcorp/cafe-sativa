@@ -55,3 +55,13 @@ test('dedicated flag, private admin readback and no stage or publishing writes',
  assert.match(source('app/api/admin/character-promotions/stage-laviche-intro/route.ts'),/POST=renderStageLavicheSpeech/)
  assert.doesNotMatch(source('app/api/admin/character-promotions/stage-laviche-intro/audio/route.ts'),/POST/)
 })
+
+test('preflight holds existing or unreadable operation history, including in a fresh browser',()=>{
+ const server=source('lib/content/character-production-stage-laviche-server.ts')
+ const client=source('app/admin/character-promotions/stage-laviche-intro/speech-client.tsx')
+ assert.match(server,/\.list\(`production-speech-operations\/\$\{stageLavicheSpeech.key\}`,\{limit:1\}\)/)
+ assert.match(server,/prior.error\|\|!Array.isArray\(prior.data\)/)
+ assert.match(server,/status:unused\?'read_only_preflight':'reconcile_existing_operation'/)
+ assert.match(client,/result.operationUnused===true/)
+ assert.ok(client.indexOf("sessionStorage.setItem(key,'requested')")<client.indexOf("method:'POST'"))
+})

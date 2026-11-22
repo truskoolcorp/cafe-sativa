@@ -95,12 +95,18 @@ export async function POST(request: Request) {
           .eq('attendee_id', access.attendeeId).eq('host', host.id).eq('answer_source', 'verified_host')
           .gte('created_at', access.startsAt).lt('created_at', data.created_at)
           .order('created_at', { ascending: false }).limit(4)
-        if (prior.error) return json({ item: data }, 201)
+        if (prior.error) {
+          console.info('[stage-conversation] scoped_history_unavailable')
+          return json({ item: data }, 201)
+        }
         const history: ConciergeMessage[] = (prior.data || []).reverse().flatMap(row =>
           typeof row.answer === 'string' && !row.answer.startsWith('Automated test reply:') &&
           safeStageConversationText(row.question) && safeStageConversationText(row.answer)
             ? [{ role: 'user', content: row.question }, { role: 'assistant', content: row.answer }] : [])
-        const reply = await answerSoloStageQuestion({ host: body.host, persona: host.system_prompt, question, history }).catch(() => null)
+        const reply = await answerSoloStageQuestion({ host: body.host, persona: host.system_prompt, question, history }).catch(() => {
+          console.info('[stage-conversation] dependencies_unavailable')
+          return null
+        })
         if (reply && !stageHostIsPerforming(host.id)) {
           const current = await roomAccess(access.roomId)
           if (current.solo && current.attendeeId === access.attendeeId && current.startsAt === access.startsAt) {
@@ -108,6 +114,7 @@ export async function POST(request: Request) {
               .eq('id', data.id).eq('room_id', access.roomId).eq('attendee_id', access.attendeeId)
               .eq('host', host.id).is('answer', null).select(itemFields).maybeSingle()
             if (!saved.error && saved.data) return json({ item: saved.data }, 201)
+            if (saved.error) console.info('[stage-conversation] reply_receipt_unavailable')
           }
         }
       }

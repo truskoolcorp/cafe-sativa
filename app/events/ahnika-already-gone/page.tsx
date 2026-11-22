@@ -6,6 +6,7 @@ import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import StageTimedArtistLink from '@/components/events/StageTimedArtistLink'
 import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_END, ahnikaAudiencePhase, ahnikaPlaybackOpen, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
 import { ahnikaTrackCta } from '@/lib/events/ahnika-track-cta'
+import { approvedAhnikaHostIntro, AHNIKA_HOST_TRANSCRIPT } from '@/lib/events/stage-host-intro'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -31,6 +32,7 @@ export default async function AhnikaPremierePage() {
   if (!event || !isCanonicalAhnikaPremiere(event)) notFound()
 
   const serverNow = Date.now()
+  const hostIntro = approvedAhnikaHostIntro(process.env.STAGE_AHNIKA_APPROVED_HOST_INTRO_RELEASE)
   const phase = ahnikaAudiencePhase(event, serverNow)
   const chatOpen = phase === 'mingling' || phase === 'hosted'
   const started = serverNow >= audience.kickoff
@@ -79,10 +81,10 @@ export default async function AhnikaPremierePage() {
           poster="/rooms/stage-beach-terrace-v2.webp"
           loop={{ webm: '/rooms/stage-golden-hour-surf-v3.webm', mp4: '/rooms/stage-golden-hour-surf-v3.mp4' }}
           sound="/rooms/stage-golden-hour-surf-v2.wav"
-          intro={lobbyIntro} />
+          intro={hostIntro ? AHNIKA_HOST_TRANSCRIPT : lobbyIntro} hostIntro={hostIntro} />
       ) : video ? (
         <StagePremiereVideo src={video} label="Ahnika Merlot performing Already Gone"
-          kickoff={audience.kickoff} serverNow={serverNow} />
+          kickoff={audience.kickoff} serverNow={serverNow} poster={hostIntro?.revealPoster} />
       ) : (
         <section className="rounded-xl border border-border bg-card p-6" aria-live="polite">
           <h2 className="font-heading text-2xl font-semibold">Thanks for joining us on The Stage</h2>

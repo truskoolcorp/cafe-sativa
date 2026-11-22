@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { stageLobbyPhase, STAGE_INTRO_LEAD_MS } from '@/lib/events/stage-lobby'
 import { MIN_STAGE_VOLUME, readStageSound, readStageVolume, writeStageSound, writeStageVolume } from '@/lib/events/stage-sound'
 import StageSoundToggle from './StageSoundToggle'
+import StageHostIntro from './StageHostIntro'
+import type { StageHostIntroAsset } from '@/lib/events/stage-host-intro'
 
 type SoundSession = {
   context: AudioContext
@@ -22,9 +24,10 @@ type Props = {
   loop: { webm: string; mp4: string }
   sound?: string
   intro: string
+  hostIntro?: StageHostIntroAsset
 }
 
-export default function StageLobby({ startsAt, serverNow, poster, loop, sound, intro }: Props) {
+export default function StageLobby({ startsAt, serverNow, poster, loop, sound, intro, hostIntro }: Props) {
   const [phase, setPhase] = useState(() => stageLobbyPhase(startsAt, serverNow))
   const [motion, setMotion] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -36,6 +39,14 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
   const volumeRef = useRef(100)
   const explicitlyMuted = useRef(false)
   const video = useRef<HTMLVideoElement>(null)
+  const introClock = useRef<number | null>(null)
+  const [introFailed, setIntroFailed] = useState(false)
+  const showHostIntro = Boolean(hostIntro && phase === 'intro' && motion && !introFailed)
+  const markIntroUnavailable = useCallback(() => setIntroFailed(true), [])
+  const introNow = useCallback(() => {
+    const elapsed = introClock.current === null ? 0 : performance.now() - introClock.current
+    return serverNow + elapsed
+  }, [serverNow])
   const audio = useRef<SoundSession | null>(null)
   const stopSound = useCallback(() => {
     const playing = audio.current
@@ -48,6 +59,7 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
 
   useEffect(() => {
     const anchor = performance.now()
+    introClock.current = anchor
     let timer: ReturnType<typeof setTimeout>
     function tick() {
       clearTimeout(timer)
@@ -77,8 +89,14 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
     return () => preference.removeEventListener('change', update)
   }, [])
 
-  const lobbyOpen = phase === 'lobby' || phase === 'intro'
+  const lobbyOpen = !showHostIntro && (phase === 'lobby' || phase === 'intro')
   const showMotion = motion && !failed && lobbyOpen
+  useEffect(() => {
+    if (!showHostIntro) return
+    stopSound()
+    setSoundOn(false)
+    setSoundLoading(false)
+  }, [showHostIntro, stopSound])
   useEffect(() => {
     if (!showMotion) return
     let mounted = true
@@ -221,6 +239,9 @@ export default function StageLobby({ startsAt, serverNow, poster, loop, sound, i
             <source src={loop.webm} type="video/webm" />
             <source src={loop.mp4} type="video/mp4" onError={() => setFailed(true)} />
           </video>
+        )}
+        {showHostIntro && hostIntro && (
+          <StageHostIntro asset={hostIntro} kickoff={Date.parse(startsAt)} now={introNow} onUnavailable={markIntroUnavailable} />
         )}
         {lobbyOpen && (!failed || sound) && (
           <details className="absolute bottom-3 right-3 z-10 text-white"

@@ -74,14 +74,16 @@ export async function POST(request: Request) {
     const host = getHost(body.host)
     if (!host) return unavailable()
     const admin = createAdminClient()
+    const laviche = host.id === 'laviche'
     // No guest question is sent to a model. Known questions use the existing persona
     // identity and exact-fact evaluator; all other text stays in the private queue.
     const decision = decideStageAutoReply({ question, host: host.id as 'laviche' | 'ahnika',
       facts: { startsAt: access.startsAt, format: 'scheduled-premiere', enableSoundControl: false, vipReplayPublished: false },
-      enabled: process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true', paused: false })
+      enabled: process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
+        (!laviche || process.env.STAGE_LAVICHE_MODERATOR_ENABLED === 'true'), paused: false })
     const canonical = decision.action === 'eligible'
       ? await canonicalConciergeHost(host.id, AbortSignal.timeout(2500)).catch(() => null) : null
-    const answer = decision.action === 'eligible' && canonical ? decision.text : null
+    const answer = !laviche && decision.action === 'eligible' && canonical ? decision.text : null
     const { data, error } = await admin.from(inbox).upsert({
       id: body.id, room_id: access.roomId, attendee_id: access.attendeeId, host: host.id, question,
       answer, answer_source: answer ? 'verified_host' : null,
@@ -90,7 +92,18 @@ export async function POST(request: Request) {
       return json({ error: 'Please wait before sending another question.' }, 429)
     }
     if (error) return unavailable()
-    if (data) return json({ item: data }, 201)
+    if (data) {
+      if (laviche && decision.action === 'eligible' && canonical) {
+        const resolution = await admin.rpc('stage_resolve_laviche_question', {
+          p_question_id: data.id, p_room_id: access.roomId, p_attendee_id: access.attendeeId,
+          p_show_starts_at: access.startsAt,
+        }).then(value => value, () => null)
+        if (typeof resolution?.data === 'string' && !resolution.error) {
+          return json({ item: { ...data, answer: resolution.data, answer_source: 'verified_host' } }, 201)
+        }
+      }
+      return json({ item: data }, 201)
+    }
     const existing = await admin.from(inbox).select(itemFields).eq('id', body.id)
       .eq('room_id', access.roomId).eq('attendee_id', access.attendeeId).maybeSingle()
     if (existing.error) return unavailable()

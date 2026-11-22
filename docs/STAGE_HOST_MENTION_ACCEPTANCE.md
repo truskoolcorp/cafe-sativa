@@ -16,6 +16,16 @@ moderator. Use synthetic questions and no payment, account, or personal details.
   this switch off keeps the moderator queue working.
 - Stage questions and replies have no voice playback. No voice service request
   should appear while testing them, including during the performance.
+- `STAGE_LAVICHE_MODERATOR_ENABLED=true`: permits Laviche’s automatic replies
+  only through the scoped `laviche_stage` service capability. Turning this
+  switch off sends her questions to review. The inbox and automatic text switches are still
+  required. No email account or human moderator grant is created. For the
+  isolated rehearsal only, a database administrator must add a grant for the
+  correct room ID, verified event kickoff and active rehearsal window. The
+  application service can read grants, never create or extend them. Missing,
+  expired, mismatched, or revoked grants leave questions pending. This service
+  has no room administration, deletion, or voice actions. Keep a separately
+  authorized human available to handle sensitive questions and enforcement.
 - @mentions are room messages, not DMs or push notifications. The composer
   suggests visible speakers, and readers see recognized mentions highlighted.
 

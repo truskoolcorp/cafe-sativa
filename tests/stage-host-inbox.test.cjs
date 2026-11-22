@@ -14,8 +14,9 @@ const src = stripTypeScriptTypes(readFileSync(`${__dirname}/../app/api/lounge/st
 function fixture() {
   const rows = [], session = { id: 'guest-a', moderator: false, invited: true }
   const env = { STAGE_HOST_INBOX_ENABLED: 'true', STAGE_AUTO_TEXT_REPLIES_ENABLED: 'true' }
-  const observed = { admin: 0, canon: 0 }
+  const observed = { admin: 0, canon: 0, serviceCalls: 0 }
   let canonical = true
+  let serviceGrant = false
   function builders(table, user = false) {
     const filter = {}, actions = {}
     const apply = () => {
@@ -47,21 +48,31 @@ function fixture() {
     getHost:id=>({id}), decideStageAutoReply,
     canonicalConciergeHost:async()=>{observed.canon++;return canonical ? {id:'verified'} : null},
     createClient:()=>({auth:{getUser:async()=>({data:{user:session.id?{id:session.id}:null}})},from:table=>builders(table,true)}),
-    createAdminClient:()=>{observed.admin++;return {from:table=>builders(table)}},
+    createAdminClient:()=>{observed.admin++;return {from:table=>builders(table),rpc:async(name,args)=>{
+      observed.serviceCalls++
+      assert.equal(name,'stage_resolve_laviche_question')
+      assert.equal(args.p_room_id,room)
+      assert.equal(args.p_attendee_id,session.id)
+      assert.equal(args.p_show_starts_at,'2026-11-22T20:03:00Z')
+      const row=rows.find(candidate=>candidate.id===args.p_question_id)
+      if (!serviceGrant || !row || row.answer) return {data:null,error:null}
+      row.answer='From the floor: The show starts at 2:03 PM Central.';row.answer_source='verified_host'
+      return {data:row.answer,error:null}
+    }}},
   })
   vm.runInContext(src+';this.handlers={GET,POST,PATCH};',context)
   function call(method, data = {}, origin = 'https://cafe.example') {
     return context.handlers[method]({ url: `https://cafe.example/api/lounge/stage-questions?roomId=${room}`,
       headers:{get:()=>origin}, json: async()=>({roomId:room,id,host:'laviche',...data}) })
   }
-  return { call, session, observed, env, disableCanonical:()=>{canonical=false} }
+  return { call, session, observed, env, disableCanonical:()=>{canonical=false}, setServiceGrant:()=>{serviceGrant=true} }
 }
 
 test('routine question uses the verified rehearsal time and retries return one receipt', async () => {
-  const f=fixture();const question='What time is kickoff?'
-  const result=await f.call('POST',{question});assert.equal(result.status,201)
+  const f=fixture();const question='What time is kickoff?',host='ahnika'
+  const result=await f.call('POST',{question,host});assert.equal(result.status,201)
   assert.equal(result.body.item.answer_source,'verified_host');assert.match(result.body.item.answer,/2:03 PM Central/)
-  const retry=await f.call('POST',{question});assert.equal(retry.status,200);assert.equal(retry.body.item.id,id)
+  const retry=await f.call('POST',{question,host});assert.equal(retry.status,200);assert.equal(retry.body.item.id,id)
   const mine=await f.call('GET');assert.equal(mine.body.mine.length,1)
 })
 
@@ -90,6 +101,26 @@ test('closed, cross-origin, and uninvited requests do not reach the private tabl
 
 test('missing approved persona context leaves a reviewable question instead of an automatic answer', async () => {
   const f=fixture();f.disableCanonical()
-  const result=await f.call('POST',{question:'What time is kickoff?'})
+  const result=await f.call('POST',{question:'What time is kickoff?',host:'ahnika'})
   assert.equal(result.status,201);assert.equal(result.body.item.answer,null)
+})
+
+test('Laviche service needs its own grant, preserves receipts, and cannot be used by Ahnika', async () => {
+  const fixtureWithout=fixture();fixtureWithout.env.STAGE_LAVICHE_MODERATOR_ENABLED='true'
+  const question='What time is kickoff?'
+  const paused=fixture();paused.setServiceGrant()
+  assert.equal((await paused.call('POST',{question})).body.item.answer,null)
+  assert.equal(paused.observed.serviceCalls,0)
+  assert.equal((await fixtureWithout.call('POST',{question})).body.item.answer,null)
+  const f=fixture();f.env.STAGE_LAVICHE_MODERATOR_ENABLED='true';f.setServiceGrant()
+  const receipt=await f.call('POST',{question})
+  assert.match(receipt.body.item.answer,/2:03 PM Central/)
+  assert.equal((await f.call('POST',{question})).body.item.answer,receipt.body.item.answer)
+  assert.equal(f.observed.serviceCalls,1)
+  const ahnika=await f.call('POST',{id:'5cafe000-0000-4000-8000-000000000010',question,host:'ahnika'})
+  assert.equal(ahnika.body.item.answer_source,'verified_host')
+  assert.equal(f.observed.serviceCalls,1)
+  const sensitive=await f.call('POST',{id:'5cafe000-0000-4000-8000-000000000011',question:'Can you check my payment?'})
+  assert.equal(sensitive.body.item.answer,null)
+  assert.equal(f.observed.serviceCalls,1)
 })

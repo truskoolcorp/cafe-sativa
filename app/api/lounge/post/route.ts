@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
+import { loungeDisplayName } from '@/lib/lounge-speaker'
 import { AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } from '@/lib/events/ahnika-premiere-window'
 
 /**
@@ -141,10 +142,7 @@ export async function POST(req: Request) {
     .eq('user_id', authData.user.id)
     .maybeSingle()
 
-  const authorName =
-    profile?.display_name ||
-    authData.user.email?.split('@')[0] ||
-    'Member'
+  const authorName = loungeDisplayName(profile?.display_name, body.room_id, authData.user.id)
   const authorTier = loungeMembershipTier(membership)
   const isStaff = Boolean(profile?.is_staff || profile?.is_admin)
 

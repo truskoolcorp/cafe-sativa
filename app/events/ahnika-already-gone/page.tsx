@@ -8,6 +8,7 @@ import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE
 import { ahnikaTrackCta } from '@/lib/events/ahnika-track-cta'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
+import { loungeDisplayName } from '@/lib/lounge-speaker'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -116,7 +117,7 @@ export default async function AhnikaPremierePage() {
         {!chatOpen ? null : user && room ? (
           <div className="flex h-[28rem] min-h-0 flex-col">
             <LoungeRoom roomId={room.id} userId={user.id}
-              displayName={profiles.data?.display_name || user.email?.split('@')[0] || 'Member'}
+              displayName={loungeDisplayName(profiles.data?.display_name, room.id, user.id)}
               tier={loungeMembershipTier(memberships.data)}
               isStaff={Boolean(profiles.data?.is_staff || profiles.data?.is_admin)}
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}

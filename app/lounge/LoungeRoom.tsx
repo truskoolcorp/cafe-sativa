@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { confirmLoungeMessage, restoreLoungeMessage } from '@/lib/lounge-message-state'
+import { loungeDisplayName, loungeGuestCode, loungeSpeakerAccent } from '@/lib/lounge-speaker'
 
 /**
  * Client-side Lounge room.
@@ -100,6 +101,24 @@ export function LoungeRoom({
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
   const [newMessageBadge, setNewMessageBadge] = useState(0)
+  const namesByUser = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const message of messages) {
+      names.set(message.user_id, loungeDisplayName(message.author_name, roomId, message.user_id))
+    }
+    names.set(userId, displayName)
+    return names
+  }, [messages, roomId, userId, displayName])
+  const duplicateNames = useMemo(() => {
+    const seen = new Set<string>()
+    const duplicates = new Set<string>()
+    for (const name of namesByUser.values()) {
+      const key = name.toLowerCase()
+      if (seen.has(key)) duplicates.add(key)
+      seen.add(key)
+    }
+    return duplicates
+  }, [namesByUser])
 
   const listRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -403,6 +422,10 @@ export function LoungeRoom({
             <MessageRow
               key={m.id}
               message={m}
+              roomId={roomId}
+              own={m.user_id === userId}
+              authorName={namesByUser.get(m.user_id) ?? loungeDisplayName(m.author_name, roomId, m.user_id)}
+              duplicateName={duplicateNames.has(namesByUser.get(m.user_id)?.toLowerCase() ?? '')}
               formatHostQuestion={conciergeDrafts}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
@@ -524,6 +547,10 @@ export function LoungeRoom({
 
 function MessageRow({
   message,
+  roomId,
+  own,
+  authorName,
+  duplicateName,
   formatHostQuestion,
   canDelete,
   onDelete,
@@ -532,6 +559,10 @@ function MessageRow({
   onDryRun,
 }: {
   message: Message
+  roomId: string
+  own: boolean
+  authorName: string
+  duplicateName: boolean
   formatHostQuestion: boolean
   canDelete: boolean
   onDelete: () => void
@@ -547,21 +578,19 @@ function MessageRow({
 
   return (
     <div className="group rounded-lg px-3 py-2 hover:bg-card/50 transition-colors">
-      <div className="flex items-baseline gap-2 mb-0.5">
+      <div className="mb-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span
-          className={cn(
-            'font-body font-semibold text-sm',
-            message.is_staff
-              ? 'text-primary'
-              : message.author_tier === 'vip'
-                ? 'text-primary'
-                : 'text-foreground'
-          )}
+          className={cn('break-all font-body text-sm font-semibold', message.is_staff && 'text-primary')}
+          style={message.is_staff ? undefined : { color: loungeSpeakerAccent(roomId, message.user_id) }}
         >
-          {message.author_name}
+          {authorName}
         </span>
+        {duplicateName && <span className="text-[11px] text-muted-foreground">{loungeGuestCode(roomId, message.user_id)}</span>}
+        {own && <span className="rounded border border-border px-1.5 text-[11px] text-muted-foreground">You</span>}
         {message.is_staff && (
-          <ShieldCheck className="w-3 h-3 text-primary" />
+          <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+            <ShieldCheck className="h-3 w-3" aria-hidden="true" /> Staff
+          </span>
         )}
         {message.author_tier === 'vip' && !message.is_staff && (
           <Crown className="w-3 h-3 text-primary" />

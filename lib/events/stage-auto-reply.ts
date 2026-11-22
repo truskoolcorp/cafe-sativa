@@ -1,5 +1,5 @@
 type Host = 'ahnika' | 'laviche'
-type Intent = 'start' | 'sound' | 'format' | 'replay'
+type Intent = 'start' | 'sound' | 'format' | 'replay' | 'probe'
 type Facts = {
   startsAt: string
   format: 'scheduled-premiere' | 'live-stream'
@@ -10,10 +10,11 @@ type Facts = {
 }
 
 const questions: Readonly<Record<Intent, readonly string[]>> = {
-  start: ['when does the show start', 'what time does the premiere start', 'what time is the show'],
+  start: ['when does the show start', 'what time does the show start', 'what time does the premiere start', 'what time is the show', 'what time is kickoff'],
   sound: ['how do i enable sound', 'how do i unmute the show', 'how do i turn on the sound'],
   format: ['is this live or prerecorded', 'is this show prerecorded', 'is the performance live'],
   replay: ['where can i watch the replay', 'is there a replay', 'where is the replay'],
+  probe: ['testing', 'test', 'can you see this', 'can you see this message', 'do you see this', 'are you there'],
 }
 
 export type StageAutoReplyDecision =
@@ -27,6 +28,7 @@ export function decideStageAutoReply(input: {
   facts: Facts | null
   enabled: boolean
   paused: boolean
+  soloTest?: boolean
 }): StageAutoReplyDecision {
   if (!input.enabled || input.paused) return { action: 'handoff', reason: 'disabled' }
   if (!input.facts) return { action: 'handoff', reason: 'unverified' }
@@ -37,6 +39,12 @@ export function decideStageAutoReply(input: {
   const question = input.question.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\?$/, '')
   const intent = (Object.keys(questions) as Intent[]).find(key => questions[key].includes(question))
   if (!intent) return { action: 'handoff', reason: 'not_supported' }
+  if (input.soloTest) {
+    if (intent !== 'probe') return { action: 'handoff', reason: 'not_supported' }
+    const host = input.host === 'laviche' ? 'Laviche' : 'Ahnika'
+    return { action: 'eligible', intent, text: `Automated test reply: your private rehearsal message reached ${host}’s text inbox.` }
+  }
+  if (intent === 'probe') return { action: 'handoff', reason: 'not_supported' }
   let answer: string
   if (intent === 'start') {
     if (!Number.isFinite(Date.parse(facts.startsAt))) return { action: 'handoff', reason: 'unverified' }

@@ -23,3 +23,9 @@ export function rehearsalInviteCoversCut(expiresAt: string, end: number, inviteU
   const expiry = Date.parse(expiresAt)
   return Number.isFinite(expiry) && expiry >= end && (inviteUntil === undefined || expiry <= inviteUntil)
 }
+
+/** A transport smoke test for one existing guest, never a moderator grant. */
+export function soloStageHostTest(slot: { onDemand: boolean; startsAt: string }, userId: string, env: Record<string, string | undefined>) {
+  return env.VERCEL_ENV === 'production' && slot.onDemand && Boolean(userId)
+    && slot.startsAt === env.STAGE_PRIVATE_SOLO_HOST_STARTS_AT && userId === env.STAGE_PRIVATE_SOLO_HOST_USER_ID
+}

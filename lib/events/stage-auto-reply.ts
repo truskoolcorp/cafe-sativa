@@ -10,7 +10,7 @@ type Facts = {
 }
 
 const questions: Readonly<Record<Intent, readonly string[]>> = {
-  start: ['when does the show start', 'what time does the premiere start', 'what time is the show'],
+  start: ['when does the show start', 'what time does the show start', 'what time does the premiere start', 'what time is the show', 'what time is kickoff'],
   sound: ['how do i enable sound', 'how do i unmute the show', 'how do i turn on the sound'],
   format: ['is this live or prerecorded', 'is this show prerecorded', 'is the performance live'],
   replay: ['where can i watch the replay', 'is there a replay', 'where is the replay'],

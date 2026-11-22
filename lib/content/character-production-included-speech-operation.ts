@@ -1,11 +1,16 @@
 import {verifyFreshSpeechSourceScope,type FreshSpeechSourceScope} from './character-production-fresh-speech-provenance.ts'
 import {createHash,randomUUID} from 'node:crypto'
 import {performance} from 'node:perf_hooks'
+import {stageLavicheSpeech} from './character-production-stage-laviche-policy.ts'
 const hash=(v:string|Uint8Array)=>createHash('sha256').update(v).digest('hex')
 export type IncludedSpeechOperation=Readonly<{key:string;authorizationRef:string;script:string;scriptSha256:string;characterId:string;voiceId:string;modelId:string;canonicalRevision:string;portraitSha256:string;expiresAt:number;maxDurationSeconds:number}>
 export const includedSpeechLimits=Object.freeze({maxBytes:1048576,minimumRemainingCredits:10000,format:'mp3_44100_128'})
 export function validateIncludedSpeechOperation(s:IncludedSpeechOperation){
- if(!/^[a-z0-9][a-z0-9-]{1,100}$/.test(s.key)||s.key==='zaria-eleven-v4-included-canary-v1'||!s.authorizationRef||s.authorizationRef.length>500||s.characterId!=='zaria-solenne'||s.voiceId!=='5zneNR4v1Uw5AjIZ9Un4'||s.modelId!=='eleven_v4'||typeof s.script!=='string'||!s.script.trim()||Array.from(s.script).length>250||hash(s.script)!==s.scriptSha256||![s.canonicalRevision,s.portraitSha256].every(h=>/^[a-f0-9]{64}$/.test(h))||!Number.isSafeInteger(s.expiresAt)||!Number.isFinite(s.maxDurationSeconds)||s.maxDurationSeconds<1||s.maxDurationSeconds>30)throw Error('operation_unverified')
+ const stage=s.key===stageLavicheSpeech.key
+ const allowed=stage
+  ? (Object.keys(stageLavicheSpeech) as (keyof typeof stageLavicheSpeech)[]).every(key=>s[key]===stageLavicheSpeech[key])
+  : s.characterId==='zaria-solenne'&&s.voiceId==='5zneNR4v1Uw5AjIZ9Un4'
+ if(!allowed||!/^[a-z0-9][a-z0-9-]{1,100}$/.test(s.key)||s.key==='zaria-eleven-v4-included-canary-v1'||!s.authorizationRef||s.authorizationRef.length>500||s.modelId!=='eleven_v4'||typeof s.script!=='string'||!s.script.trim()||Array.from(s.script).length>250||hash(s.script)!==s.scriptSha256||![s.canonicalRevision,s.portraitSha256].every(h=>/^[a-f0-9]{64}$/.test(h))||!Number.isSafeInteger(s.expiresAt)||!Number.isFinite(s.maxDurationSeconds)||s.maxDurationSeconds<1||s.maxDurationSeconds>30)throw Error('operation_unverified')
 }
 export function includedOperationQuota(s:IncludedSpeechOperation,subscription:any,models:any,voice:any){
  validateIncludedSpeechOperation(s)

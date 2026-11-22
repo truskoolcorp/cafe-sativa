@@ -11,8 +11,11 @@ const script = `${umd('react')}\n${umd('react-dom')}\n
 const modules = {};
 const sources = {
   "@/lib/events/stage-lobby": function(exports, require) { ${build('lib/events/stage-lobby.ts')} },
+  "./stage-lobby": function(exports, require) { ${build('lib/events/stage-lobby.ts')} },
+  "@/lib/events/stage-host-intro": function(exports, require) { ${build('lib/events/stage-host-intro.ts')} },
   "@/lib/events/stage-sound": function(exports, require) { ${build('lib/events/stage-sound.ts')} },
   "./StageSoundToggle": function(exports, require) { ${build('components/events/StageSoundToggle.tsx')} },
+  "./StageHostIntro": function(exports, require) { ${build('components/events/StageHostIntro.tsx')} },
   lobby: function(exports, require) { ${build('components/events/StageLobby.tsx')} },
   performance: function(exports, require) { ${build('components/events/StagePremiereVideo.tsx')} },
 };
@@ -66,11 +69,11 @@ const loop = {
 const sound = asset('audio/wav', 'public/rooms/stage-golden-hour-surf-v2.wav')
 const intro = 'Fixture welcome: tonight on The Stage.'
 
-async function mount(page, epoch, remaining, media = loop, audio = sound, savedMute = true) {
+async function mount(page, epoch, remaining, media = loop, audio = sound, savedMute = true, hostIntro) {
   const fixture = 'https://stage-lobby.test/events/ahnika-already-gone'
   const fixtureScript = new URL('/stage-lobby-fixture.js', fixture).href
   const props = {
-    poster, loop: media, sound: audio, intro, startsAt: new Date(epoch + remaining).toISOString(), serverNow: epoch,
+    poster, loop: media, sound: audio, intro, hostIntro, startsAt: new Date(epoch + remaining).toISOString(), serverNow: epoch,
   }
   // Let the browser load the fixture normally. Evaluating the mount over
   // Playwright can confer transient user activation and mask autoplay blocks.
@@ -231,6 +234,20 @@ async function main() {
     assert.equal(await broken.getByRole('slider', { name: 'Volume' }).isVisible(), true)
     await broken.getByRole('button', { name: 'Sound', exact: true }).click()
     await broken.getByText('Sound is unavailable. Try again.').waitFor()
+
+    const brokenIntro = await browser.newPage()
+    let cueRequested = false
+    brokenIntro.on('request', request => { if (request.url().endsWith('/test-intro.mp4')) cueRequested = true })
+    await mount(brokenIntro, Date.now(), 24000, loop, sound, true, {
+      video: '/test-intro.mp4', captions: '/test-intro.en.vtt', revealPoster: poster,
+    })
+    await brokenIntro.getByText(intro, { exact: true }).waitFor()
+    await brokenIntro.waitForFunction(() => {
+      const video = document.querySelector('video')
+      return video?.loop && video.readyState > 0
+    })
+    assert.equal(cueRequested, true)
+    await brokenIntro.close()
 
   } finally { await browser.close() }
 

@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeDisplayName } from '@/lib/lounge-speaker'
 import { createClient } from '@/lib/supabase/server'
@@ -14,7 +14,7 @@ export default async function Rehearsal() {
   if (process.env.STAGE_PRIVATE_REHEARSAL_ENABLED !== 'true') notFound()
   const db = createClient()
   const { data: { user } } = await db.auth.getUser()
-  if (!user || user.is_anonymous) notFound()
+  if (!user || user.is_anonymous) redirect('/auth/signin?next=%2Fstage%2Frehearsal')
   const { data: invitation } = await db.from('stage_rehearsal_invites').select('user_id,can_draft,expires_at')
     .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
   if (!invitation) notFound()

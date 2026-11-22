@@ -5,6 +5,7 @@ import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut } from '@/lib/events/private-stage-rehearsal'
+import { approvedAhnikaHostIntro, AHNIKA_HOST_TRANSCRIPT } from '@/lib/events/stage-host-intro'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Private Stage rehearsal', robots: { index: false, follow: false } }
@@ -29,6 +30,7 @@ export default async function Rehearsal() {
   const configured = privateStagePlaybackSlot(process.env)
   const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end, configured.inviteUntil) ? configured : null
   const now = Date.now()
+  const hostIntro = approvedAhnikaHostIntro(process.env.STAGE_AHNIKA_APPROVED_HOST_INTRO_RELEASE)
   const boundary = slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
   return (
     <main className="mx-auto max-w-4xl space-y-4 px-4 pb-12 pt-28">
@@ -40,10 +42,11 @@ export default async function Rehearsal() {
           poster="/rooms/stage-beach-terrace-v2.webp"
           loop={{ webm: '/rooms/stage-golden-hour-surf-v3.webm', mp4: '/rooms/stage-golden-hour-surf-v3.mp4' }}
           sound="/rooms/stage-golden-hour-surf-v2.wav"
-          intro="Private rehearsal: welcome to The Stage. Please welcome Ahnika Merlot with Already Gone." />
+          intro={hostIntro ? AHNIKA_HOST_TRANSCRIPT : 'Private rehearsal: welcome to The Stage. Please welcome Ahnika Merlot with Already Gone.'}
+          hostIntro={hostIntro} />
       ) : now < slot.end ? (
         <StagePremiereVideo src="/api/stage/rehearsal-media" label="Private rehearsal of the approved Ahnika performance"
-          kickoff={slot.start} serverNow={now} />
+          kickoff={slot.start} serverNow={now} poster={hostIntro?.revealPoster} />
       ) : (
         <p role="status">The rehearsal playback window has ended. The private chat remains available for invited participants.</p>
       ))}

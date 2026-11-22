@@ -5,8 +5,13 @@ import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getHost } from '@/lib/concierge/personas'
 import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
 import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
+import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
+import { safeStageConversationText } from '@/lib/events/stage-conversation-policy'
+import { answerSoloStageQuestion } from '@/lib/events/stage-conversation'
+import type { ConciergeMessage } from '@/lib/concierge/response-engine'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 30
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 const inbox = 'stage_host_questions'
 const itemFields = 'id,host,question,answer,answer_source,created_at'
@@ -64,17 +69,18 @@ export async function POST(request: Request) {
     if (access.error) return access.error
     const host = getHost(body.host)
     if (!host) return unavailable()
+    if (stageHostIsPerforming(host.id)) return json({ error: STAGE_HOST_ON_STAGE }, 409)
     const admin = createAdminClient()
     const laviche = host.id === 'laviche'
-    // No guest question is sent to a model. Known questions use the existing persona
-    // identity and exact-fact evaluator; all other text stays in the private queue.
+    // The preview moderation exercise keeps its exact-fact policy. The bounded
+    // solo path runs the persona only after the private insert wins dedup/rate checks.
     const decision = decideStageAutoReply({ question, host: host.id as 'laviche' | 'ahnika',
       facts: { startsAt: access.startsAt, format: 'scheduled-premiere', enableSoundControl: false, vipReplayPublished: false },
-      enabled: access.solo || (process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
-        (!laviche || process.env.STAGE_LAVICHE_MODERATOR_ENABLED === 'true')), paused: false, soloTest: access.solo })
+      enabled: !access.solo && process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
+        (!laviche || process.env.STAGE_LAVICHE_MODERATOR_ENABLED === 'true'), paused: false })
     const canonical = decision.action === 'eligible'
       ? await canonicalConciergeHost(host.id, AbortSignal.timeout(2500)).catch(() => null) : null
-    const answer = (!laviche || access.solo) && decision.action === 'eligible' && canonical ? decision.text : null
+    const answer = !laviche && decision.action === 'eligible' && canonical ? decision.text : null
     const { data, error } = await admin.from(inbox).upsert({
       id: body.id, room_id: access.roomId, attendee_id: access.attendeeId, host: host.id, question,
       answer, answer_source: answer ? 'verified_host' : null,
@@ -84,6 +90,27 @@ export async function POST(request: Request) {
     }
     if (error) return unavailable()
     if (data) {
+      if (access.solo && safeStageConversationText(question)) {
+        const prior = await admin.from(inbox).select('question,answer').eq('room_id', access.roomId)
+          .eq('attendee_id', access.attendeeId).eq('host', host.id).eq('answer_source', 'verified_host')
+          .gte('created_at', access.startsAt).lt('created_at', data.created_at)
+          .order('created_at', { ascending: false }).limit(4)
+        if (prior.error) return json({ item: data }, 201)
+        const history: ConciergeMessage[] = (prior.data || []).reverse().flatMap(row =>
+          typeof row.answer === 'string' && !row.answer.startsWith('Automated test reply:') &&
+          safeStageConversationText(row.question) && safeStageConversationText(row.answer)
+            ? [{ role: 'user', content: row.question }, { role: 'assistant', content: row.answer }] : [])
+        const reply = await answerSoloStageQuestion({ host: body.host, persona: host.system_prompt, question, history }).catch(() => null)
+        if (reply && !stageHostIsPerforming(host.id)) {
+          const current = await roomAccess(access.roomId)
+          if (current.solo && current.attendeeId === access.attendeeId && current.startsAt === access.startsAt) {
+            const saved = await admin.from(inbox).update({ answer: reply, answer_source: 'verified_host' })
+              .eq('id', data.id).eq('room_id', access.roomId).eq('attendee_id', access.attendeeId)
+              .eq('host', host.id).is('answer', null).select(itemFields).maybeSingle()
+            if (!saved.error && saved.data) return json({ item: saved.data }, 201)
+          }
+        }
+      }
       if (laviche && !access.solo && decision.action === 'eligible' && canonical) {
         const resolution = await admin.rpc('stage_resolve_laviche_question', {
           p_question_id: data.id, p_room_id: access.roomId, p_attendee_id: access.attendeeId,

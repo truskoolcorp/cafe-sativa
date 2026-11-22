@@ -16,6 +16,7 @@ import { conversationMatchesRequester } from '@/lib/concierge/conversation-acces
 import { conciergeEventFacts, verifiedPremiereAnswer } from '@/lib/concierge/programming'
 import { jsonWithCors, preflight } from '@/lib/cors'
 import { generateConciergeResponse } from '@/lib/concierge/response-engine'
+import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
 
 /**
  * POST /api/concierge
@@ -89,6 +90,8 @@ async function handlePost(req: Request) {
   const body = parsed.body
   const host = getHost(body.host)!
   const surface = body.surface
+  const performing = () => jsonWithCors({ error: STAGE_HOST_ON_STAGE, code: 'host_performing' }, { status: 409, request: req, noStore: true })
+  if (stageHostIsPerforming(host.id)) return performing()
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
@@ -144,7 +147,7 @@ async function handlePost(req: Request) {
   let liveProgramming='Current programming could not be verified. Do not invent dates or availability.'
   let verifiedEvents: EventRow[] = []
   try {
-    const [features,events]=await Promise.all([getSiteContent().catch(() => []),getUpcomingEvents({limit:6})])
+    const [features,events]=await Promise.all([getSiteContent().catch(() => []),getUpcomingEvents({limit:6,futureOnly:true})])
     verifiedEvents = events
     liveProgramming=JSON.stringify({features:features.slice(0,6).map(item=>({title:item.title,category:item.site_category,releaseAt:item.release_at,released:item.released,overview:item.copy_final.slice(0,1200)})),events:events.map(conciergeEventFacts)})
   }catch{}
@@ -254,6 +257,7 @@ async function handlePost(req: Request) {
   // Exact launch FAQ answers are grounded in the fresh public event record.
   // They still pass ownership/rate checks and persist like any other turn.
   let replyText = verifiedPremiereAnswer(body.message, verifiedEvents)
+  if (stageHostIsPerforming(host.id)) return performing()
   if (replyText === null) {
     if (!anthropicKey) {
       console.error('[concierge] Missing ANTHROPIC_API_KEY')
@@ -324,6 +328,9 @@ async function handlePost(req: Request) {
 
   }
 
+  // Do not deliver an answer generated across the scheduled start.
+  if (stageHostIsPerforming(host.id)) return performing()
+
   // Persist both messages. We do this AFTER the model call succeeds
   // so a failed call doesn't leave a dangling user message with no
   // reply.
@@ -346,6 +353,7 @@ async function handlePost(req: Request) {
     console.error('[concierge] Failed to persist messages', persistError)
   }
 
+  if (stageHostIsPerforming(host.id)) return performing()
   return jsonWithCors(
     {
       message: replyText,

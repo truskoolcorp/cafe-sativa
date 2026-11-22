@@ -1,5 +1,6 @@
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { corsHeaders, preflight, jsonWithCors, resolveAllowedOrigin } from '@/lib/cors'
+import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
 
 /**
  * POST /api/concierge/speak
@@ -68,6 +69,8 @@ export async function POST(req: Request) {
   if (host !== 'laviche' && host !== 'ginger' && host !== 'ahnika') {
     return jsonWithCors({ error: 'Unknown host.' }, { status: 400, request: req })
   }
+  const performing = () => jsonWithCors({ error: STAGE_HOST_ON_STAGE, code: 'host_performing' }, { status: 409, request: req, noStore: true })
+  if (stageHostIsPerforming(host)) return performing()
 
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   if (!text) {
@@ -89,6 +92,7 @@ export async function POST(req: Request) {
   let canonical
   try{canonical=await canonicalConciergeHost(host)}catch{}
   if(!canonical || canonical.voiceId!==voiceId)return jsonWithCors({error:'The configured voice does not match a verified current host master. Review canonical voice settings; no alternate voice was used.'},{status:409,request:req})
+  if (stageHostIsPerforming(host)) return performing()
 
   try {
     const elevenRes = await fetch(
@@ -125,6 +129,7 @@ export async function POST(req: Request) {
     }
 
     const audio = await elevenRes.arrayBuffer()
+    if (stageHostIsPerforming(host)) return performing()
 
     return new Response(audio, {
       status: 200,

@@ -5,6 +5,7 @@ import {createAdminClient} from '@/lib/supabase/admin'
 import {canonicalConciergeHost} from '@/lib/content/concierge-canon'
 import {conversationMatchesRequester} from '@/lib/concierge/conversation-access'
 import {signVoiceSession} from '@/lib/concierge/livekit-session'
+import {stageHostIsPerforming, STAGE_HOST_ON_STAGE, VOICE_PERFORMANCE_BUFFER_MS} from '@/lib/events/stage-host-availability'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const response=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store'}})
@@ -21,6 +22,7 @@ export async function POST(req:Request) {
   if(new URL(url).protocol!=='wss:')return response({error:'Live conversation is unavailable.'},503)
   const body=await req.json().catch(()=>null)
   if(!body||!['laviche','ginger','ahnika'].includes(body.host)||typeof body.conversation_id!=='string'||! /^[0-9a-f-]{36}$/i.test(body.conversation_id))return response({error:'Choose a host and an existing conversation.'},400)
+  if(stageHostIsPerforming(body.host,Date.now(),VOICE_PERFORMANCE_BUFFER_MS))return response({error:STAGE_HOST_ON_STAGE,code:'host_performing'},409)
   const {data:auth}=await createClient().auth.getUser()
   if(!auth.user)return response({error:'Sign in to start live conversation.'},401)
   const db=createAdminClient()

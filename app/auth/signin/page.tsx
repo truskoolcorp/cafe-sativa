@@ -181,6 +181,13 @@ function SignInSkeleton() {
   )
 }
 
+function SignupLink() {
+  const searchParams = useSearchParams()
+  const raw = searchParams.get('redirect') || searchParams.get('next') || '/account'
+  const safe = raw.startsWith('/') && !raw.startsWith('//') && !raw.includes(String.fromCharCode(92)) ? raw : '/account'
+  return <Link href={`/auth/signup?redirect=${encodeURIComponent(safe)}`} className="text-primary hover:underline font-body font-semibold">Sign up free</Link>
+}
+
 export default function SignInPage() {
   return (
     <AuthCard
@@ -188,12 +195,7 @@ export default function SignInPage() {
       footer={
         <>
           Don&rsquo;t have an account?{' '}
-          <Link
-            href="/auth/signup"
-            className="text-primary hover:underline font-body font-semibold"
-          >
-            Sign up free
-          </Link>
+          <Suspense fallback={<Link href="/auth/signup">Sign up free</Link>}><SignupLink /></Suspense>
         </>
       }
     >

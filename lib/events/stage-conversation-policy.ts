@@ -9,7 +9,11 @@ export function safeStageConversationText(text: string) {
 
 export function extractStageConversationReply(text: string): string | null {
   try {
-    const data: unknown = JSON.parse(text)
+    const envelope = text.trim()
+    // Some completions present the JSON as one fenced block. Accept that
+    // presentation only, not free prose, multiple outputs or ignored suffixes.
+    const fenced = /^\x60{3}(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n\x60{3}$/i.exec(envelope)
+    const data: unknown = JSON.parse(fenced?.[1] ?? envelope)
     if (typeof data !== 'object' || data === null || !('action' in data) || !('reply' in data) ||
         data.action !== 'answer' || typeof data.reply !== 'string') return null
     const reply = data.reply.trim()

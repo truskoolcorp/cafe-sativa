@@ -9,6 +9,7 @@ function fixture({ key = 'synthetic', canon = true, result, failure = false } = 
   const calls = { paid: 0, events: 0 }
   const context = { exports: {}, AbortSignal, process: { env: { ANTHROPIC_API_KEY: key } }, require(name) {
     if (name === '@anthropic-ai/sdk') return { default: class {
+      static APIError = Error
       messages = { create: async request => {
         calls.paid++
         calls.model = request
@@ -61,4 +62,12 @@ test('non-contract output, sensitive links, moderator handoff, and provider fail
     { result: '{"action":"answer","reply":"See https://example.com"}' }, { failure: true }]) {
     assert.equal(await fixture(options).ask(), null)
   }
+})
+
+test('a single JSON presentation fence is accepted without weakening output checks', () => {
+  const fence = String.fromCharCode(96).repeat(3)
+  const reply = fence + 'json\n{"action":"answer","reply":"Replay the rehearsal from the player."}\n' + fence
+  assert.equal(policy.extractStageConversationReply(reply), 'Replay the rehearsal from the player.')
+  assert.equal(policy.extractStageConversationReply('Here is your answer: ' + reply), null)
+  assert.equal(policy.extractStageConversationReply(reply + '\nExtra text'), null)
 })

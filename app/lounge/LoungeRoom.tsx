@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { confirmLoungeMessage, restoreLoungeMessage } from '@/lib/lounge-message-state'
 import { loungeDisplayName, loungeGuestCode, loungeSpeakerAccent } from '@/lib/lounge-speaker'
+import { loungeMentionHandles, loungeMentionParts, loungeMentionQuery } from '@/lib/lounge-mentions'
+
+type HostQuestion = { id: string; host: 'laviche' | 'ahnika'; question: string; answer: string | null; answer_source: 'verified_host' | 'moderator' | null }
 
 /**
  * Client-side Lounge room.
@@ -66,6 +69,7 @@ type Props = {
   privateRoom?: boolean
   rehearsalDraftModerator?: boolean
   premiereDraftModerator?: boolean
+  stageHostInbox?: boolean
   applauseFor?: string
 }
 
@@ -81,6 +85,7 @@ export function LoungeRoom({
   privateRoom = false,
   rehearsalDraftModerator = false,
   premiereDraftModerator = false,
+  stageHostInbox = false,
   applauseFor,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
@@ -89,6 +94,13 @@ export function LoungeRoom({
   const [error, setError] = useState<string | null>(null)
   const [composerMode, setComposerMode] = useState<'chat' | 'host'>('chat')
   const [postStatus, setPostStatus] = useState('')
+  const [ownQuestions, setOwnQuestions] = useState<HostQuestion[]>([])
+  const [pendingQuestions, setPendingQuestions] = useState<HostQuestion[]>([])
+  const [reviewId, setReviewId] = useState<string | null>(null)
+  const [reviewText, setReviewText] = useState('')
+  const [reviewing, setReviewing] = useState(false)
+  const questionRef = useRef<{ id: string; question: string; host: string } | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
   const [drafting, setDrafting] = useState(false)
   const [dryRunPaused, setDryRunPaused] = useState(true)
   const [dryRunResult, setDryRunResult] = useState('')
@@ -96,7 +108,7 @@ export function LoungeRoom({
   const askingHost = conciergeDrafts && composerMode === 'host'
   const hostName = draftHost === 'laviche' ? 'Laviche' : 'Ahnika'
   const hostPrefix = `[Ask ${draftHost}] `
-  const maxComposerLength = askingHost ? 2000 - hostPrefix.length : 2000
+  const maxComposerLength = askingHost ? (stageHostInbox ? 600 : 2000 - hostPrefix.length) : 2000
   const canSendInput = !sending && Boolean(input.trim()) && input.trim().length <= maxComposerLength
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
@@ -119,6 +131,12 @@ export function LoungeRoom({
     }
     return duplicates
   }, [namesByUser])
+  const mentionHandles = useMemo(() => loungeMentionHandles(namesByUser, roomId), [namesByUser, roomId])
+  const knownMentions = useMemo(() => new Set([...mentionHandles.values()].map(name => name.toLowerCase())), [mentionHandles])
+  const ownMention = mentionHandles.get(userId)?.toLowerCase()
+  const mentionQuery = !askingHost ? loungeMentionQuery(input) : null
+  const mentionMatches = mentionQuery === null ? [] : [...mentionHandles]
+    .filter(([id, name]) => id !== userId && name.toLowerCase().startsWith(mentionQuery.toLowerCase())).slice(0, 5)
 
   const listRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -132,6 +150,82 @@ export function LoungeRoom({
     if (minPostTier === 'vip') return tier === 'vip'
     return false
   }, [tier, minPostTier])
+  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff || premiereDraftModerator)
+
+  useEffect(() => {
+    if (!stageHostInbox) return
+    const abort = new AbortController()
+    const refresh = async () => {
+      if (document.hidden) return
+      try {
+        const response = await fetch(`/api/lounge/stage-questions?roomId=${encodeURIComponent(roomId)}`, { signal: abort.signal, cache: 'no-store' })
+        if (!response.ok) return
+        const data = await response.json()
+        if (!abort.signal.aborted && Array.isArray(data.mine) && Array.isArray(data.pending)) {
+          setOwnQuestions(data.mine)
+          setPendingQuestions(data.pending)
+        }
+      } catch { /* keep previous receipts during transient network failures */ }
+    }
+    void refresh()
+    const timer = setInterval(() => void refresh(), 5000)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { abort.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', refresh) }
+  }, [roomId, stageHostInbox])
+
+  function addMention(handle: string, replaceQuery = false) {
+    if (!canPost || sending) return
+    setComposerMode('chat')
+    setInput(current => {
+      const base = replaceQuery && mentionQuery !== null ? current.slice(0, -(mentionQuery.length + 1)) : current
+      const added = `${base}${base && !/\s$/.test(base) ? ' ' : ''}@${handle} `
+      return added.length <= 2000 ? added : current
+    })
+    composerRef.current?.focus()
+  }
+
+  async function sendPrivateQuestion(question: string) {
+    if (question.length > 600) return
+    const previous = questionRef.current
+    const id = previous?.question === question && previous.host === draftHost ? previous.id : crypto.randomUUID()
+    questionRef.current = { id, question, host: draftHost }
+    setSending(true)
+    setError(null)
+    setPostStatus('')
+    try {
+      const response = await fetch('/api/lounge/stage-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, question, host: draftHost, roomId }),
+      })
+      const data = await response.json()
+      if (!response.ok || data.item?.id !== id) throw new Error(data.error || 'Could not confirm your question.')
+      setOwnQuestions(current => [data.item, ...current.filter(item => item.id !== id)])
+      setPostStatus(data.item.answer ? `${hostName} replied below.` : 'Sent privately for moderator review. A reply may take time.')
+      setInput('')
+      questionRef.current = null
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not confirm your question. Try again.')
+    } finally { setSending(false) }
+  }
+
+  async function reviewQuestion(id: string) {
+    if (!canDraft || reviewing || !reviewText.trim()) return
+    setReviewing(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/lounge/stage-questions', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, roomId, answer: reviewText }),
+      })
+      const data = await response.json()
+      if (!response.ok || data.resolved !== true) throw new Error(data.error || 'Could not send the moderator reply.')
+      setPendingQuestions(current => current.filter(item => item.id !== id))
+      setReviewId(null)
+      setReviewText('')
+      setPostStatus('Private moderator reply sent.')
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not send the moderator reply.') }
+    finally { setReviewing(false) }
+  }
 
   // ------------------------------------------------------------
   // Scroll management
@@ -256,6 +350,7 @@ export function LoungeRoom({
     const plain = reaction ?? input.trim()
     const content = asHostQuestion ? `${hostPrefix}${plain}` : plain
     if (!plain || sending || !canPost || content.length > 2000 || (asHostQuestion && !conciergeDrafts)) return
+    if (asHostQuestion && stageHostInbox) return sendPrivateQuestion(plain)
 
     setError(null)
     setPostStatus('')
@@ -379,7 +474,6 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
-  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff || premiereDraftModerator)
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}
@@ -426,6 +520,11 @@ export function LoungeRoom({
               own={m.user_id === userId}
               authorName={namesByUser.get(m.user_id) ?? loungeDisplayName(m.author_name, roomId, m.user_id)}
               duplicateName={duplicateNames.has(namesByUser.get(m.user_id)?.toLowerCase() ?? '')}
+              knownMentions={knownMentions} ownMention={ownMention}
+              onMention={canPost && !askingHost && m.user_id !== userId ? () => {
+                const handle = mentionHandles.get(m.user_id)
+                if (handle) addMention(handle)
+              } : undefined}
               formatHostQuestion={conciergeDrafts}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
@@ -481,7 +580,9 @@ export function LoungeRoom({
             </div>
             <p className="text-xs text-muted-foreground">
               {askingHost
-                ? 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
+                ? stageHostInbox
+                  ? 'Ask privately here. Routine questions may get a verified answer. Others go to the moderator. Never include passwords, payment details, or verification codes.'
+                  : 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
                 : 'Send a message to the room, or choose Ask a host to direct a question to Ahnika or Laviche.'}
             </p>
           </div>
@@ -489,6 +590,7 @@ export function LoungeRoom({
         {canPost ? (
           <div className="flex items-end gap-2">
             <textarea
+              ref={composerRef}
               aria-label={askingHost ? `Question for ${hostName}` : 'Message to the room'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -523,12 +625,41 @@ export function LoungeRoom({
         ) : (
           <UpgradePrompt />
         )}
+        {mentionMatches.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" aria-label="Suggested mentions">
+          <span className="text-muted-foreground">Mention:</span>
+          {mentionMatches.map(([id, handle]) => <button key={id} type="button" onClick={() => addMention(handle, true)}
+            className="rounded border border-border px-2 py-1 text-primary">@{handle}</button>)}
+        </div>}
         {canPost && askingHost && input.trim().length > maxComposerLength && (
           <p className="mt-2 text-xs text-muted-foreground">Shorten your question to {maxComposerLength} characters to send it.</p>
         )}
         <p role="status" aria-atomic="true" className={postStatus ? 'mt-2 text-sm text-primary' : 'sr-only'}>
           {postStatus}
         </p>
+        {stageHostInbox && (askingHost || ownQuestions.length > 0 || canDraft) && (
+          <details open={askingHost || Boolean(reviewId) || undefined} className="mt-3 rounded-lg border border-border p-3 text-sm">
+            <summary className="cursor-pointer font-semibold">Private Stage Q&amp;A</summary>
+            <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+              {ownQuestions.length === 0 && <p className="text-muted-foreground">Replies to your host questions appear here as text.</p>}
+              {ownQuestions.map(item => <div key={item.id} className="rounded bg-background p-2 [overflow-wrap:anywhere]">
+                <p>{item.host === 'laviche' ? 'To Laviche' : 'To Ahnika'}: {item.question}</p>
+                <p className="mt-1 text-muted-foreground">{item.answer ? `${item.answer_source === 'moderator' ? 'Moderator' : item.host === 'laviche' ? 'Laviche' : 'Ahnika'}: ${item.answer}` : 'Awaiting moderator review.'}</p>
+              </div>)}
+              {canDraft && <div className="space-y-2 border-t border-border pt-2">
+                <p className="font-semibold">Moderator queue ({pendingQuestions.length})</p>
+                {pendingQuestions.map(item => <div key={item.id} className="rounded bg-background p-2 [overflow-wrap:anywhere]">
+                  <p>{item.question}</p>
+                  {reviewId === item.id ? <div className="mt-1 space-y-1">
+                    <textarea aria-label="Private moderator reply" value={reviewText} maxLength={600} onChange={event => setReviewText(event.target.value)}
+                      className="w-full rounded border border-border bg-card p-2" disabled={reviewing} />
+                    <Button type="button" size="sm" disabled={reviewing || !reviewText.trim()} onClick={() => reviewQuestion(item.id)}>Send private reply</Button>
+                  </div> : <button type="button" className="text-primary underline" disabled={reviewing}
+                    onClick={() => { setReviewId(item.id); setReviewText('') }}>Review and reply</button>}
+                </div>)}
+              </div>}
+            </div>
+          </details>
+        )}
         {canPost && applauseFor && (
           <button type="button" className="ml-3 mt-2 text-sm text-primary underline disabled:opacity-50"
             disabled={sending} onClick={() => send(false, `👏 Applause for ${applauseFor}!`)}>
@@ -551,6 +682,9 @@ function MessageRow({
   own,
   authorName,
   duplicateName,
+  knownMentions,
+  ownMention,
+  onMention,
   formatHostQuestion,
   canDelete,
   onDelete,
@@ -563,6 +697,9 @@ function MessageRow({
   own: boolean
   authorName: string
   duplicateName: boolean
+  knownMentions: ReadonlySet<string>
+  ownMention?: string
+  onMention?: () => void
   formatHostQuestion: boolean
   canDelete: boolean
   onDelete: () => void
@@ -586,6 +723,8 @@ function MessageRow({
           {authorName}
         </span>
         {duplicateName && <span className="text-[11px] text-muted-foreground">{loungeGuestCode(roomId, message.user_id)}</span>}
+        {onMention && <button type="button" className="text-xs text-muted-foreground hover:text-primary"
+          aria-label={`Mention ${authorName}`} onClick={onMention}>@</button>}
         {own && <span className="rounded border border-border px-1.5 text-[11px] text-muted-foreground">You</span>}
         {message.is_staff && (
           <span className="inline-flex items-center gap-1 text-[11px] text-primary">
@@ -615,7 +754,10 @@ function MessageRow({
         Question for {hostQuestion[1] === 'laviche' ? 'Laviche' : 'Ahnika'}
       </p>}
       <p className="text-sm text-foreground font-body leading-relaxed whitespace-pre-wrap break-words">
-        {hostQuestion ? message.content.slice(hostQuestion[0].length) : message.content}
+        {loungeMentionParts(hostQuestion ? message.content.slice(hostQuestion[0].length) : message.content).map((part, i) =>
+          part.handle && knownMentions.has(part.handle) ? <mark key={i} className={cn('rounded px-0.5 text-primary', part.handle === ownMention ? 'bg-primary/25 font-semibold' : 'bg-primary/10')}>
+            {part.text}{part.handle === ownMention && <span className="sr-only"> (mentions you)</span>}
+          </mark> : part.text)}
       </p>
     </div>
   )

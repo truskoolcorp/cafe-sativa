@@ -52,7 +52,8 @@ export default async function Rehearsal() {
         <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
-          rehearsalDraftModerator={invitation.can_draft === true} />
+          rehearsalDraftModerator={invitation.can_draft === true}
+          stageHostInbox={Boolean(slot) && process.env.STAGE_HOST_INBOX_ENABLED === 'true'} />
       </section>
     </main>
   )

@@ -15,7 +15,7 @@ export default function StageLavicheSpeechClient({expiresAt}:{expiresAt:number})
   try{
    const r=await fetch(endpoint,{credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(25000)})
    const result=await r.json()
-   setReady(r.ok&&result.status==='read_only_preflight'&&result.storagePolicyVerified===true&&result.includedQuotaReady===true&&result.pinnedRevisionMatches===true&&result.scopeActive===true&&result.armed===true)
+   setReady(r.ok&&result.status==='read_only_preflight'&&result.operationUnused===true&&result.storagePolicyVerified===true&&result.includedQuotaReady===true&&result.pinnedRevisionMatches===true&&result.scopeActive===true&&result.armed===true)
    setStatus(JSON.stringify(result,null,2))
   }catch{setStatus('Read-only check unavailable. No take requested.')}
   finally{busy.current=false;setChecking(false)}

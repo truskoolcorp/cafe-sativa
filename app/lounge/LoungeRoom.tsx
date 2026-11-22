@@ -627,7 +627,7 @@ export function LoungeRoom({
             <p className="text-xs text-muted-foreground">
               {askingHost
                 ? stageHostInbox
-                  ? soloStageHostTest ? 'Text test only. Try “Can you see this?” No moderator is on duty for this solo test.'
+                  ? soloStageHostTest ? 'Private rehearsal: ask the host a question or follow up. Replies are text only. No moderator is on duty.'
                     : 'Ask privately. Routine questions may get a verified text reply; others go to moderator review. Do not include passwords or payment details.'
                   : privateRoom ? 'This posts to room chat. Automatic host replies are not enabled in this rehearsal.'
                     : 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'

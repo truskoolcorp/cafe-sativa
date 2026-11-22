@@ -17,7 +17,7 @@ export default function StageHostIntro({ asset, kickoff, now, onUnavailable }: {
     if (!video) return
     let active = true
     // Do not sit on a spinner for the opening line if the package will not load.
-    const timeout = window.setTimeout(onUnavailable, 2400)
+    let timeout = window.setTimeout(onUnavailable, 2400)
     const seek = () => {
       const position = stageHostIntroPosition(kickoff, now(), video.duration)
       if (position === null) return false
@@ -37,8 +37,18 @@ export default function StageHostIntro({ asset, kickoff, now, onUnavailable }: {
       if (!seek()) { onUnavailable(); return }
       setSound(!video.muted)
     }
-    const onPlaying = () => { window.clearTimeout(timeout); setPlaying(true) }
+    const onPlaying = () => {
+      window.clearTimeout(timeout)
+      // Rejoin the broadcast clock after stalls as well as on initial playback.
+      if (!seek()) { onUnavailable(); return }
+      setPlaying(true)
+    }
+    const onWaiting = () => {
+      window.clearTimeout(timeout)
+      timeout = window.setTimeout(onUnavailable, 2400)
+    }
     video.addEventListener('playing', onPlaying)
+    video.addEventListener('waiting', onWaiting)
     video.addEventListener('loadedmetadata', play, { once: true })
     if (video.readyState >= 1) {
       video.removeEventListener('loadedmetadata', play)
@@ -48,6 +58,7 @@ export default function StageHostIntro({ asset, kickoff, now, onUnavailable }: {
       active = false
       window.clearTimeout(timeout)
       video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('waiting', onWaiting)
       video.removeEventListener('loadedmetadata', play)
       video.pause()
     }

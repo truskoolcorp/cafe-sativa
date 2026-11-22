@@ -7,12 +7,19 @@ Do not move the show to accommodate a late clip, moderator, or social post.
 
 ## MC and moderator
 
-Laviche draft: “Welcome to The Stage at Café Sativa. Settle in, and drop
-a note in the chat if you’re ready. Tonight, we’re keeping it close and
-acoustic. Please welcome Ahnika Merlot with ‘Already Gone.’”
+### Laviche walk-up and reveal edit
 
-Keep the timed text welcome until an exact captioned, approved voice
-asset fits the cue. A staff role grant is not proof of attendance.
+| Cue time | Approved direction |
+| --- | --- |
+| 0:00–0:06 | Guest-eye view: Laviche walks past the front tables and steps to the mic. Keep the beach terrace visible with its canonical Stage layout. No speech under the walk. |
+| 0:06–0:28 | Medium at the mic. Use the script and approved Laviche voice. Deliver the last line with a look and turn toward Ahnika’s performance spot. |
+| 0:28–0:30 | Room applause rises as Laviche’s spotlight softens. Dissolve briefly to the approved image of Ahnika seated with her guitar under a warm light. Land on the same still the performance player displays at kickoff. Fade the applause out before the first guitar note. No blackout or hard reset. |
+
+Script: “Good evening, Café Sativa. I’m Laviche. Find your seat, get comfortable, and say hello in the chat. Tonight, we’re keeping it intimate: one voice, one guitar, and a song called ‘Already Gone.’ Please welcome Ahnika Merlot to The Stage.”
+
+Export one 30-second captioned 16:9 cue (H.264/AAC MP4), English WebVTT (include the applause cue), and the approved matching seated reveal still in WebP. Package names: `intro.mp4`, `intro.en.vtt`, `reveal.webp`. Do not add any performance bytes or alter the approved performance cut. Measure the frame-accurate picture and audio trim; check that the spotlight/dissolve and final still match, speech and phonemes sync, applause doesn't mask the introduction or first note, and all captions match the approved lines. Review canonical likeness, wardrobe, venue geometry, rights, visible text and watermark before assigning a public package ID. A package ID is the lowercase SHA-256 of the sorted file-name and SHA-256 pairs in the release manifest; keep the bytes immutable under `public/stage-host-intros/ahnika-already-gone/<package-id>/`.
+
+No production activation until the exact three assets are approved, the public paths are checked, and a protected rehearsal verifies narration, captions, sound preference, late join, and a no-gap handoff without early performance access. Set `STAGE_AHNIKA_APPROVED_HOST_INTRO_RELEASE` to that exact package ID only in the intended environment. With no approval or unusable media, the text welcome remains and the usual kickoff runs on schedule. A staff role grant is not proof of attendance.
 Rehearse the production playback path with a non-public fixture before
 the show; verify two guest accounts and a staffed moderator for playback,
 report and removal, one question, and one trivia answer and reveal.

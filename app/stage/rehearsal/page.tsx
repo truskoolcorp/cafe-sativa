@@ -27,7 +27,7 @@ export default async function Rehearsal() {
   ])
   if (messages.error) notFound()
   const configured = privateStagePlaybackSlot(process.env)
-  const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end) ? configured : null
+  const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end, configured.inviteUntil) ? configured : null
   const now = Date.now()
   const boundary = slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
   return (

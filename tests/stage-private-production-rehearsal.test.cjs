@@ -51,6 +51,7 @@ test('production media requires a short-lived signed-in invitation through cutof
       '@/lib/events/private-stage-rehearsal': slots,
       '@/lib/events/ahnika-premiere-window': event,
       '@/lib/events/ahnika-premiere-media': media,
+      '@/lib/events/stage-rehearsal-storage': { signCleanRehearsalCut: async () => { throw Error('Legacy playback must never try the clean asset signer') } },
       '@/lib/supabase/server': { createClient: () => ({
         auth: { getUser: async () => ({ data: { user: mode === 'signed_out' ? null : { id: 'fixture', is_anonymous: mode === 'anonymous' } } }) },
         from(table) {
@@ -80,5 +81,32 @@ test('production media requires a short-lived signed-in invitation through cutof
       throw Error('Public media cannot be fetched during a private slot')
     } })
     assert.equal(publicResult.status, 404)
+  }
+})
+
+test('clean rehearsal ranges require the invite gate and exact private object without mixing variants', async () => {
+  const media = load('lib/events/ahnika-premiere-media.ts', { './ahnika-premiere-window': event })
+  const target = 'https://nwfxvhqbjtfvoopcadff.supabase.co/storage/v1/object/sign/cafe-sativa-content/Cafe-Sativa-Private-Rehearsal-Clean-Run.mp4?token=fixture'
+  const request = new Request('https://www.cafe-sativa.com/api/stage/rehearsal-media?cut=clean', { headers: { range: 'bytes=0-0' } })
+  for (const scenario of ['invited', 'uninvited', 'ended', 'other-object', 'not-uploaded', 'wrong-size']) {
+    let signer = 0, upstream = 0
+    const result = await media.servePrivateAhnikaCut(request, slot, {
+      now: () => scenario === 'ended' ? slot.end : slot.start,
+      canonical: async () => scenario !== 'uninvited',
+      fetch: async (url, opts) => {
+        upstream++
+        assert.equal(url.toString(), target)
+        assert.equal(opts.headers.Range, 'bytes=0-0')
+        return new Response('a', { status: 206, headers: { 'Content-Range': `bytes 0-0/${scenario === 'wrong-size' ? 99 : 37583936}`, 'Content-Length': '1' } })
+      },
+    }, async () => {
+      signer++
+      return scenario === 'not-uploaded' ? null : scenario === 'other-object' ? target.replace('Clean-Run', 'Other') : target
+    })
+    assert.equal(result.status, scenario === 'invited' ? 206 : ['uninvited', 'ended'].includes(scenario) ? 404 : 503, scenario)
+    assert.equal(signer, ['uninvited', 'ended'].includes(scenario) ? 0 : 1)
+    assert.equal(upstream, ['invited', 'wrong-size'].includes(scenario) ? 1 : 0)
+    assert.equal(result.headers.get('location'), null)
+    assert.equal(result.headers.get('x-stage-rehearsal-cut'), scenario === 'invited' ? 'laviche-ahnika-clean' : null)
   }
 })

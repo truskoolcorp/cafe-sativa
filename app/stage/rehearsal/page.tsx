@@ -6,6 +6,8 @@ import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut } from '@/lib/events/private-stage-rehearsal'
+import { CLEAN_REHEARSAL_SLOT } from '@/lib/events/ahnika-premiere-media'
+import { signCleanRehearsalCut } from '@/lib/events/stage-rehearsal-storage'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Private Stage rehearsal', robots: { index: false, follow: false } }
@@ -31,6 +33,8 @@ export default async function Rehearsal() {
   const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end, configured.inviteUntil) ? configured : null
   const now = Date.now()
   const boundary = slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
+  const cleanAvailable = slot?.onDemand && slot.startsAt === CLEAN_REHEARSAL_SLOT && now >= slot.start && now < slot.end
+    ? Boolean(await signCleanRehearsalCut()) : false
   return (
     <main className="mx-auto max-w-4xl space-y-4 px-4 pb-12 pt-28">
       <h1 className="font-heading text-3xl font-bold">Private Stage rehearsal</h1>
@@ -45,7 +49,8 @@ export default async function Rehearsal() {
       ) : now < slot.end ? (
         <>
           {slot.onDemand && <p>Rehearsal playback is open. Play, pause, or rewind at your own pace.</p>}
-          <StagePremiereVideo src="/api/stage/rehearsal-media" label="Private rehearsal of the approved Ahnika performance"
+          <StagePremiereVideo src={cleanAvailable ? '/api/stage/rehearsal-media?cut=clean' : '/api/stage/rehearsal-media'}
+            label={cleanAvailable ? 'Private rehearsal: Laviche opening and Ahnika performance' : 'Private rehearsal of the approved Ahnika performance'}
             kickoff={slot.onDemand ? undefined : slot.start} serverNow={now} />
         </>
       ) : (

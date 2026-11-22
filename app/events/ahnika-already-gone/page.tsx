@@ -6,6 +6,7 @@ import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import StageTimedArtistLink from '@/components/events/StageTimedArtistLink'
 import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG as slug, AHNIKA_PREMIERE_START, AHNIKA_PREMIERE_END, ahnikaAudiencePhase, ahnikaPlaybackOpen, isCanonicalAhnikaPremiere } from '@/lib/events/ahnika-premiere-window'
 import { ahnikaTrackCta } from '@/lib/events/ahnika-track-cta'
+import { publicStageMetadata } from '@/lib/events/public-stage-metadata'
 import { LoungeRoom } from '@/app/lounge/LoungeRoom'
 import { loungeMembershipTier } from '@/lib/lounge-membership'
 import { createClient } from '@/lib/supabase/server'
@@ -21,7 +22,14 @@ const localDoors = new Intl.DateTimeFormat('en-US', {
 }).format(audience.doors)
 const lobbyIntro = 'Good evening, Café Sativa! Let’s give our artist a warm welcome in the chat. Tonight on The Stage: an intimate acoustic performance of “Already Gone.” Please welcome Ahnika Merlot.'
 
-export const metadata = { title: 'Ahnika Merlot — Already Gone' }
+const premiereTitle = 'Ahnika Merlot — Already Gone'
+const premiereDescription = 'An intimate prerecorded acoustic performance at Café Sativa.'
+export const metadata = publicStageMetadata({
+  slug,
+  title: premiereTitle,
+  description: premiereDescription,
+  artwork: { fileName: 'ahnika-acoustic-set.webp', alt: 'Ahnika Merlot with her acoustic guitar', width: 1600, height: 900 },
+})
 
 export default async function AhnikaPremierePage() {
   const supabase = createClient()
@@ -61,8 +69,8 @@ export default async function AhnikaPremierePage() {
       )}
       <Link href="/stage" className="text-primary underline">The Stage</Link>
       <header className="space-y-3">
-        <h1 className="font-heading text-4xl font-bold">Ahnika Merlot — Already Gone</h1>
-        <p>An intimate prerecorded acoustic performance at Café Sativa.</p>
+        <h1 className="font-heading text-4xl font-bold">{premiereTitle}</h1>
+        <p>{premiereDescription}</p>
         <p><time dateTime={startsAt}>December 1, 2026 at 12:00 a.m. Central</time></p>
       </header>
       <div className="overflow-hidden rounded-2xl border border-border bg-card">

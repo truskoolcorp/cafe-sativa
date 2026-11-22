@@ -1,11 +1,14 @@
 const fs = require('node:fs')
 const vm = require('node:vm')
+const path = require('node:path')
 const ts = require('typescript')
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const ID = '12345678-1234-1234-1234-123456789abc'
 function harness(options = {}) {
   const calls = { provider: 0, writes: [], rate: [], memory: [], auth: 0, database: 0 }
+  let now = options.now ?? Date.parse('2026-11-10T12:00:00Z')
+  class TestDate extends Date { static now() { return now } }
   const event = { id: '00e7d9c6-61b9-4af9-827e-b6d13310b762', slug: 'hit-em-release-party',
     title: 'Hit Em Release Party', starts_at: '2026-11-11T06:00:00Z', ends_at: null,
     status: 'scheduled', ticket_price_cents: 0, access: 'free', description: '', free_for_tiers: [] }
@@ -28,7 +31,7 @@ function harness(options = {}) {
     return query
   } }
   function load(file) {
-    const context = { exports: {}, Date, Intl, URL, Set, console: { error() {} },
+    const context = { exports: {}, Date: TestDate, Intl, URL, Set, console: { error() {} },
       process: { env: options.configured ? { ANTHROPIC_API_KEY: 'synthetic-only' } : {} },
       require(name) {
         if (name === 'next/server') return { NextResponse: class {
@@ -38,6 +41,7 @@ function harness(options = {}) {
           constructor() { calls.provider++ }
           messages = { create: async request => {
             calls.modelRequest = request
+            if (options.finishAt) now = options.finishAt
             if (options.providerError) throw options.providerError
             return { content: options.providerContent ?? [{ type: 'text', text: 'Synthetic general reply' }] }
           } }
@@ -47,13 +51,16 @@ function harness(options = {}) {
           if (options.featureError) throw new Error('Synthetic feature outage')
           return []
         } }
-        if (name === '@/lib/events') return { getUpcomingEvents: async () => options.events ?? [event] }
+        if (name === '@/lib/events') return { getUpcomingEvents: async opts => {
+          calls.eventOptions = opts
+          return (options.events ?? [event]).filter(e => !opts.futureOnly || Date.parse(e.starts_at) >= now)
+        } }
         if (name.endsWith('/supabase/server')) return { createClient: () => ({ auth: { getUser: async () => {
           calls.auth++
           return { data: { user: options.userId ? { id: options.userId } : null } }
         } } }) }
         if (name.endsWith('/supabase/admin')) return { createAdminClient: () => admin }
-        if (name.endsWith('/personas')) return { getHost: host => host === 'laviche' ? { id: host, system_prompt: 'Approved host' } : null }
+        if (name.endsWith('/personas')) return { getHost: host => ({ id: host, system_prompt: 'Approved host' }) }
         if (name.endsWith('/rate-limit')) return { checkRateLimit: async params => {
           calls.rate.push(params)
           return options.usageUnavailable ? { allowed: false, unavailable: true, message: 'Availability check failed', resetsInSeconds: 30 }
@@ -66,6 +73,7 @@ function harness(options = {}) {
           return []
         } }
         if (name.startsWith('@/lib/')) return load(name.replace('@/', '') + '.ts')
+        if (name.startsWith('.')) return load(path.join(path.dirname(file), name) + '.ts')
         throw new Error(`Unexpected import: ${name}`)
       },
     }
@@ -79,6 +87,29 @@ function harness(options = {}) {
     message: 'Hi Laviche. For the Hit Em premiere, when does it start in Dallas, is it free, and where do I join the shared live chat?',
     session_id: ID, surface: 'web-chat', ...body }), headers: { get: name => name === 'origin' ? options.origin ?? null : null } }) }
 }
+test('upcoming Ask replies receive no expired Hit Em event even when memory might recall it', async () => {
+  const h = harness({ configured: true, now: Date.parse('2026-11-22T20:00:00Z') })
+  assert.equal((await h.post({ message: 'What is coming up in the next three weeks?' })).status, 200)
+  assert.equal(h.calls.eventOptions.futureOnly, true)
+  assert.doesNotMatch(JSON.stringify(h.calls.modelRequest), /Hit Em Release Party/)
+})
+test('the scheduled performance blocks Ahnika but not Laviche and drops an in-flight reply at kickoff', async () => {
+  const kickoff = Date.parse('2026-12-01T06:00:00Z')
+  const active = harness({ configured: true, now: kickoff })
+  const blocked = await active.post({ host: 'ahnika', message: 'Hello' })
+  assert.equal(blocked.body.code, 'host_performing')
+  assert.equal(active.calls.provider, 0)
+  assert.equal(active.calls.writes.length, 0)
+  assert.equal((await active.post({ message: 'Hello' })).status, 200)
+  const crossing = harness({ configured: true, now: kickoff - 1, finishAt: kickoff })
+  assert.equal((await crossing.post({ host: 'ahnika', message: 'Hello' })).body.code, 'host_performing')
+  assert.equal(crossing.calls.provider, 1)
+  assert.equal(crossing.calls.writes.length, 0)
+  for (const now of [kickoff - 1, kickoff + 99_700]) {
+    const available = harness({ configured: true, now })
+    assert.equal((await available.post({ host: 'ahnika', message: 'Hello' })).status, 200)
+  }
+})
 test('verified launch FAQ returns and persists exact facts with no provider key or provider call', async () => {
   const h = harness({ featureError: true })
   const response = await h.post()

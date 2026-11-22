@@ -1,19 +1,23 @@
 const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require('node:assert/strict');
 const event='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-let grant={conversationId:'conversation',userId:'owner',host:'laviche'},owner=true,canon=true,count=0,existing=null,insertError=null,lookupError=null,inserts=0;
-const db={from(table){let write=null;const q={select(){return q},eq(){return q},gte(){return q},insert(value){write=value;return q},maybeSingle:async()=>({data:table==='host_conversations'?{authorized:owner}:existing,error:lookupError}),then(resolve,reject){if(write){inserts++;if(!insertError)existing=write;return Promise.resolve({error:insertError}).then(resolve,reject)}return Promise.resolve({count,error:null}).then(resolve,reject)}};return q}};
+let grant={conversationId:'conversation',userId:'owner',host:'laviche'},owner=true,canon=true,count=0,existing=null,insertError=null,lookupError=null,inserts=0,readOptions=null,performing=false;
+const db={from(table){let write=null;const q={select(){return q},eq(){return q},gte(){return q},in(){return q},order(){return q},limit(){return q},insert(value){write=value;return q},maybeSingle:async()=>({data:table==='host_conversations'?{authorized:owner}:existing,error:lookupError}),then(resolve,reject){if(write){inserts++;if(!insertError)existing=write;return Promise.resolve({error:insertError}).then(resolve,reject)}return Promise.resolve({count,data:[],error:null}).then(resolve,reject)}};return q}};
 const env={CS_LIVEKIT_ENABLED:'true',CS_LIVEKIT_BRIDGE_SECRET:'test'};
 const scope={exports:{},Response,Date,process:{env},require(n){
  if(n.endsWith('/livekit-session'))return {verifyVoiceSession:()=>grant};
  if(n.endsWith('/admin'))return {createAdminClient:()=>db};
- if(n.endsWith('/concierge-canon'))return {canonicalConciergeHost:async()=>canon?{voiceId:'approved'}:null};
+ if(n.endsWith('/concierge-canon'))return {canonicalConciergeHost:async()=>canon?{voiceId:'approved',context:'Canonical identity'}:null};
  if(n.endsWith('/conversation-access'))return {conversationMatchesRequester:r=>r?.authorized};
+ if(n.endsWith('/lib/events'))return {getUpcomingEvents:async options=>{readOptions=options;return [{title:'Already Gone'}]}};
+ if(n.endsWith('/concierge/programming'))return {voiceProgrammingContext:events=>events.map(e=>e.title).join(',')};
+ if(n.endsWith('/stage-host-availability'))return {stageHostIsPerforming:host=>performing && host==='ahnika',STAGE_HOST_ON_STAGE:'On stage',VOICE_PERFORMANCE_BUFFER_MS:40000};
  throw Error(n);
 }};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/concierge/livekit/memory/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,scope);
 const req=body=>({headers:{get:()=> 'Bearer signed'},json:async()=>body});
 const turn={event_id:event,role:'user',content:'Hello Café Sativa'};
 (async()=>{
+ performing=true;grant.host='ahnika';assert.equal((await (await scope.exports.GET(req())).json()).code,'host_performing');assert.equal(readOptions,null);grant.host='laviche';assert.equal((await scope.exports.GET(req())).status,200);performing=false;readOptions=null;
  env.CS_LIVEKIT_ENABLED='false';assert.equal((await scope.exports.POST(req(turn))).status,503);env.CS_LIVEKIT_ENABLED='true';
  const realGrant=grant;grant=null;assert.equal((await scope.exports.POST(req(turn))).status,401);grant=realGrant;
  for(const patch of [{role:'system'},{content:''},{content:'x'.repeat(4001)},{event_id:'invalid'}])assert.equal((await scope.exports.POST(req({...turn,...patch}))).status,400);
@@ -25,5 +29,9 @@ const turn={event_id:event,role:'user',content:'Hello Café Sativa'};
  assert.equal((await scope.exports.POST(req({...turn,content:'different'}))).status,409);assert.equal(inserts,1);
  existing={...existing,conversation_id:'other'};assert.equal((await scope.exports.POST(req(turn))).status,409);
  existing=null;lookupError={message:'private-database-error'};const failed=await scope.exports.POST(req(turn));assert.equal(failed.status,503);assert(!(await failed.text()).includes('private-database-error'));
+ lookupError=null;owner=false;assert.equal((await scope.exports.GET(req())).status,403);assert.equal(readOptions,null);
+ owner=true;const read=await scope.exports.GET(req());assert.equal(read.status,200);
+ const payload=await read.json();assert.equal(payload.canonical.voiceId,'approved');assert.match(payload.canonical.context,/Canonical identity[\s\S]*Already Gone/);
+ assert.equal(readOptions.futureOnly,true);
  console.log('PASS: disabled/invalid grant, input limits, owner/canonical gates, rate hold, one insert, idempotent retry, conflicting payload and conversation, safe database errors');
 })().catch(e=>{console.error(e);process.exitCode=1});

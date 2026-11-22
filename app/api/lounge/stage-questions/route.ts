@@ -1,0 +1,132 @@
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
+import { getHost } from '@/lib/concierge/personas'
+import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
+import { AHNIKA_PREMIERE_SLUG, ahnikaConciergeWindowOpen } from '@/lib/events/ahnika-premiere-window'
+import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut } from '@/lib/events/private-stage-rehearsal'
+
+export const dynamic = 'force-dynamic'
+const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
+const inbox = 'stage_host_questions'
+const itemFields = 'id,host,question,answer,answer_source,created_at'
+const json = (data: object, status = 200) => NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
+const unavailable = () => json({ error: 'Stage questions are temporarily unavailable.' }, 503)
+
+// Resolve all access with the attendee's own session before invoking a privileged client.
+async function roomAccess(roomId: unknown) {
+  if (process.env.STAGE_HOST_INBOX_ENABLED !== 'true') return { error: json({ error: 'Stage questions are closed.' }, 404) }
+  if (typeof roomId !== 'string' || !uuid.test(roomId)) return { error: json({ error: 'Choose a Stage room.' }, 400) }
+  const db = createClient()
+  const { data: { user } } = await db.auth.getUser()
+  if (!user || user.is_anonymous) return { error: json({ error: 'Sign in to use Stage questions.' }, 401) }
+  const { data: room, error: roomError } = await db.from('lounge_rooms').select('id,slug').eq('id', roomId).maybeSingle()
+  if (roomError || !room) return { error: json({ error: 'Stage room unavailable.' }, 404) }
+
+  if (room.id === PRIVATE_STAGE_REHEARSAL_ROOM) {
+    const { data: invite } = await db.from('stage_rehearsal_invites').select('can_draft,expires_at')
+      .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
+    const slot = privateStagePlaybackSlot(process.env)
+    if (!invite || !slot || !rehearsalInviteCoversCut(invite.expires_at, slot.end, slot.inviteUntil)) {
+      return { error: json({ error: 'Stage room unavailable.' }, 404) }
+    }
+    return { attendeeId: user.id, roomId, moderator: invite.can_draft === true, startsAt: slot.startsAt }
+  }
+  if (room.slug !== AHNIKA_PREMIERE_SLUG) return { error: json({ error: 'Stage room unavailable.' }, 404) }
+  const [event, profile, grant] = await Promise.all([
+    db.from('my_events_v').select('starts_at,presenter_name,ticket_price_cents,status').eq('slug', room.slug).maybeSingle(),
+    db.from('profiles').select('is_staff,is_admin').eq('id', user.id).maybeSingle(),
+    db.from('stage_premiere_reply_moderators').select('user_id').eq('room_id', roomId).eq('user_id', user.id).maybeSingle(),
+  ])
+  if (!event.data || !ahnikaConciergeWindowOpen(event.data)) {
+    return { error: json({ error: 'Stage questions are closed.' }, 409) }
+  }
+  return { attendeeId: user.id, roomId, moderator: Boolean(profile.data?.is_staff || profile.data?.is_admin || grant.data), startsAt: event.data.starts_at as string }
+}
+
+export async function GET(request: Request) {
+  try {
+    const params = new URL(request.url).searchParams
+    const access = await roomAccess(params.get('roomId'))
+    if (access.error) return access.error
+    const admin = createAdminClient()
+    const [mine, pending] = await Promise.all([
+      admin.from(inbox).select(itemFields).eq('room_id', access.roomId).eq('attendee_id', access.attendeeId)
+        .order('created_at', { ascending: false }).limit(30),
+      access.moderator ? admin.from(inbox).select(itemFields).eq('room_id', access.roomId)
+        .is('answer', null).order('created_at').limit(40) : Promise.resolve({ data: [], error: null }),
+    ])
+    if (mine.error || pending.error) return unavailable()
+    return json({ mine: mine.data, pending: pending.data, moderator: access.moderator })
+  } catch { return unavailable() }
+}
+
+export async function POST(request: Request) {
+  if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Invalid origin.' }, 403)
+  try {
+    const body = await request.json().catch(() => null)
+    const question = typeof body?.question === 'string' ? body.question.trim() : ''
+    if (!uuid.test(typeof body?.id === 'string' ? body.id : '') || !question || question.length > 600 ||
+        (body.host !== 'laviche' && body.host !== 'ahnika')) return json({ error: 'Enter a question up to 600 characters.' }, 400)
+    const access = await roomAccess(body.roomId)
+    if (access.error) return access.error
+    const host = getHost(body.host)
+    if (!host) return unavailable()
+    const admin = createAdminClient()
+    const laviche = host.id === 'laviche'
+    // No guest question is sent to a model. Known questions use the existing persona
+    // identity and exact-fact evaluator; all other text stays in the private queue.
+    const decision = decideStageAutoReply({ question, host: host.id as 'laviche' | 'ahnika',
+      facts: { startsAt: access.startsAt, format: 'scheduled-premiere', enableSoundControl: false, vipReplayPublished: false },
+      enabled: process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
+        (!laviche || process.env.STAGE_LAVICHE_MODERATOR_ENABLED === 'true'), paused: false })
+    const canonical = decision.action === 'eligible'
+      ? await canonicalConciergeHost(host.id, AbortSignal.timeout(2500)).catch(() => null) : null
+    const answer = !laviche && decision.action === 'eligible' && canonical ? decision.text : null
+    const { data, error } = await admin.from(inbox).upsert({
+      id: body.id, room_id: access.roomId, attendee_id: access.attendeeId, host: host.id, question,
+      answer, answer_source: answer ? 'verified_host' : null,
+    }, { onConflict: 'id', ignoreDuplicates: true }).select(itemFields).maybeSingle()
+    if (error?.code === 'P0001' && error.message === 'stage_host_question_rate_limit') {
+      return json({ error: 'Please wait before sending another question.' }, 429)
+    }
+    if (error) return unavailable()
+    if (data) {
+      if (laviche && decision.action === 'eligible' && canonical) {
+        const resolution = await admin.rpc('stage_resolve_laviche_question', {
+          p_question_id: data.id, p_room_id: access.roomId, p_attendee_id: access.attendeeId,
+          p_show_starts_at: access.startsAt,
+        }).then(value => value, () => null)
+        if (typeof resolution?.data === 'string' && !resolution.error) {
+          return json({ item: { ...data, answer: resolution.data, answer_source: 'verified_host' } }, 201)
+        }
+      }
+      return json({ item: data }, 201)
+    }
+    const existing = await admin.from(inbox).select(itemFields).eq('id', body.id)
+      .eq('room_id', access.roomId).eq('attendee_id', access.attendeeId).maybeSingle()
+    if (existing.error) return unavailable()
+    if (existing.data?.host !== host.id || existing.data?.question !== question) return json({ error: 'Question could not be confirmed.' }, 409)
+    return json({ item: existing.data })
+  } catch { return unavailable() }
+}
+
+export async function PATCH(request: Request) {
+  if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Invalid origin.' }, 403)
+  try {
+    const body = await request.json().catch(() => null)
+    const answer = typeof body?.answer === 'string' ? body.answer.trim() : ''
+    if (!uuid.test(typeof body?.id === 'string' ? body.id : '') || !answer || answer.length > 600) {
+      return json({ error: 'Enter a reply up to 600 characters.' }, 400)
+    }
+    const access = await roomAccess(body.roomId)
+    if (access.error) return access.error
+    if (!access.moderator) return json({ error: 'Moderator access required.' }, 403)
+    const { data, error } = await createAdminClient().from(inbox)
+      .update({ answer, answer_source: 'moderator', resolved_by: access.attendeeId })
+      .eq('room_id', access.roomId).eq('id', body.id).is('answer', null).select('id').maybeSingle()
+    if (error) return unavailable()
+    return data ? json({ resolved: true }) : json({ error: 'Question is no longer pending.' }, 409)
+  } catch { return unavailable() }
+}

@@ -29,6 +29,18 @@ own Sound setting. Confirm signed-out and non-invited users cannot get
 media, and invited media requests fail after the planned end. Record
 start, playback and cutoff separately from chat, Q&A and moderation.
 
+If Preview cannot reach the approved cut without a production credential,
+use the invite-only `/stage/rehearsal` room on the production site. Confirm
+the attendee, an existing staff moderator, and a private slot first.
+Set only the production `STAGE_PRIVATE_PROD_PLAYBACK_STARTS_AT` to that exact
+UTC kickoff. Do not move the public event or export the relay credential.
+Grant only the named accounts invitations covering the cut and expiring
+within 30 minutes of playback ending. The slot is rejected unless that
+latest expiry is at least 15 minutes before the public doors open.
+Verify that the signed-out private route denies media, the invited browser
+plays during the slot, and the same browser is denied again at the cutoff.
+Remove the slot configuration after the run; no replay is published by this test.
+
 ## Artist destination, promotion and replay
 
 - Keep “Listen to Already Gone” hidden until the exact official track

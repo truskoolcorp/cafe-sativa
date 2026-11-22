@@ -24,7 +24,11 @@ const iso = millis => new Date(millis).toISOString().replace('.000Z', 'Z')
 
 test('production requires its own one-off slot and cannot overlap the public doors', () => {
   assert.equal(slot.start, Date.parse(start))
-  assert.equal(slot.end, slot.start + event.AHNIKA_PREMIERE_DURATION_MS)
+  assert.equal(slot.end, slot.start + 60 * 60_000)
+  assert.equal(slot.onDemand, true)
+  const preview = slots.privateStagePlaybackSlot({ ...env, VERCEL_ENV: 'preview', STAGE_PRIVATE_REHEARSAL_STARTS_AT: start })
+  assert.equal(preview.end - preview.start, event.AHNIKA_PREMIERE_DURATION_MS)
+  assert.equal(preview.onDemand, false)
   assert.equal(slot.inviteUntil, slot.end + 30 * 60_000)
   assert.equal(slots.privateStagePlaybackSlot({ ...env, STAGE_PRIVATE_PROD_PLAYBACK_STARTS_AT: undefined,
     STAGE_PRIVATE_REHEARSAL_STARTS_AT: start }), null)
@@ -35,8 +39,8 @@ test('production requires its own one-off slot and cannot overlap the public doo
 })
 
 test('production media requires a short-lived signed-in invitation through cutoff', async () => {
-  for (const mode of ['signed_out', 'anonymous', 'uninvited', 'too_short', 'too_long', 'completed', 'valid']) {
-    const now = mode === 'completed' ? slot.end : slot.start
+  for (const mode of ['signed_out', 'anonymous', 'uninvited', 'too_short', 'too_long', 'completed', 'valid', 'late_seek']) {
+    const now = mode === 'completed' ? slot.end : mode === 'late_seek' ? slot.end - 1000 : slot.start
     class SlotDate extends Date { static now() { return now } }
     let upstream = 0
     const media = load('lib/events/ahnika-premiere-media.ts', { './ahnika-premiere-window': event }, { Date: SlotDate })
@@ -67,8 +71,9 @@ test('production media requires a short-lived signed-in invitation through cutof
     } })
     const request = new Request('https://www.cafe-sativa.com/api/stage/rehearsal-media', { headers: { range: 'bytes=0-0' } })
     const result = await route.GET(request)
-    assert.equal(result.status, mode === 'valid' ? 206 : 404, mode)
-    assert.equal(upstream, mode === 'valid' ? 2 : 0, mode)
+    const allowed = mode === 'valid' || mode === 'late_seek'
+    assert.equal(result.status, allowed ? 206 : 404, mode)
+    assert.equal(upstream, allowed ? 2 : 0, mode)
     assert.equal(result.headers.get('location'), null)
     assert.match(result.headers.get('cache-control'), /no-store/)
     const publicResult = await media.serveAhnikaPremiereMedia(request, { now: () => slot.start, fetch: async () => {

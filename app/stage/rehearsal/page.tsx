@@ -43,8 +43,11 @@ export default async function Rehearsal() {
           sound="/rooms/stage-golden-hour-surf-v2.wav"
           intro="Private rehearsal: welcome to The Stage. Please welcome Ahnika Merlot with Already Gone." />
       ) : now < slot.end ? (
-        <StagePremiereVideo src="/api/stage/rehearsal-media" label="Private rehearsal of the approved Ahnika performance"
-          kickoff={slot.start} serverNow={now} />
+        <>
+          {slot.onDemand && <p>Rehearsal playback is open. Play, pause, or rewind at your own pace.</p>}
+          <StagePremiereVideo src="/api/stage/rehearsal-media" label="Private rehearsal of the approved Ahnika performance"
+            kickoff={slot.onDemand ? undefined : slot.start} serverNow={now} />
+        </>
       ) : (
         <p role="status">The rehearsal playback window has ended. The private chat remains available for invited participants.</p>
       ))}

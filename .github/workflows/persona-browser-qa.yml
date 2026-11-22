@@ -32,6 +32,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/persona-playwright/node_modules
         run: node tests/browser/stage/lobby-qa.cjs
+      - name: Exercise both text hosts and private moderator review with synthetic accounts
+        env:
+          NODE_PATH: ${{ runner.temp }}/persona-playwright/node_modules
+        run: node tests/browser/stage/host-inbox-qa.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

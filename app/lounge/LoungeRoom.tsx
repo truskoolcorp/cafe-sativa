@@ -45,6 +45,14 @@ import { insertLoungeMention, loungeMentionHandles, loungeMentionParts, loungeMe
 
 type Tier = 'explorer' | 'regular' | 'vip'
 
+type HostQuestion = {
+  id: string
+  host: 'laviche' | 'ahnika'
+  question: string
+  answer: string | null
+  answer_source: 'verified_host' | 'moderator' | null
+}
+
 type Message = {
   id: string
   user_id: string
@@ -67,6 +75,7 @@ type Props = {
   privateRoom?: boolean
   rehearsalDraftModerator?: boolean
   premiereDraftModerator?: boolean
+  stageHostInbox?: boolean
   applauseFor?: string
 }
 
@@ -82,6 +91,7 @@ export function LoungeRoom({
   privateRoom = false,
   rehearsalDraftModerator = false,
   premiereDraftModerator = false,
+  stageHostInbox = false,
   applauseFor,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
@@ -95,6 +105,13 @@ export function LoungeRoom({
   const [error, setError] = useState<string | null>(null)
   const [composerMode, setComposerMode] = useState<'chat' | 'host'>('chat')
   const [postStatus, setPostStatus] = useState('')
+  const [ownQuestions, setOwnQuestions] = useState<HostQuestion[]>([])
+  const [pendingQuestions, setPendingQuestions] = useState<HostQuestion[]>([])
+  const [reviewId, setReviewId] = useState<string | null>(null)
+  const [reviewText, setReviewText] = useState('')
+  const [reviewing, setReviewing] = useState(false)
+  const questionRef = useRef<{ id: string; question: string; host: string } | null>(null)
+  const inboxRevision = useRef(0)
   const [drafting, setDrafting] = useState(false)
   const [dryRunPaused, setDryRunPaused] = useState(true)
   const [dryRunResult, setDryRunResult] = useState('')
@@ -102,7 +119,7 @@ export function LoungeRoom({
   const askingHost = conciergeDrafts && composerMode === 'host'
   const hostName = draftHost === 'laviche' ? 'Laviche' : 'Ahnika'
   const hostPrefix = `[Ask ${draftHost}] `
-  const maxComposerLength = askingHost ? 2000 - hostPrefix.length : 2000
+  const maxComposerLength = askingHost ? (stageHostInbox ? 600 : 2000 - hostPrefix.length) : 2000
   const canSendInput = !sending && Boolean(input.trim()) && input.trim().length <= maxComposerLength
   const [presenceCount, setPresenceCount] = useState(1) // ourselves
   const [presenceNames, setPresenceNames] = useState<string[]>([])
@@ -151,6 +168,78 @@ export function LoungeRoom({
     if (minPostTier === 'vip') return tier === 'vip'
     return false
   }, [tier, minPostTier])
+
+  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff || premiereDraftModerator)
+
+  useEffect(() => {
+    if (!stageHostInbox) return
+    const abort = new AbortController()
+    let reading = false
+    const refresh = async () => {
+      if (document.hidden || reading || abort.signal.aborted) return
+      reading = true
+      const revision = inboxRevision.current
+      try {
+        const res = await fetch(`/api/lounge/stage-questions?roomId=${encodeURIComponent(roomId)}`, { signal: abort.signal, cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!abort.signal.aborted && revision === inboxRevision.current && Array.isArray(data.mine) && Array.isArray(data.pending)) {
+          setOwnQuestions(data.mine)
+          setPendingQuestions(data.pending)
+        }
+      } catch { /* preserve the last confirmed receipts */ }
+      finally { reading = false }
+    }
+    void refresh()
+    const timer = setInterval(() => void refresh(), 5000)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { abort.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', refresh) }
+  }, [roomId, stageHostInbox])
+
+  async function sendPrivateQuestion(question: string) {
+    if (question.length > 600) return
+    const previous = questionRef.current
+    const id = previous?.question === question && previous.host === draftHost ? previous.id : crypto.randomUUID()
+    questionRef.current = { id, question, host: draftHost }
+    setSending(true)
+    setError(null)
+    setPostStatus('')
+    try {
+      const res = await fetch('/api/lounge/stage-questions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, question, host: draftHost, roomId }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.item?.id !== id) throw new Error(data.error || 'Could not confirm your question.')
+      inboxRevision.current++
+      setOwnQuestions(current => [data.item, ...current.filter(item => item.id !== id)])
+      setPostStatus(data.item.answer ? `${hostName} replied below.` : 'Sent privately for moderator review. A reply may take time.')
+      setInput('')
+      questionRef.current = null
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not confirm your question. Try again.')
+    } finally { setSending(false) }
+  }
+
+  async function reviewQuestion(id: string) {
+    if (!canDraft || reviewing || !reviewText.trim()) return
+    setReviewing(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/lounge/stage-questions', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, roomId, answer: reviewText }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.resolved !== true) throw new Error(data.error || 'Could not send the moderator reply.')
+      inboxRevision.current++
+      setPendingQuestions(current => current.filter(item => item.id !== id))
+      setReviewId(null)
+      setReviewText('')
+      setPostStatus('Private moderator reply sent.')
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not send the moderator reply.') }
+    finally { setReviewing(false) }
+  }
 
   // ------------------------------------------------------------
   // Scroll management
@@ -275,6 +364,7 @@ export function LoungeRoom({
     const plain = reaction ?? input.trim()
     const content = asHostQuestion ? `${hostPrefix}${plain}` : plain
     if (!plain || sending || !canPost || content.length > 2000 || (asHostQuestion && !conciergeDrafts)) return
+    if (asHostQuestion && stageHostInbox) return sendPrivateQuestion(plain)
 
     setError(null)
     setPostStatus('')
@@ -325,7 +415,9 @@ export function LoungeRoom({
       }
       setMessages((prev) => confirmLoungeMessage(prev, localId, { id: data.id, created_at: data.created_at }))
       if (asHostQuestion) {
-        setPostStatus(`Question for ${hostName} posted in this room. A moderator reviews concierge replies before they appear.`)
+        setPostStatus(privateRoom
+          ? `Question for ${hostName} posted to room chat. Automatic host replies aren't enabled here.`
+          : `Question for ${hostName} posted in this room. A moderator reviews concierge replies before they appear.`)
       }
     } catch (err: any) {
       setMessages((prev) => prev.filter((m) => m.id !== localId))
@@ -427,7 +519,6 @@ export function LoungeRoom({
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
-  const canDraft = conciergeDrafts && (privateRoom ? rehearsalDraftModerator : isStaff || premiereDraftModerator)
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Presence bar */}
@@ -532,7 +623,10 @@ export function LoungeRoom({
             </div>
             <p className="text-xs text-muted-foreground">
               {askingHost
-                ? 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
+                ? stageHostInbox
+                  ? 'Ask privately. Routine questions may get a verified text reply; others go to moderator review. Do not include passwords or payment details.'
+                  : privateRoom ? 'This posts to room chat. Automatic host replies are not enabled in this rehearsal.'
+                    : 'Your question is visible to this room. A moderator reviews concierge replies before they appear.'
                 : privateRoom ? 'Type @ to choose a guest, or use Ask a host for Ahnika or Laviche.'
                   : 'Send a message to the room, or choose Ask a host to direct a question to Ahnika or Laviche.'}
             </p>
@@ -599,6 +693,30 @@ export function LoungeRoom({
         <p role="status" aria-atomic="true" className={postStatus ? 'mt-2 text-sm text-primary' : 'sr-only'}>
           {postStatus}
         </p>
+        {stageHostInbox && (askingHost || ownQuestions.length > 0 || canDraft) && (
+          <details open={askingHost || Boolean(reviewId) || undefined} className="mt-3 rounded-lg border border-border p-3 text-sm">
+            <summary className="cursor-pointer font-semibold">Private Stage Q&amp;A</summary>
+            <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+              {ownQuestions.length === 0 && <p className="text-muted-foreground">Replies to your host questions appear here as text.</p>}
+              {ownQuestions.map(item => <div key={item.id} className="rounded bg-background p-2 [overflow-wrap:anywhere]">
+                <p>{item.host === 'laviche' ? 'To Laviche' : 'To Ahnika'}: {item.question}</p>
+                <p className="mt-1 text-muted-foreground">{item.answer ? `${item.answer_source === 'moderator' ? 'Moderator' : item.host === 'laviche' ? 'Laviche' : 'Ahnika'}: ${item.answer}` : 'Awaiting moderator review.'}</p>
+              </div>)}
+              {canDraft && <div className="space-y-2 border-t border-border pt-2">
+                <p className="font-semibold">Moderator queue ({pendingQuestions.length})</p>
+                {pendingQuestions.map(item => <div key={item.id} className="rounded bg-background p-2 [overflow-wrap:anywhere]">
+                  <p>{item.question}</p>
+                  {reviewId === item.id ? <div className="mt-1 space-y-1">
+                    <textarea aria-label="Private moderator reply" value={reviewText} maxLength={600} onChange={event => setReviewText(event.target.value)}
+                      className="w-full rounded border border-border bg-card p-2" disabled={reviewing} />
+                    <Button type="button" size="sm" disabled={reviewing || !reviewText.trim()} onClick={() => reviewQuestion(item.id)}>Send private reply</Button>
+                  </div> : <button type="button" className="text-primary underline" disabled={reviewing}
+                    onClick={() => { setReviewId(item.id); setReviewText('') }}>Review and reply</button>}
+                </div>)}
+              </div>}
+            </div>
+          </details>
+        )}
         {canPost && applauseFor && (
           <button type="button" className="ml-3 mt-2 text-sm text-primary underline disabled:opacity-50"
             disabled={sending} onClick={() => send(false, `👏 Applause for ${applauseFor}!`)}>

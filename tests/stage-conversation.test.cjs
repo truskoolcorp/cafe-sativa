@@ -41,6 +41,8 @@ test('an ordinary follow-up uses the approved host, verified program, and only t
   assert.match(await f.ask(), /rewind the rehearsal/)
   assert.equal(f.calls.paid, 1)
   assert.equal(f.calls.model.max_tokens, 280)
+  assert.equal(f.calls.model.output_config.format.type, 'json_schema')
+  assert.equal(f.calls.model.output_config.format.schema.additionalProperties, false)
   assert.match(f.calls.model.canonicalContext, /Verified identity for laviche/)
   assert.match(f.calls.model.hostSystemPrompt, /Approved Laviche voice and character/)
   assert.match(f.calls.model.liveProgramming, /Verified rehearsal facts/)
@@ -67,7 +69,9 @@ test('non-contract output, sensitive links, moderator handoff, and provider fail
 test('a single JSON presentation fence is accepted without weakening output checks', () => {
   const fence = String.fromCharCode(96).repeat(3)
   const reply = fence + 'json\n{"action":"answer","reply":"Replay the rehearsal from the player."}\n' + fence
-  assert.equal(policy.extractStageConversationReply(reply), 'Replay the rehearsal from the player.')
-  assert.equal(policy.extractStageConversationReply('Here is your answer: ' + reply), null)
-  assert.equal(policy.extractStageConversationReply(reply + '\nExtra text'), null)
+  assert.equal(policy.stageConversationOutcome(reply).reply, 'Replay the rehearsal from the player.')
+  assert.equal(policy.stageConversationOutcome('Here is your answer: ' + reply).action, 'invalid_output')
+  assert.equal(policy.stageConversationOutcome(reply + '\nExtra text').action, 'invalid_output')
+  assert.equal(policy.stageConversationOutcome('{"action":"review","reply":""}').action, 'review')
+  assert.equal(policy.stageConversationOutcome('{"action":"answer","reply":"Message guest@example.com"}').action, 'unsafe_output')
 })

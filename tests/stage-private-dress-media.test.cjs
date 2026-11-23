@@ -39,6 +39,7 @@ test('release requires all four separate digest-addressed objects; no URLs or pa
   for (const body of [undefined, '{}', JSON.stringify({ ...fixture, captions: null }),
     JSON.stringify({ ...fixture, performance: fixture.intro }),
     JSON.stringify({ ...fixture, intro: { ...fixture.intro, bytes: 21 * 1024 * 1024 } }),
+    JSON.stringify({ ...fixture, performance: { ...fixture.performance, bytes: 40_000_001 } }),
     JSON.stringify({ ...fixture, intro: { url: 'https://evil.invalid', bytes: 100 } }),
     JSON.stringify({ ...fixture, performance: { bytes: 4096, sha256: '../unsafe' } })]) {
     assert.equal(privateDressMedia(body), null)
@@ -83,16 +84,18 @@ test('early, expired, uninvited, multi-range and cutoff requests do not reach st
 
 test('serves only the correct immutable range and never exposes the signed link', async () => {
   const request = new Request('https://stage.invalid', { headers: { range: 'bytes=0-0' } })
-  for (const mode of ['ok', 'bad-origin', 'wrong-object', 'wrong-range', 'different-length', 'after-sign']) {
+  for (const mode of ['ok', 'bad-origin', 'wrong-bucket', 'wrong-object', 'wrong-range', 'different-length', 'after-sign']) {
     let now = slot.start
     let calls = 0
     const response = await servePrivateDressAsset(request, slot, 'performance', ready.performance, {
       now: () => now,
       invitation: async () => validExpiry,
       sign: async (bucket, object) => {
+        assert.equal(bucket, 'cafe-sativa-dress-rehearsal')
         if (mode === 'after-sign') now = slot.end
         const origin = mode === 'bad-origin' ? 'https://other.invalid' : 'https://nwfxvhqbjtfvoopcadff.supabase.co'
-        return origin + '/storage/v1/object/sign/' + bucket + '/' + (mode === 'wrong-object' ? ready.intro.object : object) + '?token=fixture'
+        const signedBucket = mode === 'wrong-bucket' ? 'cafe-sativa-content' : bucket
+        return origin + '/storage/v1/object/sign/' + signedBucket + '/' + (mode === 'wrong-object' ? ready.intro.object : object) + '?token=fixture'
       },
       fetch: async (_, init) => {
         calls++

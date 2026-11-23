@@ -5,7 +5,10 @@ Do not activate the timed slot until the exact package has passed creative and a
 two audience accounts and an authorized moderator are confirmed, and the deployed invite-only
 route has been checked without changing the public schedule.
 
-The private `cafe-sativa-content` bucket contains four separately approved, immutable objects
+Use the dedicated private `cafe-sativa-dress-rehearsal` bucket, with a 40 MB file limit
+and allowed types `video/mp4`, `image/webp`, and `text/vtt`. Do not make the bucket
+public, add direct viewer Storage policies, or relax the existing content bucket.
+The dedicated bucket holds four separately approved, immutable objects
 under `stage-rehearsal/2026-11-24/`. Name each object by the SHA-256 of its bytes and the
 extension below. Verify the uploaded bytes against each digest and size; never overwrite
 content at an existing digest path. Do not use the combined audition or old cursor cut.
@@ -25,5 +28,7 @@ dress slot. A missing or invalid manifest shows a hold, not an unverified fallba
 For the rehearsal receipt: verify denied direct media off-cue and without an invitation,
 the captioned intro at 7:59:30 a.m. Central, and the reveal and one performance start at 8 a.m.
 Collect both viewer results (including mute, volume, first interaction, and late join).
+Confirm picture and sound continuity in the hosted player. A still used while the next
+video loads or a second play click at the reveal is not a seamless handoff.
 Confirm text-only interaction during the performance, a reviewed reply and moderation action,
 and no public schedule or content changes. The synthetic tests are not a hosted receipt.

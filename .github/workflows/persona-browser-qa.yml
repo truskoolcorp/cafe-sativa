@@ -43,7 +43,7 @@ jobs:
       - name: Check private Laviche report handling with an isolated database
         run: |
           npm install --prefix "$RUNNER_TEMP/stage-report-pg" --ignore-scripts --no-audit --no-fund --package-lock=false @electric-sql/pglite@0.5.17
-          NODE_PATH="$RUNNER_TEMP/stage-report-pg/node_modules" node --test tests/stage-dress-report-policy.test.cjs
+          NODE_PATH="$RUNNER_TEMP/stage-report-pg/node_modules" node --test tests/browser/stage/dress-report-policy.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

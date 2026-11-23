@@ -1,3 +1,4 @@
+// Isolated Postgres fixture; it is not part of the default app test glob.
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const { test } = require('node:test')

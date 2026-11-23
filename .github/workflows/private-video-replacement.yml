@@ -1,0 +1,25 @@
+name: Private video replacement
+on:
+  pull_request:
+    paths:
+      - 'app/api/content/video-replacement/**'
+      - 'app/api/content/review/**'
+      - 'app/admin/content/ContentReview.tsx'
+      - 'lib/content/replacement-video.ts'
+      - 'next.config.js'
+      - 'tests/video-replacement.cjs'
+      - 'tests/content-review-canonical.cjs'
+      - '.github/workflows/private-video-replacement.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: node tests/video-replacement.cjs
+      - run: node tests/content-review-canonical.cjs
+      - run: npx tsc --noEmit

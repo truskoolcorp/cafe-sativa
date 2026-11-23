@@ -9,7 +9,7 @@ const { chromium } = require('playwright')
 
 const umd = pkg => fs.readFileSync(require.resolve(pkg).replace(/index.js$/, `umd/${pkg}.production.min.js`), 'utf8')
 const source = file => ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React },
 }).outputText
 // Use the same component source, no remote data, account, network service, or credentials.
 const script = `${umd('react')}\n${umd('react-dom')}\n
@@ -21,7 +21,6 @@ const sources = {
 };
 function require(name) {
   if (name === "react") return React;
-  if (name === "react/jsx-runtime") return { jsx: React.createElement, jsxs: React.createElement };
   if (!modules[name]) { modules[name] = {}; sources[name](modules[name], require); }
   return modules[name];
 }
@@ -82,9 +81,10 @@ async function run() {
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   let browser
+  let pages = []
   try {
     browser = await chromium.launch()
-    const pages = await Promise.all([browser.newPage(), browser.newPage()])
+    pages = await Promise.all([browser.newPage(), browser.newPage()])
     await Promise.all(pages.map(async (page, i) => {
       page.on('pageerror', err => failures.push(err.message))
       await page.addInitScript((muted) => {
@@ -127,6 +127,16 @@ async function run() {
     }
     console.log(JSON.stringify({ synthetic: files === temp, receipts, earliestPerformanceRequestAfterCueMs:
       Math.min(...requests.filter(r => r.role === 'performance').map(r => r.at - timing.kickoff)) }, null, 2))
+  } catch (error) {
+    const snapshot = await Promise.all(pages.map(page => page.evaluate(() => ({
+      status: document.querySelector('#root')?.textContent,
+      receipt: window.receipt,
+      videos: [...document.querySelectorAll('video')].map(v => ({ label: v.getAttribute('aria-label'),
+        src: v.getAttribute('src'), hidden: v.getAttribute('aria-hidden'), error: v.error?.message, 
+        paused: v.paused, videoTime: v.currentTime, readyState: v.readyState })),
+    })).catch(() => null)))
+    console.error(JSON.stringify({ failures, requests: requests.map(r => [r.role, r.at - timing.introAt]), snapshot }))
+    throw error
   } finally {
     if (browser) await browser.close()
     await new Promise(resolve => server.close(resolve))

@@ -36,6 +36,11 @@ and no public schedule or content changes. The synthetic tests are not a hosted 
 The handoff player buffers 1.25 seconds on the viewer side; it does not fetch any
 performance bytes before the scheduled cue or extend the server's media cutoff.
 
+The rehearsal room, Q&A and staff reporting stay open until 9:00 a.m. Central
+for troubleshooting. Assign invited test accounts that exact expiry. The
+captioned intro and synchronized performance still use their original cues and
+cutoffs; the troubleshooting tail does not enable replay.
+
 Private reporting additionally requires `STAGE_PRIVATE_DRESS_REPORTS_ENABLED=true`
 on the rehearsal deployment and the private report migration. Laviche can only
 hide a reported, exact repeated link from a non-staff speaker in that room. This

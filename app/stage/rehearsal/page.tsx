@@ -49,7 +49,7 @@ export default async function Rehearsal() {
     <main className="mx-auto max-w-4xl space-y-4 px-4 pb-12 pt-28">
       <h1 className="font-heading text-3xl font-bold">Private Stage rehearsal</h1>
       <p>Invite-only Stage rehearsal. This is not the December 1 premiere.</p>
-      {slot?.dress && <p>Doors open at 7:45 a.m. Central. The synchronized performance starts at 8:00 a.m. Central.</p>}
+      {slot?.dress && <p>Doors open at 7:45 a.m. Central. The synchronized performance starts at 8:00 a.m. Central. Private chat and troubleshooting stay open until 9:00 a.m. Central.</p>}
       {boundary && <StagePremiereRefresh key={boundary} startsAt={new Date(boundary).toISOString()} serverNow={now} />}
       {slot?.dress && (!dressMediaReady || now < slot.dress.doors) ? (
         <p role="status">{dressMediaReady ? 'The rehearsal room will open at 7:45 a.m. Central.' : 'The dress rehearsal is not ready to open.'}</p>
@@ -70,7 +70,7 @@ export default async function Rehearsal() {
             kickoff={slot.onDemand ? undefined : slot.start} serverNow={now} />
         </>
       ) : (
-        <p role="status">{slot.dress ? 'The scheduled rehearsal performance has ended.' : 'The rehearsal playback window has ended. The private chat remains available for invited participants.'}</p>
+        <p role="status">{slot.dress ? 'The scheduled performance has ended. You can keep using chat and testing moderation until 9:00 a.m. Central.' : 'The rehearsal playback window has ended. The private chat remains available for invited participants.'}</p>
       ))}
       {(!slot?.dress || dressOpen) && <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
         <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}

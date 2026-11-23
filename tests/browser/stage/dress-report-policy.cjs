@@ -5,6 +5,7 @@ const { test } = require('node:test')
 const { PGlite } = require('@electric-sql/pglite')
 
 const migration = fs.readFileSync('supabase/migrations/20261123131346_stage_dress_report_lane.sql', 'utf8')
+const extension = fs.readFileSync('supabase/migrations/20261123134313_stage_dress_troubleshooting_window.sql', 'utf8')
 const room = '5cafe000-0000-4000-8000-000000000001'
 const other = '5cafe000-0000-4000-8000-000000000002'
 const id = n => '10000000-0000-4000-8000-' + String(n).padStart(12, '0')
@@ -26,15 +27,14 @@ test('room-only Laviche spam suppression, human-only review, and closed-window d
       grant select on public.stage_rehearsal_invites to service_role;
     `)
     const { rows: [clock] } = await db.query(`
-      select (now() - interval '5 minutes')::text doors, (now() + interval '15 minutes')::text closes,
-             (now() + interval '20 minutes')::text expires
+      select (now() - interval '55 minutes')::text doors, (now() + interval '20 minutes')::text expires
     `)
     // The deployed SQL is locked to one date. Substitute a local fixture clock
     // only in this in-memory database; the real migration is never rewritten.
-    const fixture = migration
+    await db.exec(migration)
+    const fixture = extension
       .replaceAll('2026-11-24T13:45:00Z', clock.doors)
-      .replaceAll('2026-11-24T14:16:39.700Z', clock.closes)
-      .replaceAll('2026-11-24T14:20:00Z', clock.expires)
+      .replaceAll('2026-11-24T15:00:00Z', clock.expires)
     await db.exec(fixture)
     for (const person of [viewer, sender, staff, outsider, viewer2]) {
       await db.query('insert into auth.users values ($1)', [person])
@@ -76,9 +76,7 @@ test('room-only Laviche spam suppression, human-only review, and closed-window d
     await db.exec('reset role')
     // Replace only these functions with their production clock. Production
     // windows and invitation times never accept fixture callers.
-    const functions = migration.slice(migration.indexOf('create function public.stage_dress_report_message'))
-      .replaceAll('create function', 'create or replace function')
-    await db.exec(functions)
+    await db.exec(extension)
     assert.equal(await report(12, viewer), 'closed')
   } finally {
     await db.close()

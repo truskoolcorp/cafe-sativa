@@ -6,7 +6,7 @@ const productionCushionMs = 15 * 60_000
 const productionInviteTailMs = 30 * 60_000
 const productionPlaybackWindowMs = 60 * 60_000
 export const DRESS_REHEARSAL_KICKOFF = '2026-11-24T14:00:00Z'
-const DRESS_REHEARSAL_WRAP = Date.parse('2026-11-24T14:20:00Z')
+const DRESS_REHEARSAL_WRAP = Date.parse('2026-11-24T15:00:00Z')
 
 export function rehearsalAccessEnd(slot: { end: number; dress?: { closes: number } | null }) {
   return slot.dress?.closes ?? slot.end
@@ -18,7 +18,9 @@ export function privateStagePlaybackSlot(env: Record<string, string | undefined>
   const dressKickoff = env.STAGE_PRIVATE_DRESS_KICKOFF
   if (dressKickoff) {
     if (dressKickoff !== DRESS_REHEARSAL_KICKOFF) return null
-    const dress = stageAudienceSchedule(dressKickoff, AHNIKA_PREMIERE_DURATION_MS)!
+    const audience = stageAudienceSchedule(dressKickoff, AHNIKA_PREMIERE_DURATION_MS)!
+    // Keep the room open for troubleshooting without moving either media cue.
+    const dress = { ...audience, closes: DRESS_REHEARSAL_WRAP }
     return { startsAt: dressKickoff, start: dress.kickoff, end: dress.kickoff + AHNIKA_PREMIERE_DURATION_MS,
       inviteUntil: DRESS_REHEARSAL_WRAP, onDemand: false, dress }
   }

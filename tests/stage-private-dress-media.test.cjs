@@ -30,7 +30,7 @@ const slot = rehearsal.privateStagePlaybackSlot(env)
 const fixture = { intro: { sha256: 'a'.repeat(64), bytes: 1024 }, captions: { sha256: 'b'.repeat(64), bytes: 128 },
   reveal: { sha256: 'c'.repeat(64), bytes: 512 }, performance: { sha256: 'd'.repeat(64), bytes: 4096 } }
 const ready = privateDressMedia(JSON.stringify(fixture))
-const validExpiry = '2026-11-24T14:20:00Z'
+const validExpiry = '2026-11-24T15:00:00Z'
 
 test('release requires all four separate digest-addressed objects; no URLs or partial packages', () => {
   assert.equal(isDressAssetName('performance'), true)
@@ -76,6 +76,7 @@ test('early, expired, uninvited, multi-range and cutoff requests do not reach st
   for (const [clock, expiry, range, expected, inviteCalls] of [
     [slot.start - 1, validExpiry, 'bytes=0-0', 404, 0],
     [slot.end, validExpiry, 'bytes=0-0', 404, 0],
+    [slot.dress.closes - 1, validExpiry, 'bytes=0-0', 404, 0],
     [slot.start, null, 'bytes=0-0', 404, 1],
     [slot.start, '2026-11-24T14:16:00Z', 'bytes=0-0', 404, 1],
     [slot.start, validExpiry, 'bytes=0-0,2-3', 416, 1],

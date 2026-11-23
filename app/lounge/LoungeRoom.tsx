@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertCircle,
@@ -18,6 +18,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import { confirmLoungeMessage, restoreLoungeMessage } from '@/lib/lounge-message-state'
 import { loungeDisplayName, loungeGuestCode, loungeSpeakerAccent } from '@/lib/lounge-speaker'
 import { insertLoungeMention, loungeMentionHandles, loungeMentionParts, loungeMentionQuery } from '@/lib/lounge-mentions'
+import { StageDressModerationQueue, StageDressReport, useStageDressHiddenMessages } from '@/components/events/StageDressReport'
 
 /**
  * Client-side Lounge room.
@@ -78,6 +79,7 @@ type Props = {
   stageHostInbox?: boolean
   ahnikaOnStage?: boolean
   soloStageHostTest?: boolean
+  dressReportsSince?: string
   applauseFor?: string
 }
 
@@ -96,9 +98,12 @@ export function LoungeRoom({
   stageHostInbox = false,
   ahnikaOnStage = false,
   soloStageHostTest = false,
+  dressReportsSince,
   applauseFor,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const { hidden: dressHidden, hide: hideDressMessage } = useStageDressHiddenMessages(Boolean(dressReportsSince))
+  const visibleMessages = dressReportsSince ? messages.filter(message => !dressHidden.has(message.id)) : messages
   const [input, setInput] = useState('')
   const composer = useRef<HTMLTextAreaElement>(null)
   const mentionListId = useId()
@@ -546,6 +551,9 @@ export function LoungeRoom({
       </div>}
 
       {/* Message list */}
+      {dressReportsSince && rehearsalDraftModerator && (
+        <StageDressModerationQueue onHidden={hideDressMessage} />
+      )}
       {privateRoom && canDraft && (
         <div className="space-y-1 py-2 text-xs text-muted-foreground">
           <label><input type="checkbox" checked={dryRunPaused}
@@ -558,16 +566,16 @@ export function LoungeRoom({
         onScroll={handleListScroll}
         className="flex-1 overflow-y-auto py-4 space-y-2 relative"
       >
-        {messages.length === 0 ? (
+        {visibleMessages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-sm text-muted-foreground font-body">
               Quiet in here. Say hi.
             </p>
           </div>
         ) : (
-          messages.map((m) => (
+          visibleMessages.map((m) => (
+            <Fragment key={m.id}>
             <MessageRow
-              key={m.id}
               message={m}
               roomId={roomId}
               own={m.user_id === userId}
@@ -585,6 +593,12 @@ export function LoungeRoom({
               onDryRun={privateRoom && canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
                 ? () => draftConciergeReply(m, true) : undefined}
             />
+            {dressReportsSince && Date.parse(m.created_at) >= Date.parse(dressReportsSince) && m.user_id !== userId && !m.is_staff &&
+              <StageDressReport messageId={m.id} onHidden={() => {
+                hideDressMessage(m.id)
+                setPostStatus('The reported message was hidden in this room.')
+              }} />}
+            </Fragment>
           ))
         )}
         <div ref={bottomRef} />

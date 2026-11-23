@@ -77,6 +77,8 @@ export default async function Rehearsal() {
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
           rehearsalDraftModerator={invitation.can_draft === true && !soloHost} soloStageHostTest={soloHost}
+          dressReportsSince={dressOpen && slot?.dress && process.env.STAGE_PRIVATE_DRESS_REPORTS_ENABLED === 'true'
+            ? new Date(slot.dress.doors).toISOString() : undefined}
           ahnikaOnStage={Boolean(slot?.dress && dressPlayoutEnd && now >= slot.start && now < dressPlayoutEnd)}
           stageHostInbox={dressOpen || soloHost || (hostSlotActive && process.env.VERCEL_ENV !== 'production' && process.env.STAGE_HOST_INBOX_ENABLED === 'true')} />
       </section>}

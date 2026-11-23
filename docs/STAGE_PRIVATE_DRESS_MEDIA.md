@@ -32,3 +32,15 @@ Confirm picture and sound continuity in the hosted player. A still used while th
 video loads or a second play click at the reveal is not a seamless handoff.
 Confirm text-only interaction during the performance, a reviewed reply and moderation action,
 and no public schedule or content changes. The synthetic tests are not a hosted receipt.
+
+The handoff player buffers 1.25 seconds on the viewer side; it does not fetch any
+performance bytes before the scheduled cue or extend the server's media cutoff.
+
+Private reporting additionally requires `STAGE_PRIVATE_DRESS_REPORTS_ENABLED=true`
+on the rehearsal deployment and the private report migration. Laviche can only
+hide a reported, exact repeated link from a non-staff speaker in that room. This
+is a reversible room display action, not deletion or a ban. Normal, sensitive,
+and uncertain reports stay queued for independently authorized rehearsal staff.
+Do not claim someone is on the staff queue without a verified grant and operator.
+Check a visible report acknowledgement, suppression for two distinct invited
+viewers, and a staff resolution separately. Keep the report flag off until ready.

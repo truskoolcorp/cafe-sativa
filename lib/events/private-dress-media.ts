@@ -4,10 +4,10 @@ const assetSpecs = {
   intro: { suffix: 'mp4', mime: 'video/mp4', max: 20 * 1024 * 1024 },
   captions: { suffix: 'en.vtt', mime: 'text/vtt; charset=utf-8', max: 64 * 1024 },
   reveal: { suffix: 'webp', mime: 'image/webp', max: 2 * 1024 * 1024 },
-  performance: { suffix: 'mp4', mime: 'video/mp4', max: 128 * 1024 * 1024 },
+  performance: { suffix: 'mp4', mime: 'video/mp4', max: 40_000_000 },
 } as const
 const names = Object.keys(assetSpecs) as (keyof typeof assetSpecs)[]
-const bucket = 'cafe-sativa-content'
+const bucket = 'cafe-sativa-dress-rehearsal'
 const origin = 'https://nwfxvhqbjtfvoopcadff.supabase.co'
 const prefix = 'stage-rehearsal/2026-11-24'
 const headers = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' }

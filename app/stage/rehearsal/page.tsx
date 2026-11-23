@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
-import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
+import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, rehearsalAccessEnd, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
 import { isCleanRehearsalSlot } from '@/lib/events/ahnika-premiere-media'
 import { signCleanRehearsalCut } from '@/lib/events/stage-rehearsal-storage'
 
@@ -30,17 +30,21 @@ export default async function Rehearsal() {
   ])
   if (messages.error) notFound()
   const configured = privateStagePlaybackSlot(process.env)
-  const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end, configured.inviteUntil) ? configured : null
+  const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, rehearsalAccessEnd(configured), configured.inviteUntil) ? configured : null
+  if (configured?.dress && !slot) notFound()
   const now = Date.now()
   const hostSlotActive = Boolean(slot && now >= slot.start && now < slot.end)
   const soloHost = Boolean(slot && hostSlotActive && soloStageHostTest(slot, user.id, process.env))
-  const boundary = slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
+  const dressOpen = Boolean(slot?.dress && now >= slot.dress.doors && now < slot.dress.closes)
+  const boundary = slot?.dress ? [slot.dress.doors, slot.dress.intro, slot.start, slot.end, slot.dress.closes].find(at => at > now)
+    : slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
   const cleanAvailable = slot && isCleanRehearsalSlot(slot, process.env) && now >= slot.start && now < slot.end
     ? Boolean(await signCleanRehearsalCut()) : false
   return (
     <main className="mx-auto max-w-4xl space-y-4 px-4 pb-12 pt-28">
       <h1 className="font-heading text-3xl font-bold">Private Stage rehearsal</h1>
       <p>Invite-only Stage rehearsal. This is not the December 1 premiere.</p>
+      {slot?.dress && <p>Doors open at 7:45 a.m. Central. The synchronized performance starts at 8:00 a.m. Central.</p>}
       {boundary && <StagePremiereRefresh key={boundary} startsAt={new Date(boundary).toISOString()} serverNow={now} />}
       {slot && (now < slot.start ? (
         <StageLobby startsAt={slot.startsAt} serverNow={now}
@@ -56,15 +60,16 @@ export default async function Rehearsal() {
             kickoff={slot.onDemand ? undefined : slot.start} serverNow={now} />
         </>
       ) : (
-        <p role="status">The rehearsal playback window has ended. The private chat remains available for invited participants.</p>
+        <p role="status">{slot.dress ? 'The scheduled rehearsal performance has ended.' : 'The rehearsal playback window has ended. The private chat remains available for invited participants.'}</p>
       ))}
-      <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
+      {(!slot?.dress || dressOpen) && <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
         <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
           rehearsalDraftModerator={invitation.can_draft === true && !soloHost} soloStageHostTest={soloHost}
-          stageHostInbox={soloHost || (hostSlotActive && process.env.VERCEL_ENV !== 'production' && process.env.STAGE_HOST_INBOX_ENABLED === 'true')} />
-      </section>
+          ahnikaOnStage={Boolean(slot?.dress && now >= slot.start && now < slot.end)}
+          stageHostInbox={dressOpen || soloHost || (hostSlotActive && process.env.VERCEL_ENV !== 'production' && process.env.STAGE_HOST_INBOX_ENABLED === 'true')} />
+      </section>}
     </main>
   )
 }

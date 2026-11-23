@@ -34,7 +34,8 @@ async function run() {
   const files = process.env.REHEARSAL_FILES || temp
   const introDuration = process.env.REHEARSAL_FILES ? 30 : 3
   if (files === temp) {
-    const encoder = require('@ffmpeg-installer/linux-x64').path
+    const packaged = path.resolve('node_modules/@ffmpeg-installer/linux-x64/ffmpeg')
+    const encoder = process.env.QA_TEST_FFMPEG || (fs.existsSync(packaged) ? packaged : 'ffmpeg')
     for (const [role, color, tone, duration] of [['intro', 'red', 400, introDuration], ['performance', 'blue', 660, 4]]) {
       execFileSync(encoder, ['-v', 'error', '-f', 'lavfi', '-i', `color=${color}:size=320x180:rate=30:duration=${duration}`,
         '-f', 'lavfi', '-i', `sine=frequency=${tone}:sample_rate=48000:duration=${duration}`,

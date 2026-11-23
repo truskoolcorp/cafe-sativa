@@ -83,7 +83,9 @@ async function run() {
   let browser
   let pages = []
   try {
-    browser = await chromium.launch()
+    // Test the H.264/AAC formats the real rehearsal uses; the bundled
+    // Chromium environment need not provide the licensed codecs.
+    browser = await chromium.launch({ channel: 'chrome' })
     pages = await Promise.all([browser.newPage(), browser.newPage()])
     await Promise.all(pages.map(async (page, i) => {
       page.on('pageerror', err => failures.push(err.message))
@@ -132,7 +134,7 @@ async function run() {
       status: document.querySelector('#root')?.textContent,
       receipt: window.receipt,
       videos: [...document.querySelectorAll('video')].map(v => ({ label: v.getAttribute('aria-label'),
-        src: v.getAttribute('src'), hidden: v.getAttribute('aria-hidden'), error: v.error?.message, 
+        src: v.getAttribute('src'), hidden: v.getAttribute('aria-hidden'), error: v.error?.message,
         paused: v.paused, videoTime: v.currentTime, readyState: v.readyState })),
     })).catch(() => null)))
     console.error(JSON.stringify({ failures, requests: requests.map(r => [r.role, r.at - timing.introAt]), snapshot }))

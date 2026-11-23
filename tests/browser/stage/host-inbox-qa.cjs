@@ -17,6 +17,7 @@ const modules = {}, sources = {
   './lounge-speaker': (exports, require) => { ${build('lib/lounge-speaker.ts')} },
   '@/lib/lounge-mentions': (exports, require) => { ${build('lib/lounge-mentions.ts')} },
   '@/lib/lounge-message-state': (exports, require) => { ${build('lib/lounge-message-state.ts')} },
+  '@/components/events/StageDressReport': (exports, require) => { ${build('components/events/StageDressReport.tsx')} },
 };
 function require(name) {
   if (name === 'react') return React;
@@ -38,9 +39,13 @@ async function main() {
   harness.env.STAGE_LAVICHE_MODERATOR_ENABLED = 'true'
   harness.setServiceGrant()
   const unexpected = [], guestErrors = []
+  const reportMessage = { id: '00000000-0000-4000-8000-000000000001', room_id: roomId, user_id: 'synthetic-sender',
+    author_name: 'Fixture sender', author_tier: 'explorer', is_staff: false,
+    content: 'Synthetic repeat-link fixture https://example.invalid', created_at: '2026-11-24T13:50:00Z' }
+  const hidden = []
   let queued = Promise.resolve()
   try {
-    async function open(actor, moderator = false) {
+    async function open(actor, moderator = false, reports = false) {
       const page = await browser.newPage()
       page.on('pageerror', error => guestErrors.push(error.message))
       await page.route('**/*', async route => {
@@ -48,8 +53,9 @@ async function main() {
         if (url.origin !== origin) { unexpected.push(request.url()); return route.abort() }
         if (url.pathname === '/') {
           const props = { roomId, userId: actor, displayName: 'Fixture guest', tier: 'explorer', isStaff: false,
-            minPostTier: 'explorer', initialMessages: [], conciergeDrafts: true, privateRoom: true,
-            rehearsalDraftModerator: moderator, stageHostInbox: true }
+            minPostTier: 'explorer', initialMessages: reports ? [reportMessage] : [], conciergeDrafts: true, privateRoom: true,
+            rehearsalDraftModerator: moderator, stageHostInbox: true,
+            dressReportsSince: reports ? '2026-11-24T13:45:00Z' : undefined }
           return route.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><div id="root"></div><script src="/fixture.js"></script>' +
             `<script>window.mount(${JSON.stringify(props)})</script>` })
         }
@@ -63,6 +69,14 @@ async function main() {
           queued = response.catch(() => {})
           const { status, body } = await response
           return route.fulfill({ status, json: body })
+        }
+        if (reports && url.pathname === '/api/stage/rehearsal-report') {
+          if (request.method() === 'GET' && url.searchParams.get('mode') === 'hidden') return route.fulfill({ json: { hidden } })
+          if (actor === 'reporter' && request.method() === 'POST' && request.postDataJSON().messageId === reportMessage.id) {
+            hidden.push(reportMessage.id)
+            return route.fulfill({ json: { status: 'hidden_by_laviche' } })
+          }
+          return route.fulfill({ status: 403, json: { error: 'Fixture does not allow this action.' } })
         }
         unexpected.push(request.url())
         return route.abort()
@@ -93,10 +107,18 @@ async function main() {
     await mod.getByRole('button', { name: 'Send private reply', exact: true }).click()
     await a.getByText('Moderator: Reviewed privately.', { exact: true }).waitFor()
     assert.equal(await b.getByText('Moderator: Reviewed privately.', { exact: true }).count(), 0)
+    const reporter = await open('reporter', false, true)
+    const observer = await open('observer', false, true)
+    const message = /Synthetic repeat-link fixture/
+    await observer.getByText(message).waitFor()
+    await reporter.getByRole('button', { name: 'Report message', exact: true }).click()
+    await reporter.getByText('The reported message was hidden in this room.', { exact: true }).waitFor()
+    await reporter.getByText(message).waitFor({ state: 'hidden' })
+    await observer.getByText(message).waitFor({ state: 'hidden' })
     assert.equal(await a.locator('audio').count() + await b.locator('audio').count(), 0)
     assert.deepEqual(unexpected, [])
     assert.deepEqual(guestErrors, [])
-    console.log('Private Stage browser fixture: both text hosts and private moderator replies passed.')
+    console.log('Private Stage browser fixture: both text hosts, private staff replies, and two-viewer report suppression passed.')
   } finally { await browser.close() }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

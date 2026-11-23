@@ -6,6 +6,7 @@ import { getHost } from '@/lib/concierge/personas'
 import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
 import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, rehearsalAccessEnd, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
 import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
+import { dressPlayoutEndsAt } from '@/lib/events/stage-dress-playout'
 import { safeStageConversationText } from '@/lib/events/stage-conversation-policy'
 import { answerStageQuestion } from '@/lib/events/stage-conversation'
 import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } from '@/lib/events/ahnika-premiere-window'
@@ -58,7 +59,7 @@ async function roomAccess(roomId: unknown) {
   }
   return { attendeeId: user.id, roomId, moderator: !solo && invite.can_draft === true,
     startsAt: slot.startsAt, threadFrom: slot.dress ? new Date(slot.dress.doors).toISOString() : slot.startsAt,
-    dress: slot.dress ? { start: slot.start, end: slot.end } : null, solo, publicPremiere: false as const }
+    dress: slot.dress ? { start: slot.start, end: dressPlayoutEndsAt(slot.end) } : null, solo, publicPremiere: false as const }
 }
 
 function performerQuiet(host: string, dress?: { start: number; end: number } | null, now = Date.now()) {

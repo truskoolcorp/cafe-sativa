@@ -22,6 +22,7 @@ function load(path, deps = {}) {
 const lobby = load('lib/events/stage-lobby.ts')
 const premiere = load('lib/events/ahnika-premiere-window.ts', { './stage-lobby': lobby })
 const rehearsal = load('lib/events/private-stage-rehearsal.ts', { './stage-lobby': lobby, './ahnika-premiere-window': premiere })
+const playout = load('lib/events/stage-dress-playout.ts')
 const { privateDressMedia, isDressAssetName, privateDressAssetWindow, servePrivateDressAsset } =
   load('lib/events/private-dress-media.ts', { './private-stage-rehearsal': rehearsal })
 const env = { VERCEL_ENV: 'production', STAGE_PRIVATE_REHEARSAL_ENABLED: 'true', STAGE_PRIVATE_DRESS_KICKOFF: '2026-11-24T14:00:00Z' }
@@ -59,6 +60,16 @@ test('intro and captions stop exactly when the performance and reveal unlock', (
   }
   assert.equal(privateDressAssetWindow({ ...slot, dress: null }, 'performance', slot.start), false)
   assert.equal(premiere.AHNIKA_PREMIERE_START, '2026-12-01T06:00:00.000Z')
+})
+
+test('private playout preserves the first beat, syncs late arrivals, and does not extend media grants', () => {
+  const cue = slot.start
+  assert.equal(playout.dressLateJoinPosition(cue + 1250, cue, 99.7), 0)
+  assert.equal(playout.dressLateJoinPosition(cue + 1900, cue, 99.7), 0)
+  assert.equal(playout.dressLateJoinPosition(cue + 4250, cue, 99.7), 3)
+  assert.equal(playout.dressLateJoinPosition(cue + 4250, cue, NaN), 0)
+  assert.equal(playout.dressPlayoutEndsAt(slot.end), slot.end + 1750)
+  assert.equal(privateDressAssetWindow(slot, 'performance', slot.end), false)
 })
 
 test('early, expired, uninvited, multi-range and cutoff requests do not reach storage', async () => {
@@ -119,6 +130,9 @@ test('the rehearsal UI shows a hold for missing media and the old endpoint rejec
   const page = readFileSync('app/stage/rehearsal/page.tsx', 'utf8')
   const legacy = readFileSync('app/api/stage/rehearsal-media/route.ts', 'utf8')
   assert.match(page, /!dressMediaReady \|\| now < slot\.dress\.doors/)
-  for (const name of ['intro', 'captions', 'performance', 'reveal']) assert.match(page, new RegExp('/api/stage/rehearsal-cue/' + name))
+  const player = readFileSync('components/events/StageDressPlayer.tsx', 'utf8')
+  assert.match(page, /<StageDressPlayer key="dress-player"/)
+  for (const name of ['intro', 'captions', 'performance']) assert.match(player, new RegExp('/api/stage/rehearsal-cue/' + name))
+  assert.doesNotMatch(player, /poster=/)
   assert.match(legacy, /if \(!slot \|\| slot\.dress \|\|/)
 })

@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const { test } = require('node:test')
 const { PGlite } = require('@electric-sql/pglite')
 
-const migration = fs.readFileSync('supabase/migrations/20261123043912_stage_dress_report_lane.sql', 'utf8')
+const migration = fs.readFileSync('supabase/migrations/20261123131346_stage_dress_report_lane.sql', 'utf8')
 const room = '5cafe000-0000-4000-8000-000000000001'
 const other = '5cafe000-0000-4000-8000-000000000002'
 const id = n => '10000000-0000-4000-8000-' + String(n).padStart(12, '0')

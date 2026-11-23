@@ -44,3 +44,8 @@ and uncertain reports stay queued for independently authorized rehearsal staff.
 Do not claim someone is on the staff queue without a verified grant and operator.
 Check a visible report acknowledgement, suppression for two distinct invited
 viewers, and a staff resolution separately. Keep the report flag off until ready.
+
+The identical rehearsal-only migration was registered on the hosted database as
+`20261123131346_stage_dress_report_lane`. Use that recorded version; do not apply
+the earlier draft filename separately. Table and RPC access remains server-only;
+verified closed-window calls did not create or resolve any report.

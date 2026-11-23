@@ -11,7 +11,7 @@ export const maxDuration = 120
 export function GET(request: Request) {
   const slot = privateStagePlaybackSlot(process.env)
   const clean = new URL(request.url).searchParams.get('cut') === 'clean'
-  if (!slot || (clean && !isCleanRehearsalSlot(slot, process.env))) {
+  if (!slot || slot.dress || (clean && !isCleanRehearsalSlot(slot, process.env))) {
     return new Response(null, { status: 404, headers: { 'Cache-Control': 'private, no-store' } })
   }
   return servePrivateAhnikaCut(request, slot, {

@@ -8,6 +8,7 @@ import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
 import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, rehearsalAccessEnd, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
 import { isCleanRehearsalSlot } from '@/lib/events/ahnika-premiere-media'
 import { signCleanRehearsalCut } from '@/lib/events/stage-rehearsal-storage'
+import { privateDressMedia, privateDressAssetWindow } from '@/lib/events/private-dress-media'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Private Stage rehearsal', robots: { index: false, follow: false } }
@@ -33,9 +34,11 @@ export default async function Rehearsal() {
   const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, rehearsalAccessEnd(configured), configured.inviteUntil) ? configured : null
   if (configured?.dress && !slot) notFound()
   const now = Date.now()
+  const dressMediaReady = Boolean(slot?.dress && privateDressMedia(process.env.STAGE_PRIVATE_DRESS_MEDIA))
+  const dressIntro = Boolean(slot && dressMediaReady && privateDressAssetWindow(slot, 'intro', now))
   const hostSlotActive = Boolean(slot && now >= slot.start && now < slot.end)
   const soloHost = Boolean(slot && hostSlotActive && soloStageHostTest(slot, user.id, process.env))
-  const dressOpen = Boolean(slot?.dress && now >= slot.dress.doors && now < slot.dress.closes)
+  const dressOpen = Boolean(slot?.dress && dressMediaReady && now >= slot.dress.doors && now < slot.dress.closes)
   const boundary = slot?.dress ? [slot.dress.doors, slot.dress.intro, slot.start, slot.end, slot.dress.closes].find(at => at > now)
     : slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
   const cleanAvailable = slot && isCleanRehearsalSlot(slot, process.env) && now >= slot.start && now < slot.end
@@ -46,7 +49,13 @@ export default async function Rehearsal() {
       <p>Invite-only Stage rehearsal. This is not the December 1 premiere.</p>
       {slot?.dress && <p>Doors open at 7:45 a.m. Central. The synchronized performance starts at 8:00 a.m. Central.</p>}
       {boundary && <StagePremiereRefresh key={boundary} startsAt={new Date(boundary).toISOString()} serverNow={now} />}
-      {slot && (now < slot.start ? (
+      {slot?.dress && (!dressMediaReady || now < slot.dress.doors) ? (
+        <p role="status">{dressMediaReady ? 'The rehearsal room will open at 7:45 a.m. Central.' : 'The dress rehearsal is not ready to open.'}</p>
+      ) : slot && (dressIntro ? (
+        <StagePremiereVideo key="dress-intro" src="/api/stage/rehearsal-cue/intro"
+          captions="/api/stage/rehearsal-cue/captions" label="Laviche welcomes guests to The Stage"
+          kickoff={slot.dress!.intro} serverNow={now} />
+      ) : now < slot.start ? (
         <StageLobby startsAt={slot.startsAt} serverNow={now}
           poster="/rooms/stage-beach-terrace-v2.webp"
           loop={{ webm: '/rooms/stage-golden-hour-surf-v3.webm', mp4: '/rooms/stage-golden-hour-surf-v3.mp4' }}
@@ -55,7 +64,9 @@ export default async function Rehearsal() {
       ) : now < slot.end ? (
         <>
           {slot.onDemand && <p>Rehearsal playback is open. Play, pause, or rewind at your own pace.</p>}
-          <StagePremiereVideo src={cleanAvailable ? '/api/stage/rehearsal-media?cut=clean' : '/api/stage/rehearsal-media'}
+          <StagePremiereVideo key={slot.dress ? 'dress-performance' : 'rehearsal-performance'}
+            src={slot.dress ? '/api/stage/rehearsal-cue/performance' : cleanAvailable ? '/api/stage/rehearsal-media?cut=clean' : '/api/stage/rehearsal-media'}
+            poster={slot.dress ? '/api/stage/rehearsal-cue/reveal' : undefined}
             label={cleanAvailable ? 'Private rehearsal: Laviche opening and Ahnika performance' : 'Private rehearsal of the approved Ahnika performance'}
             kickoff={slot.onDemand ? undefined : slot.start} serverNow={now} />
         </>

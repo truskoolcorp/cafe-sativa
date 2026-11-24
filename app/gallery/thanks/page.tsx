@@ -1,3 +1,4 @@
+import DownloadArtwork from './DownloadArtwork'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Suspense } from 'react'
@@ -145,6 +146,8 @@ export default async function ThanksPage({ searchParams }: SP) {
               Payment is confirmed. Check your account for authorized digital delivery and fulfillment updates.
             </p>
           )}
+
+          {!refunded && kind === 'digital' && order.fulfillment_state === 'delivered' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true' && <DownloadArtwork orderId={order.id} />}
 
           {!refunded && kind === 'nft' && (
             <p className="text-sm text-foreground font-body leading-relaxed mb-6">

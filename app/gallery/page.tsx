@@ -175,7 +175,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
   })
-  const kindLabel = row.kind === 'nft' ? 'Digital collectible' : row.kind
+  const kindLabel = row.kind === 'nft' ? 'Digital collectible' : row.kind === 'digital' ? 'Digital art' : row.kind
 
   const soldOut = row.stock_count !== null && row.stock_count <= 0
 

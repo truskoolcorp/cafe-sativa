@@ -95,7 +95,7 @@ export default async function ProductDetailPage({ params }: Params) {
   const salesEnabled = gallerySalesEnabled(galleryEnvironment(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'))
   const soldOut = product.stock_count !== null && product.stock_count <= 0
   const kindLabel =
-    product.kind === 'nft' ? 'NFT' : product.kind === 'digital' ? 'Digital' : 'Physical'
+    product.kind === 'nft' ? 'NFT' : product.kind === 'digital' ? 'Digital art' : 'Physical'
 
   // Icon + copy for the trust-signal block
   const trustSignal =
@@ -108,7 +108,7 @@ export default async function ProductDetailPage({ params }: Params) {
       : product.kind === 'digital'
         ? {
             icon: Download,
-            label: 'Digital item',
+            label: 'Digital download',
             detail: 'Access requires confirmed payment. Delivery status appears with your order.',
           }
         : {

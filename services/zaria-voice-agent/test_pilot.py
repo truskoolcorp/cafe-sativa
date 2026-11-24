@@ -156,5 +156,36 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(played, ["new answer"])
         self.assertEqual(failed, [True])
 
+    async def test_superseded_companion_links_are_not_published(self):
+        first = asyncio.Event()
+        released = asyncio.Event()
+        class BridgeWithLinks:
+            async def answer_turn(self, text, _):
+                if text == "old":
+                    first.set()
+                    try:
+                        await released.wait()
+                    except asyncio.CancelledError:
+                        # Deliberately model a provider that still returns after cancellation.
+                        await released.wait()
+                return text, [{"path": "/gallery/" + text, "label": text}]
+
+        sent, played = [], []
+        async def publish(sequence, links):
+            sent.append((sequence, links))
+        async def play(reply):
+            played.append(reply)
+        turns = Turns(BridgeWithLinks(), play, lambda: None, lambda: self.fail(), publish)
+        turns.replace("old")
+        await first.wait()
+        turns.replace("new")
+        released.set()
+        for _ in range(6):
+            await asyncio.sleep(0)
+        await turns.close()
+        self.assertEqual(played, ["new"])
+        self.assertEqual([links for _, links in sent if links], [[{"path": "/gallery/new", "label": "new"}]])
+        self.assertGreater(next(seq for seq, links in sent if links), 2)
+
 if __name__ == "__main__":
     unittest.main()

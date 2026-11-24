@@ -1,6 +1,7 @@
 import {sendGalleryDeliveryNotices} from '@/lib/gallery/send-delivery-notices'
 import {reconcileGalleryInventory} from '@/lib/gallery/reconcile-inventory'
 import {timingSafeEqual} from 'node:crypto'
+import {galleryEnvironment} from '@/lib/gallery/environment'
 import {authorizeStagedDigitalOrders} from '@/lib/gallery/fulfill-digital'
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
@@ -11,6 +12,7 @@ export async function GET(req:Request){
  const actual=Buffer.from(req.headers.get('authorization')||'')
  const expected=Buffer.from('Bearer '+(secret||''))
  if(!secret||actual.length!==expected.length||!timingSafeEqual(actual,expected))return Response.json({error:'Unauthorized'},{status:401,headers})
+ if(galleryEnvironment(req.url)==='blocked')return Response.json({error:'Gallery worker is not isolated'},{status:503,headers})
  try{
   const result=await authorizeStagedDigitalOrders()
   if(result.deferred)console.warn('[gallery-worker] Deferred orders',result.deferred)

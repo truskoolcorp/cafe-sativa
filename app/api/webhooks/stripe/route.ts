@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import {recordGalleryRefunds} from '@/lib/gallery/reconcile-refunds'
+import {galleryEnvironment} from '@/lib/gallery/environment'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncCafeMembership } from '@/lib/sync-membership'
 
 type MembershipTier = 'regular' | 'vip'
 export async function POST(req: Request) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  const galleryMode = galleryEnvironment(req.url)
+  const webhookSecret = galleryMode === 'isolated-test'
+    ? process.env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET : process.env.STRIPE_WEBHOOK_SECRET
   if (!stripeSecretKey || !webhookSecret) {
     return NextResponse.json({ error: 'Stripe webhook not configured.' }, { status: 500 })
   }
@@ -18,6 +21,21 @@ export async function POST(req: Request) {
   let event: Stripe.Event
   try { event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret) }
   catch { return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 }) }
+
+  if (galleryMode === 'isolated-test') {
+    if (event.livemode !== false) return NextResponse.json({ error: 'Test event required.' }, { status: 400 })
+    const isGalleryCheckout = (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') &&
+      (event.data.object as Stripe.Checkout.Session).metadata?.kind === 'gallery_order' && (event.data.object as Stripe.Checkout.Session).metadata?.site === 'cafe-sativa'
+    if (!isGalleryCheckout && event.type !== 'charge.refunded' && event.type !== 'account.updated') {
+      return NextResponse.json({ received: true })
+    }
+  }
+
+  // Avoid even initializing an admin client for a Gallery-only event on a misconfigured preview.
+  if (galleryMode === 'blocked' && ((event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') &&
+    (event.data.object as Stripe.Checkout.Session).metadata?.kind === 'gallery_order' || event.type === 'account.updated')) {
+    return NextResponse.json({ error: 'Gallery webhook is not isolated.' }, { status: 503 })
+  }
 
   const admin = createAdminClient()
 
@@ -133,7 +151,7 @@ export async function POST(req: Request) {
           }
           if(!recorded.created)break
           const order={id:recorded.id}
-          try {
+          if (galleryMode === 'production') try {
             const { sendOrderConfirmation } = await import('@/lib/email/send-order-confirmation')
             await sendOrderConfirmation({
               to: session.customer_details?.email || session.customer_email || '',
@@ -193,10 +211,14 @@ export async function POST(req: Request) {
       case 'charge.refunded': {
         const charge = event.data.object as Stripe.Charge
         const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
-        await recordGalleryRefunds(stripe,charge)
-        if (!paymentIntentId || !charge.refunded) break
-        const {error:orderRefundError}=await admin.from('orders').update({fulfillment_state:'refunded',updated_at:new Date().toISOString()}).eq('stripe_payment_intent_id',paymentIntentId)
-        if(orderRefundError)throw orderRefundError
+        if (galleryMode !== 'blocked') {
+          await recordGalleryRefunds(stripe,charge)
+          if (paymentIntentId && charge.refunded) {
+            const {error:orderRefundError}=await admin.from('orders').update({fulfillment_state:'refunded',updated_at:new Date().toISOString()}).eq('stripe_payment_intent_id',paymentIntentId)
+            if(orderRefundError)throw orderRefundError
+          }
+        }
+        if (galleryMode === 'isolated-test' || !paymentIntentId || !charge.refunded) break
         const { data: ticket } = await admin.from('tickets').select('id,state').eq('stripe_payment_intent_id', paymentIntentId).maybeSingle()
         if (!ticket || ticket.state === 'refunded') break
         const {error:ticketRefundError}=await admin.from('tickets').update({ state: 'refunded' }).eq('id', ticket.id)

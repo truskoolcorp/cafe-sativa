@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { galleryEnvironment } from '@/lib/gallery/environment'
 
 /**
  * POST /api/gallery/checkout
@@ -54,21 +55,8 @@ export async function POST(req: Request) {
     )
   }
 
-  // Preview deployments inherit shared project variables unless explicitly overridden.
-  // Never create a Stripe session or write inventory from a non-isolated preview.
-  if (process.env.VERCEL_ENV === 'preview') {
-    const database = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const expected = process.env.GALLERY_TEST_SUPABASE_URL
-    const previewSite = process.env.NEXT_PUBLIC_SITE_URL
-    if (process.env.GALLERY_ISOLATED_TEST !== 'true' ||
-        !stripeSecretKey.startsWith('sk_test_') ||
-        !database || !expected || database !== expected ||
-        new URL(database).hostname === 'nwfxvhqbjtfvoopcadff.supabase.co' ||
-        !previewSite || new URL(previewSite).origin !== new URL(req.url).origin ||
-        process.env.GALLERY_INVENTORY_HOLDS !== 'true' ||
-        process.env.GALLERY_PRIVATE_DOWNLOADS !== 'true') {
-      return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
-    }
+  if (galleryEnvironment(req.url) === 'blocked') {
+    return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
   }
 
   const cookieStore = cookies()

@@ -1,7 +1,7 @@
 import {createAdminClient} from '@/lib/supabase/admin'
 import {sendEmail} from '@/lib/email/send'
 export async function sendGalleryDeliveryNotices(){
- if(process.env.GALLERY_DELIVERY_NOTICES!=='true')return {enabled:false,sent:0,attention:0}
+ if(process.env.VERCEL_ENV!=='production' || process.env.GALLERY_DELIVERY_NOTICES!=='true')return {enabled:false,sent:0,attention:0}
  const db=createAdminClient()
  const {data:rows,error}=await db.from('gallery_delivery_outbox').select('order_id,attempts').eq('state','pending').lte('next_attempt_at',new Date().toISOString()).limit(20)
  if(error)throw Error('Notification queue unavailable')

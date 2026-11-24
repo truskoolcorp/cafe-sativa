@@ -33,7 +33,7 @@ try {
  const env={PATH:process.env.PATH,HOME:process.env.HOME,LIVEKIT_API_KEY:undefined,NEXT_TELEMETRY_DISABLED:'1',
   NEXT_PUBLIC_SITE_URL:app,NEXT_PUBLIC_SUPABASE_URL:api,NEXT_PUBLIC_SUPABASE_ANON_KEY:c.anonKey,
   SUPABASE_SERVICE_ROLE_KEY:c.serviceRoleKey,GALLERY_TEST_SUPABASE_URL:api,GALLERY_ISOLATED_TEST:'true',
-  GALLERY_LOCAL_STRIPE_CLI:'true',GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_SYNTHETIC',
+  GALLERY_QA_MODE_CHECK:'true',GALLERY_LOCAL_STRIPE_CLI:'true',GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_SYNTHETIC',
   GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_SYNTHETIC',STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',
   GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_SYNTHETIC_NOT_A_SECRET',
   GALLERY_HOUSE_PRODUCT_ID:f.product,GALLERY_HOUSE_ARTIST_ID:f.artist,
@@ -60,6 +60,15 @@ try {
  check(ready)
  phase(stage)
  stage='local Gallery route mode'
+ if(lastStatus===503){
+  // Safe diagnostics only: fixed-key booleans from a temporary QA-only route.
+  const diag=await get('/api/gallery/synthetic-mode-check')
+  if(diag.ok){
+   const flags=await diag.json()
+   const names=['originMatches','reqIsHttp','reqIsLiteralLoopback','expectedSite','expectedDb','dbMatches','credentialShape','accountMatches','noVercel','localOn','ordinaryFlags','modeIsolated']
+   console.log('Gallery guard bits: '+names.map(k=>k+'='+String(flags[k]===true)).join(' '))
+  }
+ }
  check(lastStatus===404)
  phase(stage)
  stage='sale remains disabled and no provider call'

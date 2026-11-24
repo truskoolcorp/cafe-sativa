@@ -17,6 +17,7 @@ cleanup() {
  local status=$?
  if test "$status" != 0; then printf 'Isolated test stopped at: %s. Raw diagnostics suppressed.\n' "$stage" >&2; fi
  if test -x "$cli"; then env -i PATH="$PATH" HOME="$tmp/cli-home" DO_NOT_TRACK=1 "$cli" stop --workdir "$tmp/stack" --no-backup > /dev/null 2>&1 || true; fi
+ if test -f "$tmp/qa-route-created"; then rm -f -- app/api/gallery/synthetic-mode-check/route.ts; rmdir -- app/api/gallery/synthetic-mode-check 2>/dev/null || true; fi
  rm -rf -- "$tmp"
 }
 trap cleanup EXIT
@@ -58,5 +59,30 @@ for(const n of ['proposed-private-delivery-migration','proposed-approved-artwork
 NODE
 then exit 1; fi
 printf 'PASS: isolated local Supabase Auth, Storage and Gallery schema startup.\n'
+# Generated only on this isolated runner; it is not checked in and never deployed.
+test ! -e app/api/gallery/synthetic-mode-check
+mkdir -p app/api/gallery/synthetic-mode-check
+touch "$tmp/qa-route-created"
+cat > app/api/gallery/synthetic-mode-check/route.ts <<'QA_DIAGNOSTIC'
+import {galleryEnvironment} from '@/lib/gallery/environment'
+export const dynamic='force-dynamic'
+export function GET(req:Request) {
+ const e=process.env
+ if(e.GALLERY_QA_MODE_CHECK!=='true'||req.headers.get('host')!=='127.0.0.1:4116')return new Response(null,{status:404})
+ const url=new URL(req.url)
+ return Response.json({
+  originMatches:url.origin===e.NEXT_PUBLIC_SITE_URL,reqIsHttp:url.protocol==='http:',reqIsLiteralLoopback:url.hostname==='127.0.0.1',
+  expectedSite:e.NEXT_PUBLIC_SITE_URL==='http://127.0.0.1:4116',
+  expectedDb:e.NEXT_PUBLIC_SUPABASE_URL==='http://127.0.0.1:54321',
+  dbMatches:e.NEXT_PUBLIC_SUPABASE_URL===e.GALLERY_TEST_SUPABASE_URL,
+  credentialShape:/^rkcs_test_[A-Za-z0-9_]+$/.test(e.STRIPE_SECRET_KEY??''),
+  accountMatches:/^acct_[A-Za-z0-9]+$/.test(e.GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID??'')&&e.GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID===e.GALLERY_HOUSE_STRIPE_ACCOUNT_ID,
+  noVercel:!e.VERCEL_ENV&&!e.VERCEL&&!e.VERCEL_URL&&!e.VERCEL_DEPLOYMENT_ID,
+  localOn:e.GALLERY_LOCAL_STRIPE_CLI==='true'&&e.GALLERY_ISOLATED_TEST==='true',
+  ordinaryFlags:e.GALLERY_DELIVERY_NOTICES!=='true'&&!!e.GALLERY_TEST_STRIPE_WEBHOOK_SECRET&&!!e.SUPABASE_SERVICE_ROLE_KEY&&!!e.NEXT_PUBLIC_SUPABASE_ANON_KEY&&e.GALLERY_INVENTORY_HOLDS==='true'&&e.GALLERY_PRIVATE_DOWNLOADS==='true',
+  modeIsolated:galleryEnvironment(req.url)==='isolated-test',
+ },{headers:{'Cache-Control':'no-store'}})
+}
+QA_DIAGNOSTIC
 stage='synthetic test app HTTP and browser'
 NEXT_TELEMETRY_DISABLED=1 node tests/gallery-local-house-runtime.mjs "$tmp/local-status.json"

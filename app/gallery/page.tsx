@@ -1,9 +1,8 @@
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
-import { SiteFeatures } from '@/components/events/SiteFeatures'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Palette, Package } from 'lucide-react'
+import { Package } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
@@ -29,7 +28,7 @@ import { Badge } from '@/components/ui/badge'
 export const metadata: Metadata = {
   title: 'The Gallery — Café Sativa',
   description:
-    'Original work from our resident artists. Shoppable art across physical editions, digital pieces, and NFTs — with a cut going directly to each artist.',
+    'Original work from our resident artists. Explore physical and digital artwork and the stories behind it.',
 }
 
 export const dynamic = 'force-dynamic'
@@ -39,7 +38,7 @@ type GalleryRow = {
   slug: string
   title: string
   description: string | null
-  kind: 'physical' | 'digital' | 'nft'
+  kind: 'physical' | 'digital'
   price_cents: number
   currency: string
   primary_image_url: string | null
@@ -71,6 +70,7 @@ async function loadGallery(): Promise<GalleryRow[]> {
   const { data, error } = await supabase
     .from('gallery_v')
     .select('*')
+    .in('kind', ['physical', 'digital'])
     .order('created_at', { ascending: false })
     .limit(60)
 
@@ -82,67 +82,80 @@ async function loadGallery(): Promise<GalleryRow[]> {
   return (data as GalleryRow[]) || []
 }
 
-export default async function GalleryPage() {
-  const [products,covers] = await Promise.all([loadGallery(),approvedVenueCovers()])
+export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
+  const [products, covers] = await Promise.all([loadGallery(), approvedVenueCovers()])
 
+  const kind = ['physical', 'digital'].includes(searchParams.kind || '') ? searchParams.kind : undefined
+  const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
   return (
     <div className="pb-16 bg-background min-h-screen">
-      {/* Hero band */}
-      <section className="relative h-[60vh] min-h-[440px] w-full overflow-hidden">
-        {covers.gallery && <Image
-          src={covers.gallery}
-          alt=""
-          fill
-          priority
-          className="object-cover"
-          sizes="100vw"
-        />}
-        <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/40 to-background" />
-        <div className="relative z-10 h-full flex items-end pb-16 md:pb-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/5 px-3 py-1 mb-4">
-                <Palette className="w-3.5 h-3.5 text-primary" />
-                <span className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
-                  The Gallery
-                </span>
-              </div>
-              <h1 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground leading-tight">
-                Work from our{' '}
-                <span className="text-primary italic">resident artists.</span>
-              </h1>
-              <p className="text-base md:text-lg text-muted-foreground font-body mt-4 leading-relaxed">
-                Original pieces, editions, digital work, and NFTs across the
-                Dallas–Tenerife axis. Every purchase sends funds directly to the
-                artist. We keep 10% to run the place.
-              </p>
+      <section aria-labelledby="gallery-title" className="relative isolate overflow-hidden bg-[#171310] text-[#f9efe1]">
+        <div className="relative min-h-[520px] md:min-h-[660px] flex items-end">
+          {covers.gallery && <Image src={covers.gallery} alt="" fill priority sizes="100vw" className="object-cover object-center" />}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#171310] via-[#171310]/55 to-black/20"/>
+          <div className="relative w-full max-w-7xl mx-auto px-6 lg:px-12 py-16 md:py-24">
+            <p className="text-xs uppercase tracking-[0.32em] text-[#e6bc8f]">Café Sativa · The Gallery</p>
+            <h1 id="gallery-title" className="font-heading text-5xl sm:text-6xl lg:text-8xl leading-[1.05] mt-5 max-w-3xl">Art worth<br/><em className="text-[#e6bc8f] font-normal">staying for.</em></h1>
+            <p className="mt-6 max-w-md text-lg leading-relaxed text-[#f9efe1]/90">A warm, intimate space for art, artists and the stories behind their work.</p>
+            <div className="mt-8 flex flex-wrap gap-4 items-center">
+              <a href="#inside-gallery" className="inline-flex bg-[#e6bc8f] text-[#171310] rounded-sm px-7 py-4 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4">Step inside <span aria-hidden="true" className="ml-3">↓</span></a>
+              <a href="#artwork" className="underline underline-offset-4 py-3">Explore the collection</a>
             </div>
           </div>
         </div>
       </section>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><SiteFeatures category="gallery" /></div>
-      {/* Grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
-        <div className="flex justify-end mb-6">
-          <Link
-            href="/artist-dashboard"
-            className="text-sm font-body text-muted-foreground hover:text-primary transition-colors"
-          >
-            Sell your work →
-          </Link>
+      <section id="inside-gallery" aria-labelledby="gallery-tour-heading" className="scroll-mt-24 max-w-7xl mx-auto px-6 lg:px-12 py-14 md:py-20">
+        <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8 lg:gap-14 items-center">
+          <div className="overflow-hidden rounded-sm bg-card border border-border">
+            {covers.gallery ? <div className="relative aspect-video"><Image src={covers.gallery} alt="Approved Café Sativa Gallery interior" fill sizes="(min-width:1024px) 60vw, 100vw" className="object-cover"/></div> : <div className="aspect-video flex items-center justify-center text-muted-foreground">Gallery preview unavailable</div>}
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-primary">01 / The space</p>
+            <h2 id="gallery-tour-heading" className="font-heading text-4xl md:text-5xl mt-3">Take in the room.</h2>
+            <p className="text-muted-foreground leading-relaxed mt-4">Take a look inside the Café Sativa Gallery.</p>
+            <a href="#curator-heading" className="inline-block mt-5 underline underline-offset-4 text-primary">Meet your curator</a>
+          </div>
         </div>
-
+      </section>
+      <section aria-labelledby="curator-heading" className="bg-card border-y border-border">
+        <div className="max-w-7xl mx-auto px-6 lg:px-12 py-12 grid md:grid-cols-[1fr_2fr] gap-8 items-center">
+          <div aria-hidden="true" className="font-heading text-6xl md:text-8xl text-primary/70 border-l border-primary pl-6">ZS</div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-primary">02 / Curator’s perspective</p>
+            <h2 id="curator-heading" className="font-heading text-4xl mt-3">Meet Zaria Solenne.</h2>
+            <p className="text-muted-foreground mt-4 max-w-xl leading-relaxed">Discover the creative practice behind the work, explore different media, and learn how collecting supports artists. Only approved pieces and confirmed exhibition details appear here.</p>
+          </div>
+        </div>
+      </section>
+      {/* Grid */}
+      <div id="artwork" className="scroll-mt-24 max-w-7xl mx-auto px-6 lg:px-12 py-14 md:py-20">
+        <p className="text-xs uppercase tracking-[0.24em] text-primary">03 / The collection</p>
+        <h2 className="font-heading text-4xl md:text-5xl mt-3 mb-6">Discover the work.</h2>
+        <nav aria-label="Artwork categories" className="flex flex-wrap gap-2 mb-6">
+          {[['All work',''],['Physical','physical'],['Digital','digital']].map(([label,value]) => (
+            <Link key={label} href={value ? '/gallery?kind='+value : '/gallery'} aria-current={(kind || '') === value ? 'page' : undefined} className={'rounded-full border px-4 py-2 text-sm '+((kind || '') === value ? 'border-primary text-primary' : 'border-border text-muted-foreground')}>{label}</Link>
+          ))}
+        </nav>
         {products.length === 0 ? (
           <EmptyGallery />
+        ) : visibleProducts.length === 0 ? (
+          <p role="status" className="text-muted-foreground py-8">No published work in this category yet. <Link href="/gallery" className="underline">Browse all work.</Link></p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map((p) => (
+            {visibleProducts.map((p) => (
               <GalleryCard key={p.id} row={p} />
             ))}
           </div>
         )}
+        <p className="mt-6 text-sm leading-relaxed text-muted-foreground">Some works in the Gallery are created wholly or partly with AI.</p>
       </div>
+      <section className="max-w-7xl mx-auto px-6 lg:px-12 pb-12" aria-labelledby="editorial-heading">
+        <p className="text-xs uppercase tracking-[0.24em] text-primary">04 / Gallery journal</p>
+        <h2 id="editorial-heading" className="font-heading text-4xl mt-3 mb-6">Beyond the frame.</h2>
+        <div className="grid md:grid-cols-2 gap-6">
+          <article className="border-t border-primary/40 pt-5"><h3 className="font-heading text-2xl">A space for artists</h3><p className="mt-3 text-muted-foreground">Discover original work across physical and digital media. Artists can manage submissions through the existing artist dashboard.</p><Link href="/artist-dashboard" className="inline-block mt-4 text-primary underline">Artist dashboard</Link></article>
+        </div>
+      </section>
     </div>
   )
 }
@@ -152,7 +165,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
   })
-  const kindLabel = row.kind === 'nft' ? 'NFT' : row.kind
+  const kindLabel = row.kind === 'digital' ? 'Digital art' : 'Physical'
 
   const soldOut = row.stock_count !== null && row.stock_count <= 0
 
@@ -168,7 +181,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
           <img
             src={row.primary_image_url}
             alt={row.title}
-            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+            className="w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"
             loading="lazy"
           />
         ) : (
@@ -211,30 +224,8 @@ function GalleryCard({ row }: { row: GalleryRow }) {
 }
 
 function EmptyGallery() {
-  return (
-    <div className="rounded-2xl border border-dashed border-border bg-card/30 p-12 md:p-16 text-center">
-      <Palette className="w-10 h-10 text-primary/60 mx-auto mb-4" />
-      <h2 className="font-heading text-3xl font-bold text-foreground mb-3">
-        Opening soon.
-      </h2>
-      <p className="text-base text-muted-foreground font-body max-w-md mx-auto mb-6 leading-relaxed">
-        Artist features and approved works will appear here when ready. If you
-        make things, you can submit your work for review.
-      </p>
-      <div className="flex flex-col sm:flex-row gap-3 justify-center">
-        <Link
-          href="/artist-dashboard"
-          className="inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground px-6 py-3 text-sm font-body font-semibold hover:bg-primary/90 transition-colors"
-        >
-          Sell your work
-        </Link>
-        <Link
-          href="/events"
-          className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-body font-semibold text-foreground hover:border-primary/40 transition-colors"
-        >
-          Browse events instead
-        </Link>
-      </div>
-    </div>
-  )
+  return <div className="grid md:grid-cols-2 gap-6 border-t border-border pt-8">
+    <article className="bg-card p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Curator’s note</p><h3 className="font-heading text-3xl mt-3">The first collection is taking shape.</h3><p className="mt-4 text-muted-foreground leading-relaxed">No approved artwork is on display just yet. Take a look around and meet the Gallery’s curator.</p><a href="#curator-heading" className="inline-block mt-6 underline text-primary">Meet the curator</a></article>
+    <article className="border border-border p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Collector’s guide</p><h3 className="font-heading text-3xl mt-3">Find your medium.</h3><p className="mt-4 text-muted-foreground leading-relaxed">Physical works and digital editions have different ownership and delivery terms. Explore the work without a sales commitment.</p><Link href="/events" className="inline-block mt-6 underline text-primary">Browse venue programming</Link></article>
+  </div>
 }

@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../lib/gallery/environment.ts', import.meta
 const { outputText } = ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022,
 } })
-const { galleryEnvironment } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
+const { galleryEnvironment, gallerySalesEnabled } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
 const site = 'https://gallery-preview.example'
 const database = 'https://syntheticgallery.supabase.co'
 const sandbox = {
@@ -52,4 +52,15 @@ test('misconfigured previews fail closed', () => {
 })
 test('production continues using its existing path', () => {
   assert.equal(galleryEnvironment(site, { VERCEL_ENV: 'production' }), 'production')
+})
+
+test('new sales default off and cannot use a test key in production', () => {
+ const ready = {...sandbox, VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_live_synthetic', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true'}
+ assert.equal(gallerySalesEnabled('production',ready),true)
+ assert.equal(gallerySalesEnabled('isolated-test',{...ready,STRIPE_SECRET_KEY:'sk_test_synthetic'}),true)
+ assert.equal(gallerySalesEnabled('blocked',ready),false)
+ for (const change of [{GALLERY_SALES_ENABLED:undefined},{GALLERY_SALES_ENABLED:'false'},{GALLERY_PRIVATE_DOWNLOADS:'false'},{GALLERY_INVENTORY_HOLDS:'false'},{GALLERY_DIGITAL_WORKER:undefined},{STRIPE_SECRET_KEY:'sk_test_synthetic'}])
+  assert.equal(gallerySalesEnabled('production',{...ready,...change}),false)
+ // Existing paid/refunded webhook environment classification is unchanged by the sales switch.
+ assert.equal(galleryEnvironment(site,{...ready,GALLERY_SALES_ENABLED:'false'}),'production')
 })

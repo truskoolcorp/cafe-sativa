@@ -3,7 +3,7 @@ import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { galleryEnvironment } from '@/lib/gallery/environment'
+import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
  * POST /api/gallery/checkout
@@ -57,6 +57,10 @@ export async function POST(req: Request) {
 
   if (galleryEnvironment(req.url) === 'blocked') {
     return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
+  }
+
+  if (!gallerySalesEnabled(galleryEnvironment(req.url))) {
+    return NextResponse.json({ error: 'Gallery purchases are temporarily unavailable.' }, { status: 503 })
   }
 
   const cookieStore = cookies()
@@ -131,6 +135,9 @@ export async function POST(req: Request) {
     )
   }
 
+  if (!['physical', 'digital'].includes(product.kind)) {
+    return NextResponse.json({ error: 'This artwork category is not enabled for purchases.' }, { status: 409 })
+  }
   if (product.status !== 'published') {
     return NextResponse.json(
       { error: 'This product is not available for purchase.' },

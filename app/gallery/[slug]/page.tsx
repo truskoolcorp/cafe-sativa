@@ -6,6 +6,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { BuyButton } from './BuyButton'
 import { Badge } from '@/components/ui/badge'
+import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
  * /gallery/[slug]
@@ -52,7 +53,7 @@ async function loadProduct(slug: string) {
     console.error('[/gallery/[slug]] load failed', error)
     return null
   }
-  return data
+  return data && ['digital','physical'].includes(data.kind) ? data : null
 }
 
 export async function generateMetadata({
@@ -88,6 +89,7 @@ export default async function ProductDetailPage({ params }: Params) {
     currency: (product.currency || 'usd').toUpperCase(),
   })
 
+  const salesEnabled = gallerySalesEnabled(galleryEnvironment(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'))
   const soldOut = product.stock_count !== null && product.stock_count <= 0
   const kindLabel =
     product.kind === 'nft' ? 'NFT' : product.kind === 'digital' ? 'Digital' : 'Physical'
@@ -194,7 +196,7 @@ export default async function ProductDetailPage({ params }: Params) {
                 )}
 
               <div className="mt-4">
-                <BuyButton productId={product.id} soldOut={soldOut} />
+                {salesEnabled ? <BuyButton productId={product.id} soldOut={soldOut} /> : <p role="status" className="text-sm text-muted-foreground">Available to browse. Purchases are not open yet.</p>}
               </div>
             </div>
 
@@ -230,8 +232,7 @@ export default async function ProductDetailPage({ params }: Params) {
               <div className="flex items-start gap-2 text-xs text-muted-foreground font-body">
                 <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-primary/60" />
                 <p className="leading-relaxed">
-                  90% of every sale goes directly to {product.artist_name} via
-                  Stripe. Café Sativa takes 10% to keep the lights on.
+                  Independent artist sales use a standard 90/10 artwork allocation, subject to fees and refund adjustments. House artwork is sold by Café Sativa.
                 </p>
               </div>
             </div>

@@ -35,3 +35,13 @@ export function galleryEnvironment(requestUrl: string, env: Env = process.env): 
     return 'blocked'
   }
 }
+
+/** New checkout only. Never use this switch to gate paid/refunded events,
+ * fulfillment or access for existing buyers. Defaults closed in every environment. */
+export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process.env): boolean {
+  if (mode === 'blocked' || env.GALLERY_SALES_ENABLED !== 'true' ||
+      env.GALLERY_INVENTORY_HOLDS !== 'true' || env.GALLERY_PRIVATE_DOWNLOADS !== 'true' ||
+      env.GALLERY_DIGITAL_WORKER !== 'true') return false
+  return mode === 'production' ? env.STRIPE_SECRET_KEY?.startsWith('sk_live_') === true :
+    env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true
+}

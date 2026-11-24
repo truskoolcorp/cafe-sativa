@@ -32,7 +32,7 @@ import { Badge } from '@/components/ui/badge'
 export const metadata: Metadata = {
   title: 'The Gallery — Café Sativa',
   description:
-    'Original work from our resident artists. Shoppable art across physical editions, digital pieces, and NFTs — supporting our resident artists.',
+    'Original work from our resident artists. Explore physical and digital artwork and the stories behind it.',
 }
 
 export const dynamic = 'force-dynamic'
@@ -74,6 +74,7 @@ async function loadGallery(): Promise<GalleryRow[]> {
   const { data, error } = await supabase
     .from('gallery_v')
     .select('*')
+    .in('kind', ['physical', 'digital'])
     .order('created_at', { ascending: false })
     .limit(60)
 
@@ -87,10 +88,11 @@ async function loadGallery(): Promise<GalleryRow[]> {
 
 export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
   const [products,covers,features] = await Promise.all([loadGallery(),approvedVenueCovers(),getSiteContent('gallery').catch(() => [])])
-  const tour = features.find(item => item.released && item.media_url)
+  // The approved current still is the launch fallback; older tour jobs use retired canon.
+  const tour = undefined as (typeof features)[number] | undefined
   const allowDownload = tour ? await canDownloadContentMedia().catch(() => false) : false
 
-  const kind = ['physical', 'digital', 'nft'].includes(searchParams.kind || '') ? searchParams.kind : undefined
+  const kind = ['physical', 'digital'].includes(searchParams.kind || '') ? searchParams.kind : undefined
   const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
   return (
     <div className="pb-16 bg-background min-h-screen">
@@ -139,7 +141,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
         <p className="text-xs uppercase tracking-[0.24em] text-primary">03 / The collection</p>
         <h2 className="font-heading text-4xl md:text-5xl mt-3 mb-6">Discover the work.</h2>
         <nav aria-label="Artwork categories" className="flex flex-wrap gap-2 mb-6">
-          {[['All work',''],['Physical','physical'],['Digital','digital'],['Collectibles','nft']].map(([label,value]) => (
+          {[['All work',''],['Physical','physical'],['Digital','digital']].map(([label,value]) => (
             <Link key={label} href={value ? '/gallery?kind='+value : '/gallery'} aria-current={(kind || '') === value ? 'page' : undefined} className={'rounded-full border px-4 py-2 text-sm '+((kind || '') === value ? 'border-primary text-primary' : 'border-border text-muted-foreground')}>{label}</Link>
           ))}
         </nav>
@@ -233,6 +235,6 @@ function GalleryCard({ row }: { row: GalleryRow }) {
 function EmptyGallery() {
   return <div className="grid md:grid-cols-2 gap-6 border-t border-border pt-8">
     <article className="bg-card p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Curator’s note</p><h3 className="font-heading text-3xl mt-3">The first collection is taking shape.</h3><p className="mt-4 text-muted-foreground leading-relaxed">No approved works are listed for purchase right now. Explore the Gallery and learn about the different ways to collect without a sales commitment.</p><Link href="/ask?host=zaria" className="inline-block mt-6 underline text-primary">Explore with Zaria</Link></article>
-    <article className="border border-border p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Collector’s guide</p><h3 className="font-heading text-3xl mt-3">Find your medium.</h3><p className="mt-4 text-muted-foreground leading-relaxed">Physical works, digital editions and verified collectibles each have different ownership and delivery terms. An NFT is not required to enjoy the Gallery.</p><Link href="/events" className="inline-block mt-6 underline text-primary">Browse venue programming</Link></article>
+    <article className="border border-border p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Collector’s guide</p><h3 className="font-heading text-3xl mt-3">Find your medium.</h3><p className="mt-4 text-muted-foreground leading-relaxed">Physical works and digital editions have different ownership and delivery terms. Explore the work without a sales commitment.</p><Link href="/events" className="inline-block mt-6 underline text-primary">Browse venue programming</Link></article>
   </div>
 }

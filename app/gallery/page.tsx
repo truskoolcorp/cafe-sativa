@@ -129,7 +129,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
           <p className="text-xs uppercase tracking-widest text-primary">Curated by Zaria Solenne</p>
           <h2 id="curator-heading" className="font-heading text-3xl mt-2">Discover. Experience. Collect.</h2>
           <p className="text-muted-foreground mt-3 max-w-2xl">Explore physical and digital artwork, discover the artists behind each piece, and learn about digital collectibles. On-chain ownership and collector benefits will be identified explicitly when available.</p>
-          <Link href="/events" className="inline-block mt-4 text-primary underline">Explore upcoming events</Link>
+          <div className="flex flex-wrap gap-4 mt-4"><Link href="/ask?host=zaria" className="text-primary underline">Ask Zaria</Link><Link href="/events" className="text-primary underline">Explore upcoming events</Link></div>
         </div>
       </section>
       {process.env.GALLERY_WEB3_PREVIEW === 'true' && <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><GalleryWallet /></div>}

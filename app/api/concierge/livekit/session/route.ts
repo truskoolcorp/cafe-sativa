@@ -10,8 +10,8 @@ import {stageHostIsPerforming, STAGE_HOST_ON_STAGE, VOICE_PERFORMANCE_BUFFER_MS}
 export const runtime='nodejs'
 export const dynamic='force-dynamic'
 const response=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store'}})
-export async function GET(req?:Request) {
- const host=req?new URL(req.url).searchParams.get('host'):null
+export async function GET(req:Request) {
+ const host=req?.url?new URL(req.url).searchParams.get('host'):null
  if(host==='zaria'&&!zariaVoiceAgent())return response({available:false})
  return response({available:process.env.CS_LIVEKIT_ENABLED==='true' &&
   ['LIVEKIT_API_KEY','LIVEKIT_API_SECRET','LIVEKIT_URL','CS_LIVEKIT_AGENT_NAME','CS_LIVEKIT_BRIDGE_SECRET'].every(key=>Boolean(process.env[key]))})

@@ -1,0 +1,4 @@
+livekit-agents>=1.6.5,<1.7
+livekit-plugins-deepgram>=1.6.5,<1.7
+livekit-plugins-silero>=1.6.5,<1.7
+aiohttp>=3.12,<4

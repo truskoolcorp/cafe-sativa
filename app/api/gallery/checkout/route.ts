@@ -149,7 +149,7 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!artistRow.is_approved || !artistRow.charges_enabled) {
+  if (!artistRow.is_approved || !artistRow.charges_enabled || !artistRow.payouts_enabled) {
     return NextResponse.json(
       {
         error:

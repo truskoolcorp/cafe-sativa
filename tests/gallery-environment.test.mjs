@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../lib/gallery/environment.ts', import.meta
 const { outputText } = ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022,
 } })
-const { galleryEnvironment, gallerySalesEnabled } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
+const { galleryEnvironment, gallerySalesEnabled, galleryMerchantRequestUrl } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
 const site = 'https://gallery-preview.example'
 const database = 'https://syntheticgallery.supabase.co'
 const sandbox = {
@@ -92,4 +92,47 @@ test('temporary restricted Stripe CLI key works only for explicit non-Vercel loc
   assert.equal(gallerySalesEnabled('isolated-test',candidate),false)
  }
  assert.equal(galleryEnvironment('http://127.0.0.1:9999/api/gallery/checkout',local),'blocked')
+})
+
+test('restricted merchant sandbox key requires the exact disposable Gallery fixture deployment', () => {
+ const app = 'http://127.0.0.1:4116'
+ const db = 'http://127.0.0.1:54321'
+ const cfg = {...sandbox, VERCEL_ENV:undefined, STRIPE_SECRET_KEY:'rk_test_SYNTHETIC_ONLY',
+  GALLERY_LOCAL_STRIPE_MERCHANT_SANDBOX:'true', GALLERY_PRIVATE_TEST_FIXTURES:'true',
+  GALLERY_MERCHANT_SANDBOX_ACCOUNT_ID:'acct_dedicated', GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_dedicated',
+  GALLERY_HOUSE_PRODUCT_ID:'aaaaaaaa-1111-4111-a111-111111111111',
+  GALLERY_HOUSE_ARTIST_ID:'bbbbbbbb-2222-4222-a222-222222222222',
+  NEXT_PUBLIC_SITE_URL:app, NEXT_PUBLIC_SUPABASE_URL:db, GALLERY_TEST_SUPABASE_URL:db,
+  GALLERY_DELIVERY_NOTICES:'false', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true'}
+ const path='/api/gallery/checkout'
+ assert.equal(galleryEnvironment(app+path,cfg),'isolated-test')
+ assert.equal(gallerySalesEnabled('isolated-test',cfg),true)
+ assert.equal(gallerySalesEnabled('production',cfg),false)
+ assert.equal(gallerySalesEnabled('isolated-test',{...cfg,GALLERY_SALES_ENABLED:'false'}),false)
+ for (const change of [
+   {STRIPE_SECRET_KEY:'rk_live_SYNTHETIC_ONLY'}, {STRIPE_SECRET_KEY:'rk_test_'}, {STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_ONLY'},
+   {GALLERY_MERCHANT_SANDBOX_ACCOUNT_ID:'acct_wrong'}, {GALLERY_MERCHANT_SANDBOX_ACCOUNT_ID:undefined},
+   {GALLERY_MERCHANT_SANDBOX_ACCOUNT_ID:'acct_1GZMxgIDc7LlvDW9', GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_1GZMxgIDc7LlvDW9'},
+   {GALLERY_PRIVATE_TEST_FIXTURES:'false'}, {GALLERY_LOCAL_STRIPE_MERCHANT_SANDBOX:'false'}, {GALLERY_LOCAL_STRIPE_CLI:'true'},
+   {GALLERY_HOUSE_ARTIST_ID:cfg.GALLERY_HOUSE_PRODUCT_ID}, {GALLERY_HOUSE_PRODUCT_ID:'bad-uuid'},
+   {VERCEL_ENV:'production'}, {VERCEL_ENV:'preview'}, {VERCEL_ENV:'development'}, {VERCEL:'1'},
+   {VERCEL_URL:'x.example'}, {VERCEL_DEPLOYMENT_ID:'x'}, {GALLERY_DELIVERY_NOTICES:undefined}, {GALLERY_DELIVERY_NOTICES:'true'},
+   {NEXT_PUBLIC_SITE_URL:'http://127.0.0.1:4117'},
+   {NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:54322',GALLERY_TEST_SUPABASE_URL:'http://127.0.0.1:54322'},
+   {NEXT_PUBLIC_SITE_URL:site,NEXT_PUBLIC_SUPABASE_URL:database,GALLERY_TEST_SUPABASE_URL:database},
+ ]) {
+   const invalid={...cfg,...change}
+   assert.equal(galleryEnvironment(app+path,invalid),'blocked',JSON.stringify(change))
+   assert.equal(gallerySalesEnabled('isolated-test',invalid),false,JSON.stringify(change))
+ }
+ for(const requestUrl of ['http://127.0.0.1:4117'+path,'http://user@127.0.0.1:4116'+path,'https://127.0.0.1:4116'+path]) {
+  assert.equal(galleryEnvironment(requestUrl,cfg),'blocked')
+ }
+ const testHost=(host,url,forwarded)=>({url,headers:new Headers({host,'x-forwarded-host':forwarded??'anything.invalid'})})
+ const synthesized='http://localhost:4116'+path
+ assert.equal(galleryMerchantRequestUrl(testHost('127.0.0.1:4116',synthesized),cfg),app+path)
+ assert.equal(galleryMerchantRequestUrl(testHost('untrusted.example',synthesized,'127.0.0.1:4116'),cfg),synthesized)
+ assert.equal(galleryEnvironment(galleryMerchantRequestUrl(testHost('untrusted.example',app+path,'127.0.0.1:4116'),cfg),cfg),'blocked')
+ const otherPort='http://localhost:4117'+path
+ assert.equal(galleryMerchantRequestUrl(testHost('127.0.0.1:4116',otherPort),cfg),otherPort)
 })

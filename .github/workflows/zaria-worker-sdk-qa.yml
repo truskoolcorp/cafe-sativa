@@ -45,3 +45,13 @@ jobs:
           frame = rtc.AudioFrame(data=bytes(960), sample_rate=24000, num_channels=1, samples_per_channel=480)
           assert frame.samples_per_channel == 480
           PY
+      - name: Verify audio and scoped data over real disposable WebRTC
+        run: |
+          docker run --rm -d --network host --name zaria-local-qa livekit/livekit-server:v1.9.0 --dev --bind 127.0.0.1
+          trap 'docker rm -f zaria-local-qa >/dev/null 2>&1 || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:7880/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:7880/ >/dev/null
+          python local_rtc_qa.py || { docker logs zaria-local-qa; exit 1; }

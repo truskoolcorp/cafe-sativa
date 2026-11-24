@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import {recordGalleryRefunds} from '@/lib/gallery/reconcile-refunds'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncCafeMembership } from '@/lib/sync-membership'
 
@@ -192,6 +193,7 @@ export async function POST(req: Request) {
       case 'charge.refunded': {
         const charge = event.data.object as Stripe.Charge
         const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
+        await recordGalleryRefunds(stripe,charge)
         if (!paymentIntentId || !charge.refunded) break
         const {error:orderRefundError}=await admin.from('orders').update({fulfillment_state:'refunded',updated_at:new Date().toISOString()}).eq('stripe_payment_intent_id',paymentIntentId)
         if(orderRefundError)throw orderRefundError

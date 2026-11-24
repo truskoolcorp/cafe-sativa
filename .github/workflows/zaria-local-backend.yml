@@ -1,0 +1,26 @@
+name: Zaria text isolated backend QA
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [feature/gallery-zaria-text-only]
+    paths: ['tests/zaria-local-*', '.github/workflows/zaria-local-backend.yml']
+permissions:
+  contents: read
+jobs:
+  backend-local-only:
+    if: github.repository == 'truskoolcorp/cafe-sativa' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'qa/zaria-text-local-backend-20261124' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test actual Next chat endpoint and real local Postgres with synthetic inference
+        env:
+          ZARIA_QA_EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: bash tests/zaria-local-backend.sh

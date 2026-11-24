@@ -1,0 +1,47 @@
+name: Zaria worker SDK QA
+on:
+  pull_request:
+    paths:
+      - 'services/zaria-voice-agent/**'
+      - '.github/workflows/zaria-worker-sdk-qa.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: services/zaria-voice-agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Verify real SDK wiring and synthetic turn lifecycle
+        run: |
+          python -m unittest -v test_pilot
+          python - <<'PY'
+          import inspect
+          import aiohttp
+          from livekit import rtc
+          from livekit.agents import Agent, AgentSession, StopResponse, WorkerOptions, room_io
+          from livekit.plugins import deepgram, silero
+          import agent
+          assert callable(agent.entrypoint)
+          assert issubclass(StopResponse, Exception)
+          inspect.signature(Agent.on_user_turn_completed).bind(None, None, None)
+          inspect.signature(AgentSession).bind(stt=None, vad=None, preemptive_generation=False)
+          inspect.signature(AgentSession.start).bind(None, room=None, agent=None, room_options=None)
+          inspect.signature(AgentSession.say).bind(None, "Synthetic", audio=None, allow_interruptions=True, add_to_chat_ctx=False)
+          inspect.signature(deepgram.STT).bind(api_key="not-a-key", model="nova-3", language="en")
+          assert callable(silero.VAD.load)
+          assert aiohttp.ClientWSTimeout(ws_close=1.0).ws_close == 1.0
+          room_io.RoomOptions(participant_identity="test-buyer", audio_input=True, text_input=False, video_input=False, text_output=False)
+          WorkerOptions(entrypoint_fnc=agent.entrypoint, agent_name="test-only", ws_url="wss://example.invalid", api_key="test", api_secret="test", drain_timeout=5, shutdown_process_timeout=8, max_retry=1)
+          frame = rtc.AudioFrame(data=bytes(960), sample_rate=24000, num_channels=1, samples_per_channel=480)
+          assert frame.samples_per_channel == 480
+          PY

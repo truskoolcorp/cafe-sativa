@@ -31,3 +31,27 @@ test('missing records, pending refunds, mixed currencies, wrong provider mode ne
  await assert.rejects(observe(mock({crossCurrency:true}),'pi_fixture',false),/Transfer mismatch/)
  await assert.rejects(observe(mock({live:true}),'pi_fixture',false),/Gallery charge unavailable/)
 })
+
+const compare=exportsObject.compareGalleryOrderSettlement
+const order={subtotal_cents:10000,total_cents:10000,shipping_cents:0,tax_cents:0,currency:'usd'}
+test('independent order 90/10 basis flags wrong intent fee and unreversed split',async()=>{
+ const snapshot=await observe(mock({refund:2000}),'pi_fixture',false)
+ const result=compare(order,snapshot)
+ assert.equal(result.expected_original_commission_cents,1000)
+ assert.equal(result.expected_remaining_commission_cents,800)
+ assert.equal(result.expected_remaining_artist_cents,7200)
+ assert.equal(result.observed_platform_after_charge_refund_fees_cents,480)
+ assert.equal(result.attention.length,0)
+ const wrong=compare(order,{...snapshot,expected_original_fee_cents:1200,application_fee_cents:1200})
+ assert.ok(wrong.attention.includes('order_commission_mismatch'))
+ const unreversed=compare(order,await observe(mock({refund:2000,reversed:0,feeRefund:0}),'pi_fixture',false))
+ assert.ok(unreversed.attention.includes('order_net_artist_mismatch'))
+ assert.ok(unreversed.attention.includes('order_net_commission_mismatch'))
+})
+test('non-artwork allocation, pending refund and invalid order basis fail closed',async()=>{
+ const snapshot=await observe(mock(),'pi_fixture',false)
+ assert.equal(compare({...order,subtotal_cents:9000,tax_cents:1000},snapshot).expected_remaining_artist_cents,null)
+ assert.equal(compare(order,await observe(mock({refund:2000,pending:true}),'pi_fixture',false)).expected_remaining_artist_cents,null)
+ assert.throws(()=>compare({...order,total_cents:9999},snapshot),/basis mismatch/)
+ assert.throws(()=>compare({...order,currency:'eur'},snapshot),/basis mismatch/)
+})

@@ -25,10 +25,54 @@ function acceptsEphemeralStripe(env: Env): boolean {
   } catch { return false }
 }
 
+// A distinct merchant-owned sandbox is never eligible for hosted or live use.
+const MERCHANT_STRIPE_ACCOUNT = 'acct_1GZMxgIDc7LlvDW9'
+const LOCAL_APPLICATION_ORIGIN = 'http://127.0.0.1:4116'
+const LOCAL_DATABASE_ORIGIN = 'http://127.0.0.1:54321'
+const fixtureUuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
+
+export function usesMerchantSandboxKey(key: string | undefined): boolean {
+  return key?.startsWith('rk_test_') === true
+}
+function acceptsMerchantSandbox(env: Env): boolean {
+  const account = env.GALLERY_MERCHANT_SANDBOX_ACCOUNT_ID
+  if (!account || !/^acct_[A-Za-z0-9]+$/.test(account) || account === MERCHANT_STRIPE_ACCOUNT ||
+      account !== env.GALLERY_HOUSE_STRIPE_ACCOUNT_ID ||
+      !/^rk_test_[A-Za-z0-9_]+$/.test(env.STRIPE_SECRET_KEY ?? '') ||
+      env.GALLERY_LOCAL_STRIPE_MERCHANT_SANDBOX !== 'true' || env.GALLERY_LOCAL_STRIPE_CLI === 'true' ||
+      env.GALLERY_PRIVATE_TEST_FIXTURES !== 'true' || env.GALLERY_ISOLATED_TEST !== 'true' ||
+      env.GALLERY_PRIVATE_DOWNLOADS !== 'true' || env.GALLERY_INVENTORY_HOLDS !== 'true' ||
+      env.GALLERY_DELIVERY_NOTICES !== 'false' ||
+      env.VERCEL_ENV || env.VERCEL || env.VERCEL_URL || env.VERCEL_DEPLOYMENT_ID ||
+      !fixtureUuid.test(env.GALLERY_HOUSE_PRODUCT_ID ?? '') ||
+      !fixtureUuid.test(env.GALLERY_HOUSE_ARTIST_ID ?? '') ||
+      env.GALLERY_HOUSE_PRODUCT_ID === env.GALLERY_HOUSE_ARTIST_ID) return false
+  return env.NEXT_PUBLIC_SITE_URL === LOCAL_APPLICATION_ORIGIN &&
+    env.NEXT_PUBLIC_SUPABASE_URL === LOCAL_DATABASE_ORIGIN &&
+    env.GALLERY_TEST_SUPABASE_URL === LOCAL_DATABASE_ORIGIN
+}
+
+// Next can synthesize localhost for the literal loopback host. Do not trust
+// forwarded host headers or normalize any other port, host or scheme.
+export function galleryMerchantRequestUrl(req: Pick<Request, 'url' | 'headers'>, env: Env = process.env): string {
+  if (!acceptsMerchantSandbox(env)) return req.url
+  try {
+    const site = new URL(LOCAL_APPLICATION_ORIGIN)
+    const url = new URL(req.url)
+    if (url.origin === site.origin && req.headers.get('host') !== site.host) return 'http://127.0.0.1:1/'
+    if (url.origin === 'http://localhost:4116' && !url.username && !url.password &&
+        req.headers.get('host') === site.host) {
+      url.hostname = site.hostname
+      return url.toString()
+    }
+  } catch {}
+  return req.url
+}
+
 export function galleryEnvironment(requestUrl: string, env: Env = process.env): GalleryEnvironment {
-  if (env.VERCEL_ENV === 'production') return 'production'
+  if (env.VERCEL_ENV === 'production') return usesMerchantSandboxKey(env.STRIPE_SECRET_KEY) ? 'blocked' : 'production'
   if (env.GALLERY_ISOLATED_TEST !== 'true' ||
-      (!env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && !acceptsEphemeralStripe(env)) ||
+      (!env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && !acceptsEphemeralStripe(env) && !acceptsMerchantSandbox(env)) ||
       !env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET?.startsWith('whsec_') ||
       env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET === env.STRIPE_WEBHOOK_SECRET ||
       !env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -42,6 +86,7 @@ export function galleryEnvironment(requestUrl: string, env: Env = process.env): 
     const expected = new URL(env.GALLERY_TEST_SUPABASE_URL)
     const site = new URL(env.NEXT_PUBLIC_SITE_URL)
     const request = new URL(requestUrl)
+    if (usesMerchantSandboxKey(env.STRIPE_SECRET_KEY) && (request.username || request.password)) return 'blocked'
     const loopback = (host: string) => host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
     const hosted = database.protocol === 'https:' && /^[a-z0-9]+\.supabase\.co$/.test(database.hostname)
     const local = env.VERCEL_ENV !== 'preview' && loopback(database.hostname) && loopback(site.hostname)
@@ -62,5 +107,5 @@ export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process
       env.GALLERY_INVENTORY_HOLDS !== 'true' || env.GALLERY_PRIVATE_DOWNLOADS !== 'true' ||
       env.GALLERY_DIGITAL_WORKER !== 'true') return false
   return mode === 'production' ? env.STRIPE_SECRET_KEY?.startsWith('sk_live_') === true :
-    env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env)
+    env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env) || acceptsMerchantSandbox(env)
 }

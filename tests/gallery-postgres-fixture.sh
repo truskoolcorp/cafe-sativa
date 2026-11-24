@@ -24,7 +24,7 @@ create table public.order_items(order_id uuid references orders(id),product_id u
 -- A synthetic base RPC with the previously inspected signature and locking/idempotency
 -- contract. This is NOT the production function body or a production-schema clone.
 create function public.cs_record_gallery_payment(receipt jsonb,product_uuid uuid,artist_uuid uuid,quantity integer)
-returns jsonb language plpgsql as $$
+returns jsonb language plpgsql set search_path=public,pg_catalog as $
 declare oid uuid;
 begin
  perform 1 from products where id=product_uuid for update;

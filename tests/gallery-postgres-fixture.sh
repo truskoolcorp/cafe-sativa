@@ -40,7 +40,7 @@ begin
 end; $$;
 insert into products values('00000000-0000-4000-8000-000000000001','digital','published',1);
 SQL
-for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger; do
+for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations; do
  psql -f "docs/gallery/$file.sql" >/dev/null
 done
 # Independent sessions contend for a single limited edition; only one may hold it.
@@ -106,5 +106,26 @@ insert into products values('00000000-0000-4000-8000-000000000002','digital',nul
 do $$ begin
  if cs_hold_gallery_inventory('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000011',1) is not null then raise exception 'unpublished null state accepted'; end if;
 end $$;
+SQL
+psql <<'SQL'
+do $
+declare oid uuid;
+begin
+ select id into strict oid from orders;
+ insert into gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
+ values(oid,'pi_fixture','{"payment_intent_id":"pi_fixture","currency":"usd","livemode":false}');
+ if has_table_privilege('authenticated','gallery_settlement_observations','SELECT') or
+    has_table_privilege('anon','gallery_settlement_observations','INSERT') or
+    has_table_privilege('service_role','gallery_settlement_observations','UPDATE') or
+    not has_table_privilege('service_role','gallery_settlement_observations','INSERT') then
+  raise exception 'settlement observation privileges invalid';
+ end if;
+ begin
+  insert into gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
+  values(oid,'pi_fixture','{"payment_intent_id":"pi_other","currency":"usd","livemode":false}');
+  raise exception 'mismatched provider identifier accepted';
+ exception when check_violation then null;
+ end;
+end $;
 SQL
 echo 'Synthetic PostgreSQL migration/RPC fixture passed; not actual Stripe, Supabase storage, or production RPC proof.'

@@ -247,19 +247,30 @@ export async function POST(req: Request) {
       case 'charge.refunded': {
         const charge = event.data.object as Stripe.Charge
         const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null
-        if (galleryMode !== 'blocked') {
-          await recordGalleryRefunds(stripe,charge)
-          if (paymentIntentId && charge.refunded) {
-            const {error:orderRefundError}=await admin.from('orders').update({fulfillment_state:'refunded',updated_at:new Date().toISOString()}).eq('stripe_payment_intent_id',paymentIntentId)
-            if(orderRefundError)throw orderRefundError
+        if (!paymentIntentId) break
+        // Existing ticket identity takes precedence on shared ingress. A ticket
+        // refund (including a replay or partial refund) must never depend on
+        // Gallery tables or provider refund enumeration.
+        if (galleryMode !== 'isolated-test') {
+          const {data:ticket,error:ticketLookupError}=await admin.from('tickets').select('id,state').eq('stripe_payment_intent_id',paymentIntentId).maybeSingle()
+          if(ticketLookupError)throw ticketLookupError
+          if(ticket){
+            if(charge.refunded && ticket.state!=='refunded'){
+              const {error:ticketRefundError}=await admin.from('tickets').update({state:'refunded'}).eq('id',ticket.id)
+              if(ticketRefundError)throw ticketRefundError
+              console.log(`[stripe-webhook] Ticket ${ticket.id} refunded`)
+            }
+            break
           }
         }
-        if (galleryMode === 'isolated-test' || !paymentIntentId || !charge.refunded) break
-        const { data: ticket } = await admin.from('tickets').select('id,state').eq('stripe_payment_intent_id', paymentIntentId).maybeSingle()
-        if (!ticket || ticket.state === 'refunded') break
-        const {error:ticketRefundError}=await admin.from('tickets').update({ state: 'refunded' }).eq('id', ticket.id)
-        if(ticketRefundError)throw ticketRefundError
-        console.log(`[stripe-webhook] Ticket ${ticket.id} refunded`)
+        if (galleryMode === 'blocked') break
+        // Revoke a fully refunded Gallery order before collecting financial
+        // evidence. A ledger failure remains retryable, not an access grant.
+        if (charge.refunded) {
+          const {error:orderRefundError}=await admin.from('orders').update({fulfillment_state:'refunded',updated_at:new Date().toISOString()}).eq('stripe_payment_intent_id',paymentIntentId)
+          if(orderRefundError)throw orderRefundError
+        }
+        await recordGalleryRefunds(stripe,charge)
         break
       }
 

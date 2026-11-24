@@ -25,7 +25,10 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
    transfer.currency!==charge.currency||idOf(transfer.destination)!==destination||
    idOf(transfer.source_transaction)!==charge.id))throw Error('Transfer mismatch')
  if(fee&&(fee.id!==feeId||fee.livemode!==expectedLive||fee.currency!==charge.currency||
-   idOf(fee.account)!==destination||idOf(fee.charge)!==charge.id))throw Error('Application fee mismatch')
+   idOf(fee.account)!==destination||
+   (idOf(fee.originating_transaction)!==charge.id &&
+    !(transfer&&idOf(transfer.destination_payment)&&idOf(fee.charge)===idOf(transfer.destination_payment)))||
+   typeof fee.amount_refunded!=='number'))throw Error('Application fee mismatch')
  const readBalance=async (value:string|Stripe.BalanceTransaction|null,source:string)=>{
   const id=idOf(value)
   if(!id)return null

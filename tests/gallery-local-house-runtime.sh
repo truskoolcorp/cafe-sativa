@@ -71,7 +71,7 @@ export function GET(req:Request) {
  if(e.GALLERY_QA_MODE_CHECK!=='true'||req.headers.get('host')!=='127.0.0.1:4116')return new Response(null,{status:404})
  const url=new URL(req.url)
  return Response.json({
-  originMatches:url.origin===e.NEXT_PUBLIC_SITE_URL,reqIsHttp:url.protocol==='http:',reqIsLiteralLoopback:url.hostname==='127.0.0.1',
+  originMatches:url.origin===e.NEXT_PUBLIC_SITE_URL,reqIsHttp:url.protocol==='http:',reqIsLiteralLoopback:url.hostname==='127.0.0.1',reqIsLocalhost:url.hostname==='localhost',
   expectedSite:e.NEXT_PUBLIC_SITE_URL==='http://127.0.0.1:4116',
   expectedDb:e.NEXT_PUBLIC_SUPABASE_URL==='http://127.0.0.1:54321',
   dbMatches:e.NEXT_PUBLIC_SUPABASE_URL===e.GALLERY_TEST_SUPABASE_URL,

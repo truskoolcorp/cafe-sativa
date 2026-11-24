@@ -25,6 +25,26 @@ function acceptsEphemeralStripe(env: Env): boolean {
   } catch { return false }
 }
 
+/**
+ * Next can synthesize localhost for a request received on a literal-loopback
+ * hostname. Only the explicitly isolated anonymous-CLI harness can alias that
+ * exact framework URL; require its original literal Host and matching HTTP port.
+ */
+export function galleryRequestUrl(req: Pick<Request, 'url' | 'headers'>, env: Env = process.env): string {
+  if (!acceptsEphemeralStripe(env)) return req.url
+  try {
+    const site = new URL(env.NEXT_PUBLIC_SITE_URL!)
+    const url = new URL(req.url)
+    if (url.hostname === 'localhost' && url.protocol === 'http:' &&
+        url.port === site.port && !url.username && !url.password &&
+        req.headers.get('host') === site.host) {
+      url.hostname = site.hostname
+      return url.toString()
+    }
+  } catch {}
+  return req.url
+}
+
 export function galleryEnvironment(requestUrl: string, env: Env = process.env): GalleryEnvironment {
   if (env.VERCEL_ENV === 'production') return 'production'
   if (env.GALLERY_ISOLATED_TEST !== 'true' ||

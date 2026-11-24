@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
-import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
+import { galleryEnvironment, galleryRequestUrl, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
  * POST /api/gallery/checkout
@@ -45,7 +45,8 @@ type Body = {
 }
 
 export async function POST(req: Request) {
-  if (req.headers.get('origin') !== new URL(req.url).origin) {
+  const requestUrl = galleryRequestUrl(req)
+  if (req.headers.get('origin') !== new URL(requestUrl).origin) {
     return NextResponse.json({ error: 'Invalid origin.' }, { status: 403 })
   }
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
@@ -56,11 +57,11 @@ export async function POST(req: Request) {
     )
   }
 
-  if (galleryEnvironment(req.url) === 'blocked') {
+  if (galleryEnvironment(requestUrl) === 'blocked') {
     return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
   }
 
-  if (!gallerySalesEnabled(galleryEnvironment(req.url))) {
+  if (!gallerySalesEnabled(galleryEnvironment(requestUrl))) {
     return NextResponse.json({ error: 'Gallery purchases are temporarily unavailable.' }, { status: 503 })
   }
 

@@ -65,7 +65,7 @@ try {
   const diag=await get('/api/gallery/synthetic-mode-check')
   if(diag.ok){
    const flags=await diag.json()
-   const names=['originMatches','reqIsHttp','reqIsLiteralLoopback','expectedSite','expectedDb','dbMatches','credentialShape','accountMatches','noVercel','localOn','ordinaryFlags','modeIsolated']
+   const names=['originMatches','reqIsHttp','reqIsLiteralLoopback','reqIsLocalhost','expectedSite','expectedDb','dbMatches','credentialShape','accountMatches','noVercel','localOn','ordinaryFlags','modeIsolated']
    console.log('Gallery guard bits: '+names.map(k=>k+'='+String(flags[k]===true)).join(' '))
   }
  }

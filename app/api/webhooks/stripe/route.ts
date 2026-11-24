@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import {recordGalleryRefunds} from '@/lib/gallery/reconcile-refunds'
-import {galleryEnvironment} from '@/lib/gallery/environment'
+import {galleryEnvironment,galleryRequestUrl} from '@/lib/gallery/environment'
 import {galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount} from '@/lib/gallery/house-checkout'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncCafeMembership } from '@/lib/sync-membership'
@@ -9,7 +9,7 @@ import { syncCafeMembership } from '@/lib/sync-membership'
 type MembershipTier = 'regular' | 'vip'
 export async function POST(req: Request) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
-  const galleryMode = galleryEnvironment(req.url)
+  const galleryMode = galleryEnvironment(galleryRequestUrl(req))
   const dedicated = new URL(req.url).pathname === '/api/gallery/webhook'
   // Dedicated sandbox ingress never accepts production credentials; shared ingress
   // must not consume Gallery test events or operate on the isolated database.

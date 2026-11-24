@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../lib/gallery/environment.ts', import.meta
 const { outputText } = ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022,
 } })
-const { galleryEnvironment, gallerySalesEnabled } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
+const { galleryEnvironment, galleryRequestUrl, gallerySalesEnabled } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
 const site = 'https://gallery-preview.example'
 const database = 'https://syntheticgallery.supabase.co'
 const sandbox = {
@@ -92,4 +92,14 @@ test('temporary restricted Stripe CLI key works only for explicit non-Vercel loc
   assert.equal(gallerySalesEnabled('isolated-test',candidate),false)
  }
  assert.equal(galleryEnvironment('http://127.0.0.1:9999/api/gallery/checkout',local),'blocked')
+ const request=(url,host)=>({url,headers:{get:name=>name==='host'?host:null}})
+ const nextUrl='http://localhost:4116/api/gallery/checkout'
+ assert.equal(galleryRequestUrl(request(nextUrl,'127.0.0.1:4116'),local),app+'/api/gallery/checkout')
+ for(const [url,host,env] of [
+  [nextUrl,'localhost:4116',local],[nextUrl,'external.invalid:4116',local],
+  ['http://localhost:9999/api/gallery/checkout','127.0.0.1:4116',local],
+  ['https://localhost:4116/api/gallery/checkout','127.0.0.1:4116',local],
+  [nextUrl,'127.0.0.1:4116',{...local,VERCEL:'1'}],
+  ['http://external.invalid:4116/api/gallery/checkout','127.0.0.1:4116',local],
+ ]) assert.equal(galleryRequestUrl(request(url,host),env),url)
 })

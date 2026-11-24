@@ -18,7 +18,7 @@ def token(identity, *, worker=False, observer=False):
             .with_kind("agent" if worker else "standard")
             .with_attributes({"lk.agent.name": AGENT} if worker else {})
             .with_grants(api.VideoGrants(room_join=True, room=ROOM,
-                                        can_publish=not observer, can_subscribe=not observer,
+                                        can_publish=not observer, can_subscribe=True,
                                         can_publish_data=worker))
             .to_jwt())
 
@@ -69,6 +69,7 @@ async def verify():
     from_guest, worker_readers = receive_audio(worker, "guest")
     got = asyncio.get_running_loop().create_future()
     others = []
+    observer_control = asyncio.Event()
 
     @guest.on("data_received")
     def guest_data(packet):
@@ -77,7 +78,10 @@ async def verify():
 
     @observer.on("data_received")
     def observer_data(packet):
-        others.append(packet)
+        if packet.topic == TOPIC + '.control':
+            observer_control.set()
+        else:
+            others.append(packet)
 
     try:
         await observer.connect(URL, token("observer", observer=True))
@@ -93,6 +97,10 @@ async def verify():
         assert received.participant.identity == "worker"
         assert received.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_AGENT
         assert received.participant.attributes.get("lk.agent.name") == AGENT
+        # Positive control: the observer must be able to receive data at all.
+        await worker.local_participant.publish_data(b"control", reliable=True,
+                                                    destination_identities=["observer"], topic=TOPIC + ".control")
+        await asyncio.wait_for(observer_control.wait(), timeout=5)
         await asyncio.sleep(.3)
         assert not others, "Guest-only data reached another room participant"
         print("PASS: non-silent media in both directions, authenticated named agent and guest-only data")

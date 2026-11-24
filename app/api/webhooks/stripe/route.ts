@@ -199,7 +199,7 @@ export async function POST(req: Request) {
         else if (detailsSubmitted && !payoutsEnabled) onboardingState = 'rejected'
         await admin.from('artists').update({
           payouts_enabled: payoutsEnabled, charges_enabled: chargesEnabled,
-          onboarding_state: onboardingState, is_approved: onboardingState === 'active',
+          onboarding_state: onboardingState, // Editorial approval is independent of Stripe readiness.
         }).eq('stripe_account_id', account.id)
         break
       }

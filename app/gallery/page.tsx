@@ -156,6 +156,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
             ))}
           </div>
         )}
+        <p className="mt-6 text-sm leading-relaxed text-muted-foreground">Some works in the Gallery are created wholly or partly with AI.</p>
       </div>
       <section className="max-w-7xl mx-auto px-6 lg:px-12 pb-12" aria-labelledby="editorial-heading">
         <p className="text-xs uppercase tracking-[0.24em] text-primary">04 / Gallery journal</p>

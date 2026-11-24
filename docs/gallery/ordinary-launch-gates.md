@@ -6,10 +6,16 @@ Owner approved autonomous ordinary artwork launch only after acceptance gates. K
 - Title: Where the Brass Meets the Tide
 - Slug: where-the-brass-meets-the-tide
 - Credit: Café Sativa Studio (house artwork, not an independent seller)
-- Description: AI-generated digital artwork from Café Sativa Studio. Original delivery format PNG, 1672 × 941 pixels. No NFT, scarcity, exclusive rights, or print-quality claim.
+- Public medium: Digital art. Description: Digital artwork from Café Sativa Studio. Original delivery format PNG, 1672 × 941 pixels. No per-item AI badge for this debut. No NFT, scarcity, exclusive rights, or print-quality claim.
+- Internal provenance: This debut image was AI-generated. Keep the internal record accurate; the public Gallery uses a Gallery-level disclosure, not an implication of hand production.
 - Approved price: USD 12.00 (1200 minor units), owner approval 11:39 UTC Nov 24.
 - Master SHA-256: 33483b370c172774d73b2a7445322e9973422e90e3cefdbcf0fa6ed01ec06f93. Keep exact master in private approved bucket; verify digest before staging; public copy must be resized separately. No public master or library links.
 - Existing checkout requires approved artist Connect destination; DO NOT fabricate an artist or use unrelated account. House settlement needs explicit recorded house sale model, provider mapping and refund tests; independent 90/10 tested separately in dedicated sandbox. No DB listing mutation yet.
+
+## Optional per-work artist disclosure
+- Add an optional Artwork creation method field to real product intake, not the artist application. Choices: Not declared (default), No AI used, AI-assisted, Primarily AI-generated. Keep missing data distinct from No AI used; never infer a declaration.
+- Save a validated enum on the artwork, preserve it across edits that omit the field, and show an unobtrusive buyer-visible method on published listings when an artist makes an affirmative AI disclosure. No unchecked state should produce a buyer label. Do not expose unapproved work or a private provenance record.
+- Acceptance: an existing artist can save with no declaration; two works by one artist can declare different methods; a selected AI method survives reload and appears to a buyer on the published work; changing it to Not declared removes the public note; existing artwork and purchase behavior remain unchanged.
 
 ## New-sales gate and rollback
 - GALLERY_SALES_ENABLED defaults off; only new checkout checks it. Requires holds, private downloads, digital worker, and correct Stripe key mode. Paid/refunded webhooks and existing fulfillment/access stay available independent of switch. Disable switch and redeploy Gallery's approved release to stop new sessions; existing Stripe sessions can still settle and must be honored. Verify read-only UI after rollback; no shared key removal.

@@ -20,7 +20,7 @@ declare p public.products%rowtype; held bigint; result uuid;
 begin
  if p_quantity is null or p_quantity not between 1 and 10 or p_user is null then return null; end if;
  select * into p from public.products where id=p_product for update;
- if not found or p.status<>'published' then return null; end if;
+ if not found or p.status is distinct from 'published' then return null; end if;
  select coalesce(sum(quantity),0) into held from public.gallery_inventory_holds where product_id=p_product and state in ('held','attention');
  if p.stock_count is not null and p.stock_count-held<p_quantity then return null; end if;
  insert into public.gallery_inventory_holds(product_id,user_id,quantity,expires_at)

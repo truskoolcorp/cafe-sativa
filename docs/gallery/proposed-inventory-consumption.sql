@@ -8,7 +8,9 @@ begin
  perform 1 from public.products where id=product_uuid for update;
  if not found then raise exception 'Product unavailable'; end if;
  select * into h from public.gallery_inventory_holds where id=p_hold for update;
- if not found or h.product_id<>product_uuid or h.quantity<>quantity
+ if not found or quantity is null or quantity not between 1 and 10 or artist_uuid is null
+ or h.stripe_session_id is null or btrim(h.stripe_session_id)='' 
+ or h.product_id<>product_uuid or h.quantity<>quantity
  or h.user_id::text is distinct from receipt->>'user_id'
  or h.stripe_session_id is distinct from receipt->>'session_id'
  or h.state not in ('held','consumed','attention')

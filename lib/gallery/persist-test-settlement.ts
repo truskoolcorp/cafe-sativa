@@ -30,7 +30,14 @@ export async function persistGalleryTestSettlement(requestUrl:string,orderId:str
   if(!house||house.productId!==item.product_id||house.artistId!==item.artist_id||item.transfer_destination!==null||
     !await verifiedGalleryHouseAccount(stripe,house.accountId,false))throw Error('House settlement account mismatch')
   houseAccountId=house.accountId
- }else if(!/^acct_[A-Za-z0-9]+$/.test(item.transfer_destination??''))throw Error('Order destination unavailable')
+ }else{
+  if(!/^acct_[A-Za-z0-9]+$/.test(item.transfer_destination??''))throw Error('Order destination unavailable')
+  // A destination identifies the seller, not the platform that owns this payment.
+  // Require a separately verified test-platform binding before reading consigned evidence.
+  const platform=process.env.GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID
+  if(!platform||!/^acct_[A-Za-z0-9]+$/.test(platform)||platform===item.transfer_destination||
+     !await verifiedGalleryHouseAccount(stripe,platform,false))throw Error('Consigned settlement platform mismatch')
+ }
  const snapshot=await observeGallerySettlement(stripe,order.stripe_payment_intent_id,false,saleKind,{
   productId:item.product_id,artistId:item.artist_id,buyerId:order.user_id,destination:item.transfer_destination,houseAccountId
  })

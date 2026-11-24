@@ -124,7 +124,7 @@ export async function POST(req: Request) {
               to: session.customer_details?.email || session.customer_email || '',
               orderId: order.id, productTitle: product.title, productKind: product.kind,
               priceCents: lineTotal / quantity, quantity, totalCents: session.amount_total ?? lineTotal,
-              digitalDeliveryUrl: product.digital_delivery_url ?? null, fulfillmentState,
+              digitalDeliveryUrl: null, fulfillmentState, // Never email permanent artist-supplied delivery URLs.
             })
           } catch (emailErr) { console.error('[stripe-webhook] order confirmation email failed', emailErr) }
           console.log(`[stripe-webhook] gallery order issued: order=${order.id} product=${productId}`)

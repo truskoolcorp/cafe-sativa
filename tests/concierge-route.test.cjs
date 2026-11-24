@@ -46,6 +46,7 @@ function harness(options = {}) {
             return { content: options.providerContent ?? [{ type: 'text', text: 'Synthetic general reply' }] }
           } }
         } }
+        if (name === '@/lib/gallery/curator-catalog') return {loadCuratorCatalog: async () => { throw Error('Non-Gallery regression must not call curator catalog') }}
         if (name.endsWith('/concierge-canon')) return { canonicalConciergeHost: async () => ({ context: 'Approved identity' }) }
         if (name.endsWith('/content/site')) return { getSiteContent: async () => {
           if (options.featureError) throw new Error('Synthetic feature outage')

@@ -1,5 +1,29 @@
 import { Room, RoomEvent, Track, ParticipantKind, type RemoteTrack } from 'livekit-client'
 
+export type GalleryVoiceLink = {label:string;path:string}
+const ZARIA_LINK_TOPIC = 'cafe-sativa.zaria.gallery-links.v1'
+const ZARIA_AGENT = 'cafe-sativa-zaria'
+
+export function parseGalleryVoiceLinks(payload: Uint8Array, sender: {kind: ParticipantKind; attributes: Readonly<Record<string,string>>} | undefined, topic: string | undefined, previous: number) {
+  if (topic !== ZARIA_LINK_TOPIC || sender?.kind !== ParticipantKind.AGENT ||
+      sender.attributes['lk.agent.name'] !== ZARIA_AGENT || sender.attributes['lk.publish_on_behalf'] || payload.byteLength > 2048) return null
+  try {
+    const packet = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(payload))
+    if (!packet || typeof packet !== 'object' || Array.isArray(packet) ||
+        Object.keys(packet).length !== 2 || !Number.isSafeInteger(packet.sequence) ||
+        packet.sequence <= previous || packet.sequence > 200 || !Array.isArray(packet.links) || packet.links.length > 3) return null
+    const paths = new Set<string>()
+    for (const link of packet.links) {
+      if (!link || typeof link !== 'object' || Object.keys(link).length !== 2 ||
+          typeof link.path !== 'string' || !/^\/gallery(?:\/[a-z0-9][a-z0-9-]{0,95})?$/.test(link.path) ||
+          paths.has(link.path) || typeof link.label !== 'string' || !link.label.trim() ||
+          link.label.length > 120 || /[\u0000-\u001f\u007f]/.test(link.label)) return null
+      paths.add(link.path)
+    }
+    return {sequence:packet.sequence as number, links:packet.links as GalleryVoiceLink[]}
+  } catch { return null }
+}
+
 export type VoiceState = 'idle' | 'connecting' | 'waiting' | 'connected' | 'reconnecting' | 'ended' | 'error'
 
 // One microphone owner per UI. Canceling a pending join must never publish later.
@@ -9,10 +33,12 @@ export class LiveVoiceConnection {
   private timers: ReturnType<typeof setTimeout>[] = []
   private tracks = new Set<RemoteTrack>()
   constructor(private notify: (state: VoiceState, message?: string) => void,
-    private audioRoot: HTMLElement, private makeRoom: () => Room = () => new Room()) {}
+    private audioRoot: HTMLElement, private makeRoom: () => Room = () => new Room(),
+    private onGalleryLinks?: (links: GalleryVoiceLink[]) => void) {}
 
   stop() {
     this.revision++
+    this.onGalleryLinks?.([])
     this.timers.forEach(clearTimeout)
     this.timers = []
     this.tracks.forEach(track => track.detach().forEach((element: HTMLElement) => element.remove()))
@@ -30,6 +56,14 @@ export class LiveVoiceConnection {
     const current = () => this.room === room && this.revision === revision
     const fail = (message: string) => { if (current()) { this.stop(); this.notify('error', message) } }
     let hostJoined = false
+    let linkSequence = 0
+    if (this.onGalleryLinks) room.on(RoomEvent.DataReceived, (payload, sender, _kind, topic) => {
+      if (!current() || !sender || room.remoteParticipants.get(sender.identity)?.sid !== sender.sid) return
+      const update = parseGalleryVoiceLinks(payload, sender, topic, linkSequence)
+      if (!update) return
+      linkSequence = update.sequence
+      this.onGalleryLinks?.(update.links)
+    })
     room.on(RoomEvent.ParticipantConnected, participant => {
       if (current() && participant.kind === ParticipantKind.AGENT) {
         hostJoined = true
@@ -48,7 +82,7 @@ export class LiveVoiceConnection {
       track.detach().forEach(element => element.remove())
       this.tracks.delete(track)
     })
-    room.on(RoomEvent.Reconnecting, () => { if (current()) this.notify('reconnecting') })
+    room.on(RoomEvent.Reconnecting, () => { if (current()) { this.onGalleryLinks?.([]); this.notify('reconnecting') } })
     room.on(RoomEvent.Reconnected, () => { if (current()) this.notify(hostJoined ? 'connected' : 'waiting') })
     room.on(RoomEvent.Disconnected, () => { if (current()) { this.stop(); this.notify('ended') } })
     room.on(RoomEvent.AudioPlaybackStatusChanged, () => {

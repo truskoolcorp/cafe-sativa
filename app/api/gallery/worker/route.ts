@@ -1,4 +1,5 @@
 import {sendGalleryDeliveryNotices} from '@/lib/gallery/send-delivery-notices'
+import {reconcileGalleryInventory} from '@/lib/gallery/reconcile-inventory'
 import {timingSafeEqual} from 'node:crypto'
 import {authorizeStagedDigitalOrders} from '@/lib/gallery/fulfill-digital'
 export const runtime='nodejs'
@@ -15,7 +16,9 @@ export async function GET(req:Request){
   if(result.deferred)console.warn('[gallery-worker] Deferred orders',result.deferred)
   const notices=await sendGalleryDeliveryNotices()
   if(notices.attention)console.warn('[gallery-worker] Notification attention',notices.attention)
-  return Response.json({fulfillment:result,notifications:notices},{headers})
+  const inventory=await reconcileGalleryInventory()
+  if(inventory.attention)console.warn('[gallery-worker] Inventory attention',inventory.attention)
+  return Response.json({fulfillment:result,notifications:notices,inventory},{headers})
  }catch{
   console.error('[gallery-worker] Fulfillment unavailable')
   return Response.json({error:'Fulfillment unavailable'},{status:503,headers})

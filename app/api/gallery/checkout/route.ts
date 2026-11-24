@@ -198,8 +198,16 @@ export async function POST(req: Request) {
 
   const isPhysical = product.kind === 'physical'
 
+  let holdId: string | undefined
+  if(process.env.GALLERY_INVENTORY_HOLDS==='true'){
+    const {data:hold,error:holdError}=await admin.rpc('cs_hold_gallery_inventory',{p_product:product.id,p_user:authData.user.id,p_quantity:quantity})
+    if(holdError)return NextResponse.json({error:'Inventory temporarily unavailable.'},{status:503})
+    if(!hold)return NextResponse.json({error:'Artwork is currently reserved or sold out.'},{status:409})
+    holdId=hold
+  }
   try {
     const session = await stripe.checkout.sessions.create({
+      ...(holdId ? {expires_at:Math.floor(Date.now()/1000)+40*60} : {}),
       mode: 'payment',
       ui_mode: 'hosted',
       line_items: [
@@ -240,6 +248,7 @@ export async function POST(req: Request) {
         user_id: authData.user.id,
         quantity: String(quantity),
         site: 'cafe-sativa',
+        ...(holdId ? {inventory_hold_id:holdId} : {}),
         ...(approvedAssetId ? {approved_asset_id:approvedAssetId} : {}),
       },
       customer_email: authData.user.email ?? undefined,
@@ -250,7 +259,11 @@ export async function POST(req: Request) {
       phone_number_collection: isPhysical ? { enabled: true } : undefined,
       success_url: `${siteUrl}/gallery/thanks?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/gallery/${product.slug}?canceled=1`,
-    })
+    },holdId ? {idempotencyKey:'gallery-hold-'+holdId} : undefined)
+    if(holdId){
+      const {data:linked,error:linkError}=await admin.from('gallery_inventory_holds').update({stripe_session_id:session.id}).eq('id',holdId).eq('state','held').select('id').maybeSingle()
+      if(linkError||!linked)throw Error('Inventory reservation requires reconciliation')
+    }
 
     return NextResponse.json({ url: session.url })
   } catch (err: any) {

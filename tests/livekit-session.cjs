@@ -1,5 +1,6 @@
 const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require('node:assert/strict');
-const c={exports:{},Buffer,Date,require};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/concierge/livekit-session.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,c);
+const zaria={exports:{},process:{env:{}}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/zaria.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,zaria);
+const c={exports:{},Buffer,Date,require:id=>id==='@/lib/gallery/zaria'?zaria.exports:require(id)};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/concierge/livekit-session.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,c);
 const now=Date.now(),session={conversationId:'11111111-1111-1111-1111-111111111111',userId:'22222222-2222-2222-2222-222222222222',host:'ginger',expires:now+60000};
 const token=c.exports.signVoiceSession(session,'test-secret');
 assert.equal(c.exports.verifyVoiceSession(token,'test-secret',now).host,'ginger');

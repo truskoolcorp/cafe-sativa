@@ -36,7 +36,7 @@ function client({ blockedStorage = false } = {}) {
     }),
   }
   function load(file) {
-    const scope = { ...globals, exports: {}, require(name) {
+    const scope = { ...globals, process:{env:{}}, exports: {}, require(name) {
       if (name === 'react') return react
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'Fragment' }
       if (name === 'next/navigation') return { useSearchParams: () => ({ get: () => null }) }
@@ -50,6 +50,7 @@ function client({ blockedStorage = false } = {}) {
       if (name.endsWith('/utils')) return { cn: (...args) => args.filter(Boolean).join(' ') }
       if (name.endsWith('/LiveVoiceConversation')) return { __esModule: true, default: 'LiveVoiceConversation' }
       if (name === '@/lib/concierge/browser-session') return load('lib/concierge/browser-session.ts')
+      if (name === '@/lib/gallery/zaria') return load('lib/gallery/zaria.ts')
       if (name === './request') return load('lib/concierge/request.ts')
       throw Error(name)
     } }

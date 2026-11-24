@@ -4,6 +4,8 @@ let grant={conversationId:'conversation',userId:'owner',host:'laviche'},owner=tr
 const db={from(table){let write=null;const q={select(){return q},eq(){return q},gte(){return q},in(){return q},order(){return q},limit(){return q},insert(value){write=value;return q},maybeSingle:async()=>({data:table==='host_conversations'?{authorized:owner}:existing,error:lookupError}),then(resolve,reject){if(write){inserts++;if(!insertError)existing=write;return Promise.resolve({error:insertError}).then(resolve,reject)}return Promise.resolve({count,data:[],error:null}).then(resolve,reject)}};return q}};
 const env={CS_LIVEKIT_ENABLED:'true',CS_LIVEKIT_BRIDGE_SECRET:'test'};
 const scope={exports:{},Response,Date,process:{env},require(n){
+ if(n==='@/lib/gallery/zaria')return {zariaVoiceAgent:()=>null};
+ if(n==='@/lib/gallery/zaria-catalog')return {loadZariaGallery:()=>{throw Error('Enabled Gallery reads cannot run in this fixture')}};
  if(n.endsWith('/livekit-session'))return {verifyVoiceSession:()=>grant};
  if(n.endsWith('/admin'))return {createAdminClient:()=>db};
  if(n.endsWith('/concierge-canon'))return {canonicalConciergeHost:async()=>canon?{voiceId:'approved',context:'Canonical identity'}:null};
@@ -17,6 +19,7 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/concierge/livekit
 const req=body=>({headers:{get:()=> 'Bearer signed'},json:async()=>body});
 const turn={event_id:event,role:'user',content:'Hello Café Sativa'};
 (async()=>{
+ grant.host='zaria';assert.equal((await scope.exports.GET(req())).status,503);assert.equal((await scope.exports.POST(req(turn))).status,503);assert.equal(inserts,0);assert.equal(readOptions,null);grant.host='laviche';
  performing=true;grant.host='ahnika';assert.equal((await (await scope.exports.GET(req())).json()).code,'host_performing');assert.equal(readOptions,null);grant.host='laviche';assert.equal((await scope.exports.GET(req())).status,200);performing=false;readOptions=null;
  env.CS_LIVEKIT_ENABLED='false';assert.equal((await scope.exports.POST(req(turn))).status,503);env.CS_LIVEKIT_ENABLED='true';
  const realGrant=grant;grant=null;assert.equal((await scope.exports.POST(req(turn))).status,401);grant=realGrant;

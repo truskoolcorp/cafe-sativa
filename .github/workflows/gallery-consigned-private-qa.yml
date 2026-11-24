@@ -1,0 +1,26 @@
+name: Gallery consigned private QA
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [feature/gallery-web3-preview]
+permissions:
+  contents: read
+jobs:
+  isolated:
+    if: github.repository == 'truskoolcorp/cafe-sativa' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'qa/gallery-consigned-private-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - name: Install disposable PostgreSQL
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql
+      - name: Check private consigned order on Unix socket only
+        run: bash tests/gallery-consigned-private-postgres.sh

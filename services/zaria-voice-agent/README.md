@@ -59,3 +59,25 @@ tested; do not set these flags on production or reuse shared worker credentials.
 Official API references:
 - https://elevenlabs.io/docs/api-reference/text-to-dialogue/ttd-websocket
 - https://docs.livekit.io/agents/multimodality/audio/#scripted-speech
+
+## Hosted package gate (draft; not deployed)
+
+Build context must be this worker directory, not the repository root. The image
+runs as UID 10001 and includes only the worker and its dependencies. Build-time
+package fetching is distinct from provider I/O; no secrets belong in the image.
+CI checks the unconfigured container exits without a connection and the local
+Silero model loads with networking disabled.
+
+LiveKit Cloud automatically injects its own project's `LIVEKIT_URL`,
+`LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. For the dedicated QA project only,
+opt in with `CS_ZARIA_LIVEKIT_CREDENTIALS=cloud-injected`, pin its exact WSS host
+in `CS_ZARIA_APPROVED_LIVEKIT_HOST`, and omit all three explicit
+`CS_ZARIA_LIVEKIT_{URL,KEY,SECRET}` variables. The exact HTTPS bridge host and
+private-staging worker flags remain mandatory. Outside LiveKit Cloud the default
+isolated-explicit mode still uses the three separately scoped explicit fields.
+
+This does not supply an isolated bridge or hosted credentials and does not
+authorize a deployment. Do not select a shared LiveKit project, disable shared
+Vercel protection, add keys to CI, or upload a generated avatar. An isolated
+host address, signed QA admission and owner-approved capped provider canary
+remain separate gates. Keep detailed payload and transcript logging off.

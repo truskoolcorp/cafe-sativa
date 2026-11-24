@@ -3,7 +3,6 @@ import { ContentVideo } from '@/components/events/ContentVideo'
 import { canDownloadContentMedia } from '@/lib/content/media-access'
 import GalleryWallet from './GalleryWallet'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
-import { approvedHostPortrait } from '@/lib/content/host-portraits'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -87,7 +86,7 @@ async function loadGallery(): Promise<GalleryRow[]> {
 }
 
 export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
-  const [products,covers,features,portrait] = await Promise.all([loadGallery(),approvedVenueCovers(),getSiteContent('gallery').catch(() => []),approvedHostPortrait('zaria').catch(() => null)])
+  const [products,covers,features] = await Promise.all([loadGallery(),approvedVenueCovers(),getSiteContent('gallery').catch(() => [])])
   const tour = features.find(item => item.released && item.media_url)
   const allowDownload = tour ? await canDownloadContentMedia().catch(() => false) : false
 
@@ -125,7 +124,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
       </section>
       <section aria-labelledby="curator-heading" className="bg-card border-y border-border">
         <div className="max-w-7xl mx-auto px-6 lg:px-12 py-12 grid md:grid-cols-[1fr_2fr] gap-8 items-center">
-          {portrait ? <div className="relative aspect-[4/5] max-w-[320px] overflow-hidden rounded-sm">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={portrait} alt="Zaria Solenne" loading="lazy" className="w-full h-full object-cover"/></div> : <div aria-hidden="true" className="font-heading text-6xl text-primary/70 border-l border-primary pl-6">ZS</div>}
+          <div aria-hidden="true" className="font-heading text-6xl md:text-8xl text-primary/70 border-l border-primary pl-6">ZS</div>
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-primary">02 / Curator’s perspective</p>
             <h2 id="curator-heading" className="font-heading text-4xl mt-3">Meet Zaria Solenne.</h2>

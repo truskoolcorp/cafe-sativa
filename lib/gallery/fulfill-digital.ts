@@ -1,3 +1,4 @@
+import {stageApprovedArtwork} from './stage-approved-artwork'
 import {createAdminClient} from '@/lib/supabase/admin'
 
 /** Authorize only orders with a trusted, already staged private delivery.
@@ -13,6 +14,9 @@ export async function authorizeStagedDigitalOrders() {
  if(error)throw Error('Gallery fulfillment queue unavailable')
  let authorized=0,deferred=0
  for(const row of data||[]){
+  try {
+   if(!await stageApprovedArtwork(row.order_id)){deferred++;continue}
+  } catch {deferred++;continue}
   const {data:ok,error:rpcError}=await db.rpc('cs_authorize_gallery_delivery',{p_order:row.order_id})
   if(rpcError||ok!==true){deferred++;continue}
   authorized++

@@ -261,3 +261,52 @@ begin
  raise notice 'PASS: service-only review projection, unknown fees, test mode, negative margin, no automatic restock';
 end $review$;
 SQL
+
+# Proposed artwork publication boundary: simulate a permissive direct client
+# grant so the trigger itself, not an assumed RLS policy, is exercised.
+psql -f docs/gallery/proposed-artwork-publication-guard.sql >/dev/null
+psql <<'SQL'
+grant select,insert,update,delete on public.products to authenticated;
+grant select,insert,update on public.products to service_role;
+set role authenticated;
+insert into public.products(id,kind,status,stock_count) values
+ ('00000000-0000-4000-8000-000000000040','digital','draft',1);
+update public.products set title='Review draft' where id='00000000-0000-4000-8000-000000000040';
+do $publication$
+begin
+ begin
+  insert into public.products(id,kind,status) values('00000000-0000-4000-8000-000000000041','digital','published');
+  raise exception 'Direct published insert accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.products set status='published' where id='00000000-0000-4000-8000-000000000040';
+  raise exception 'Direct draft publication accepted';
+ exception when insufficient_privilege then null; end;
+end $publication$;
+reset role;
+set role service_role;
+update public.products set status='published' where id='00000000-0000-4000-8000-000000000040';
+update public.products set stock_count=0 where id='00000000-0000-4000-8000-000000000040';
+reset role;
+set role authenticated;
+do $publication$
+begin
+ begin
+  update public.products set price_cents=1 where id='00000000-0000-4000-8000-000000000040';
+  raise exception 'Direct published price change accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.products set status='draft' where id='00000000-0000-4000-8000-000000000040';
+  raise exception 'Direct published state change accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  delete from public.products where id='00000000-0000-4000-8000-000000000040';
+  raise exception 'Direct published deletion accepted';
+ exception when insufficient_privilege then null; end;
+ if not exists(select 1 from public.products where id='00000000-0000-4000-8000-000000000040' and status='published' and stock_count=0)
+ then raise exception 'Trusted publication or stock update failed'; end if;
+end $publication$;
+reset role;
+revoke all on public.products from authenticated;
+SQL
+echo 'PASS: direct artist publication and reviewed-edition changes denied; trusted service stock update permitted (synthetic roles).'

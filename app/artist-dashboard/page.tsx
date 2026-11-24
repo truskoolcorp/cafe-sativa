@@ -580,12 +580,10 @@ function NewProductForm({
   const [description, setDescription] = useState('')
   const [stock, setStock] = useState('')
   const [weight, setWeight] = useState('')
-  const [deliveryUrl, setDeliveryUrl] = useState('')
   const [blockchain, setBlockchain] = useState<'polygon' | 'ethereum' | 'base'>(
     'polygon'
   )
   const [creationMethod, setCreationMethod] = useState<ArtworkCreationMethod | ''>('')
-  const [publishNow, setPublishNow] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -610,16 +608,13 @@ function NewProductForm({
       price_cents: Math.round(priceNum * 100),
       primary_image_url: imageUrl.trim() || undefined,
       stock_count: stock.trim() ? parseInt(stock.trim(), 10) : null,
-      status: publishNow ? 'published' : 'draft',
+      status: 'draft',
     }
     if (artworkCreationMethodEnabled && creationMethod) {
       payload.artwork_creation_method = creationMethod
     }
     if (kind === 'physical' && weight.trim()) {
       payload.weight_grams = parseInt(weight.trim(), 10)
-    }
-    if (kind === 'digital' && deliveryUrl.trim()) {
-      payload.digital_delivery_url = deliveryUrl.trim()
     }
     if (kind === 'nft') {
       payload.blockchain = blockchain
@@ -646,7 +641,6 @@ function NewProductForm({
       setImageUrl('')
       setStock('')
       setWeight('')
-      setDeliveryUrl('')
       setCreationMethod('')
       onCreated()
     } catch (err: any) {
@@ -675,7 +669,7 @@ function NewProductForm({
         <div className="mb-4 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
           <p className="text-sm text-foreground font-body">
             <CheckCircle2 className="w-4 h-4 inline -mt-0.5 mr-1.5 text-primary" />
-            Saved.
+            Draft saved. Gallery review is required before publication.
           </p>
         </div>
       )}
@@ -828,7 +822,7 @@ function NewProductForm({
             placeholder="https://…"
           />
           <p className="text-xs text-muted-foreground font-body mt-1.5">
-            Paste any public image URL for now. Storage uploads coming.
+            Use a public display copy only, never your full-resolution master. Gallery review verifies rights and private delivery.
           </p>
         </div>
 
@@ -856,25 +850,9 @@ function NewProductForm({
         )}
 
         {kind === 'digital' && (
-          <div>
-            <label
-              htmlFor="deliveryUrl"
-              className="block text-sm font-body font-semibold text-foreground mb-2"
-            >
-              Download URL{' '}
-              <span className="text-muted-foreground font-normal">
-                (emailed to buyer)
-              </span>
-            </label>
-            <Input
-              id="deliveryUrl"
-              type="url"
-              value={deliveryUrl}
-              onChange={(e) => setDeliveryUrl(e.target.value)}
-              disabled={submitting}
-              placeholder="https://…"
-            />
-          </div>
+          <p className="text-sm text-muted-foreground font-body">
+            Keep your master private. The Gallery will arrange approved-file delivery during review.
+          </p>
         )}
 
         {kind === 'nft' && (
@@ -900,29 +878,14 @@ function NewProductForm({
               ))}
             </div>
             <p className="text-xs text-muted-foreground font-body mt-2">
-              Token metadata + on-chain mint will be wired up in a later pass.
-              For now, NFT sales deliver a digital certificate via email.
+              NFT submissions are drafts only. Token sales and minting are not available.
             </p>
           </div>
         )}
 
-        {/* Publish toggle */}
-        <div className="flex items-center gap-3 pt-2">
-          <input
-            id="publishNow"
-            type="checkbox"
-            checked={publishNow}
-            onChange={(e) => setPublishNow(e.target.checked)}
-            disabled={submitting}
-            className="w-4 h-4 rounded border-border"
-          />
-          <label
-            htmlFor="publishNow"
-            className="text-sm font-body text-foreground cursor-pointer"
-          >
-            Publish immediately
-          </label>
-        </div>
+        <p className="text-sm text-muted-foreground font-body">
+          Saving creates a private draft, not a public listing. Publication requires separate Gallery review of this work, its rights, price and fulfillment.
+        </p>
 
         <Button type="submit" size="lg" disabled={submitting} className="w-full">
           {submitting ? (
@@ -931,7 +894,7 @@ function NewProductForm({
               Saving…
             </>
           ) : (
-            'Save product'
+            'Save draft'
           )}
         </Button>
       </form>

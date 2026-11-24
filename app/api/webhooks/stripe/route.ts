@@ -9,6 +9,12 @@ type MembershipTier = 'regular' | 'vip'
 export async function POST(req: Request) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
   const galleryMode = galleryEnvironment(req.url)
+  const dedicated = new URL(req.url).pathname === '/api/gallery/webhook'
+  // Dedicated sandbox ingress never accepts production credentials; shared ingress
+  // must not consume Gallery test events or operate on the isolated database.
+  if ((dedicated && galleryMode !== 'isolated-test') || (!dedicated && galleryMode === 'isolated-test')) {
+    return NextResponse.json({ error: 'Gallery test webhook requires dedicated isolated ingress.' }, { status: 503 })
+  }
   const webhookSecret = galleryMode === 'isolated-test'
     ? process.env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET : process.env.STRIPE_WEBHOOK_SECRET
   if (!stripeSecretKey || !webhookSecret) {
@@ -125,6 +131,7 @@ export async function POST(req: Request) {
           if(productError || !product)throw Error('Paid product unavailable')
           const fulfillmentState='pending'
           const holdId=session.metadata?.inventory_hold_id
+          if (galleryMode === 'isolated-test' && (!holdId || (product.kind === 'digital' && !session.metadata?.approved_asset_id))) throw Error('Isolated test purchase requires a reservation and approved digital edition')
           if(holdId && (session.metadata?.site!=='cafe-sativa' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(holdId)))throw Error('Invalid gallery reservation')
           const {data:recorded,error:recordError}=await admin.rpc(holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
             ...(holdId?{p_hold:holdId}:{}),

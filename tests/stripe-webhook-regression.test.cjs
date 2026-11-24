@@ -12,12 +12,15 @@ const compiled = ts.transpileModule(source, { compilerOptions: {
 
 function setup(event, options = {}) {
   const actions = []
+  const env = { VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_test_placeholder', STRIPE_WEBHOOK_SECRET:'whsec_placeholder', ...options.env }
+  const url = options.url || 'https://www.cafe-sativa.com/api/webhooks/stripe'
+  const calls = { admin: 0, signed: 0, secret: null }
   const sub = options.subscription || {
     id: 'sub_1', created:200, status: event.type==='customer.subscription.deleted'?'canceled':'active', metadata: { user_id: 'user_1', site: 'cafe-sativa', tier: 'regular' },
     customer: 'cus_1', items: { data: [{ price: { id: 'price_approved' }, current_period_end: 1800000000 }] }
   }
   const stripe = {
-    webhooks: { constructEvent: () => event },
+    webhooks: { constructEvent: (_body,_sig,secret) => { calls.signed++; calls.secret=secret; return event } },
     subscriptions: { retrieve: async () => sub },
     checkout: { sessions: { listLineItems: async () => ({ data: [], has_more: false }) } },
     paymentIntents: { retrieve: async () => ({ application_fee_amount: 0 }) }
@@ -44,17 +47,21 @@ function setup(event, options = {}) {
     if (name === 'next/server') return { NextResponse: { json: (body, init={}) => ({status:init.status || 200,body}) } }
     if (name === '@/lib/sync-membership') {const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/sync-membership.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports:mod.exports,require:requireMock,Date,Number,Error});return mod.exports}
     if (name === 'stripe') return { __esModule:true,default:StripeMock }
-    if (name === '@/lib/supabase/admin') return {createAdminClient:()=>db}
+    if (name === '@/lib/supabase/admin') return {createAdminClient:()=>{ calls.admin++; return db }}
+    if (name === '@/lib/gallery/environment') return require('./helpers/load-gallery-environment.cjs')(env)
+    if (name === '@/lib/gallery/reconcile-refunds') {
+      const exports = {}
+      vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/reconcile-refunds.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,require:requireMock,process:{env},Date,Error})
+      return exports
+    }
     if (name === '@/lib/membership-prices') return {cafeSubscriptionTier: s => {
       if(s.metadata?.site && s.metadata.site!=='cafe-sativa')return null
       return s.items?.data?.[0]?.price?.id === 'price_approved' ? 'regular' : null
     }}
     throw new Error('Unexpected import '+name)
   }
-  vm.runInNewContext(compiled,{exports,require:requireMock,process:{env:{
-    STRIPE_SECRET_KEY:'sk_test_placeholder',STRIPE_WEBHOOK_SECRET:'whsec_placeholder'
-  }}, console:{log(){},warn(){},error(){}},Date,Number,Error,Promise})
-  return {actions,post: () => exports.POST({
+  vm.runInNewContext(compiled,{exports,require:requireMock,process:{env},URL, console:{log(){},warn(){},error(){}},Date,Number,Error,Promise})
+  return {actions,calls,post: () => exports.POST({url,
     headers:{get:()=> 'signature'},
     text:async()=> '{}'
   })}
@@ -118,3 +125,38 @@ test('refund updates the original order and ticket records, never creates new ch
   assert.equal(h.actions[1].data.state,'refunded')
 })
 
+
+const testSite = 'https://gallery-preview.example'
+const dedicatedURL = testSite+'/api/gallery/webhook'
+const sandboxEnv = {
+  VERCEL_ENV:'preview', GALLERY_ISOLATED_TEST:'true',
+  STRIPE_SECRET_KEY:'sk_test_synthetic', STRIPE_WEBHOOK_SECRET:'whsec_shared_synthetic',
+  GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_dedicated_synthetic',
+  NEXT_PUBLIC_SITE_URL:testSite, NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co',
+  GALLERY_TEST_SUPABASE_URL:'https://syntheticgallery.supabase.co',
+  NEXT_PUBLIC_SUPABASE_ANON_KEY:'synthetic', SUPABASE_SERVICE_ROLE_KEY:'synthetic',
+  GALLERY_INVENTORY_HOLDS:'true', GALLERY_PRIVATE_DOWNLOADS:'true',
+}
+const galleryEvent = {type:'checkout.session.completed',livemode:false,data:{object:{payment_status:'paid',metadata:{kind:'gallery_order',site:'cafe-sativa'}}}}
+test('unconfigured preview rejects Gallery payment before admin initialization',async()=>{
+  const h=setup(galleryEvent,{env:{VERCEL_ENV:'preview'},url:testSite+'/api/webhooks/stripe'})
+  assert.equal((await h.post()).status,503); assert.equal(h.calls.admin,0);assert.equal(h.actions.length,0)
+})
+test('dedicated ingress rejects production and shared ingress rejects isolated test config before signature handling',async()=>{
+  for(const opts of [{url:'https://www.cafe-sativa.com/api/gallery/webhook'},{env:sandboxEnv,url:testSite+'/api/webhooks/stripe'}]){
+    const h=setup(galleryEvent,opts);assert.equal((await h.post()).status,503);assert.equal(h.calls.signed,0);assert.equal(h.calls.admin,0)
+  }
+})
+test('dedicated ingress rejects live events and ignores non-Gallery subscription events',async()=>{
+  const live=setup({...galleryEvent,livemode:true},{env:sandboxEnv,url:dedicatedURL})
+  assert.equal((await live.post()).status,400);assert.equal(live.calls.admin,0)
+  const sub=setup({type:'customer.subscription.deleted',livemode:false,data:{object:{}}},{env:sandboxEnv,url:dedicatedURL})
+  assert.equal((await sub.post()).status,200);assert.equal(sub.calls.secret,sandboxEnv.GALLERY_TEST_STRIPE_WEBHOOK_SECRET);assert.equal(sub.calls.admin,0)
+})
+test('dedicated test refund never updates ticket records; blocked shared refund retains ticket path only',async()=>{
+  const event={type:'charge.refunded',livemode:false,data:{object:{payment_intent:'pi_test',refunded:true}}}
+  const h=setup(event,{env:sandboxEnv,url:dedicatedURL,ticket:{id:'ticket_1',state:'paid'}})
+  assert.equal((await h.post()).status,200);assert.deepEqual(h.actions.map(a=>a.table),['orders'])
+  const blocked=setup(event,{env:{VERCEL_ENV:'preview'},url:testSite+'/api/webhooks/stripe',ticket:{id:'ticket_1',state:'paid'}})
+  assert.equal((await blocked.post()).status,200);assert.deepEqual(blocked.actions.map(a=>a.table),['tickets'])
+})

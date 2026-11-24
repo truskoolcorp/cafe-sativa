@@ -241,6 +241,7 @@ export async function POST(req: Request) {
     process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'
 
   const isPhysical = product.kind === 'physical'
+  const privateConsignment = !house && !isPhysical && !!approvedAssetId
 
   let holdId: string | undefined
   if(process.env.GALLERY_INVENTORY_HOLDS==='true'){
@@ -249,6 +250,19 @@ export async function POST(req: Request) {
     if(!hold)return NextResponse.json({error:'Artwork is currently reserved or sold out.'},{status:409})
     holdId=hold
   }
+  if (privateConsignment) {
+    if (!holdId) return NextResponse.json({ error: 'Private edition reservation is unavailable.' }, { status: 503 })
+    const {data: pinned, error: pinError} = await admin.rpc('cs_pin_consigned_private_gallery_hold', {
+      p_hold:holdId, p_product:product.id, p_artist:artistRow.id, p_asset:approvedAssetId,
+      p_user:authData.user.id, p_destination:artistRow.stripe_account_id,
+      p_subtotal:lineTotal, p_currency:product.currency || 'usd',
+    })
+    if (pinError || pinned !== true) return NextResponse.json({ error: 'Private edition reservation is unavailable.' }, { status: 503 })
+  }
+  const privateMetadata: Stripe.MetadataParam = privateConsignment ? {
+    gallery_private_schema:'consigned-v1', approved_asset_id:approvedAssetId!, inventory_hold_id:holdId!,
+    gallery_transfer_destination:artistRow.stripe_account_id,
+  } : {}
   try {
     const session = await stripe.checkout.sessions.create({
       ...(holdId ? {expires_at:Math.floor(Date.now()/1000)+40*60} : {}),
@@ -279,6 +293,7 @@ export async function POST(req: Request) {
         } : {}),
         metadata: {
           ...houseMetadata,
+          ...privateMetadata,
           kind: 'gallery_order',
           product_id: product.id,
           artist_id: artistRow.id,
@@ -287,6 +302,7 @@ export async function POST(req: Request) {
       },
       metadata: {
         ...houseMetadata,
+          ...privateMetadata,
         kind: 'gallery_order',
         product_id: product.id,
         artist_id: artistRow.id,

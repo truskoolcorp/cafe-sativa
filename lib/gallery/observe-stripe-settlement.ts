@@ -7,7 +7,11 @@ const idOf = (value: string | {id:string} | null | undefined) =>
  * Stripe transfers gross and separately returns the application fee to the platform.
  * Unknown provider records or cross-currency settlements cannot establish a net split.
  */
-export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean,expectedSaleKind:'consigned'|'house'='consigned'){
+type OrderBinding = {productId:string,artistId:string,buyerId:string,destination:string|null,houseAccountId?:string}
+
+/** When persisted, bind the provider payment to the immutable purchased line,
+ * not today's artist payout settings or merely a matching amount/currency. */
+export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean,expectedSaleKind:'consigned'|'house'='consigned',binding?:OrderBinding){
  const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:['latest_charge']})
  const charge=intent.latest_charge
  if(intent.id!==paymentIntentId||intent.livemode!==expectedLive||intent.status!=='succeeded'||
@@ -17,6 +21,13 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
  const transferId=idOf(charge.transfer),feeId=idOf(charge.application_fee)
  const destination=idOf(intent.transfer_data?.destination)
  const house=expectedSaleKind==='house'
+ if(binding&&(
+   intent.metadata?.product_id!==binding.productId||
+   intent.metadata?.artist_id!==binding.artistId||
+   intent.metadata?.user_id!==binding.buyerId||
+   destination!==binding.destination||
+   (house&&(!binding.houseAccountId||intent.metadata?.gallery_platform_account_id!==binding.houseAccountId))
+ ))throw Error('Gallery order payment binding mismatch')
  if(house){
   if(intent.metadata?.gallery_sale_kind!=='house'||intent.transfer_data||intent.on_behalf_of||
     (intent.application_fee_amount!==null&&intent.application_fee_amount!==0)||transferId||feeId)

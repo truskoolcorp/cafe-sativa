@@ -75,3 +75,24 @@ test('house sale stays on platform without touching Connect and reports processo
  pi.transfer_data={destination:'acct_wrong'}
  await assert.rejects(observe(stripe,'pi_fixture',false,'house'),/invalid settlement classification/)
 })
+
+test('persisted payment binding rejects unrelated same-value orders and destinations before Connect reads',async()=>{
+ const stripe=mock()
+ const pi=await stripe.paymentIntents.retrieve()
+ Object.assign(pi.metadata,{product_id:'product',artist_id:'artist',user_id:'buyer'})
+ const expected={productId:'product',artistId:'artist',buyerId:'buyer',destination:'acct_fixture'}
+ assert.equal((await observe(stripe,'pi_fixture',false,'consigned',expected)).attention.length,0)
+ stripe.transfers.retrieve=()=>{throw Error('Unbound payment must not read Connect')}
+ for(const invalid of [{productId:'other'},{artistId:'other'},{buyerId:'other'},{destination:'acct_other'}])
+  await assert.rejects(observe(stripe,'pi_fixture',false,'consigned',{...expected,...invalid}),/order payment binding mismatch/)
+})
+test('house payment must be bound to its configured account metadata as well as purchased line',async()=>{
+ const stripe=mock({missing:true})
+ const pi=await stripe.paymentIntents.retrieve()
+ Object.assign(pi.metadata,{product_id:'product',artist_id:'studio',user_id:'buyer',gallery_sale_kind:'house',gallery_platform_account_id:'acct_house'})
+ pi.transfer_data=null
+ pi.application_fee_amount=null
+ const expected={productId:'product',artistId:'studio',buyerId:'buyer',destination:null,houseAccountId:'acct_house'}
+ assert.equal((await observe(stripe,'pi_fixture',false,'house',expected)).attention.length,0)
+ await assert.rejects(observe(stripe,'pi_fixture',false,'house',{...expected,houseAccountId:'acct_wrong'}),/order payment binding mismatch/)
+})

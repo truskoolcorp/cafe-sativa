@@ -113,10 +113,25 @@ class Bridge:
         return identity
 
     async def answer(self, utterance, event_id):
+        speech, _ = await self.answer_turn(utterance, event_id)
+        return speech
+
+    async def answer_turn(self, utterance, event_id):
         if not isinstance(utterance, str) or not 1 <= len(utterance.strip()) <= 1600:
             raise Unavailable("Turn outside pilot limits")
         result = await self._call("turn", {"utterance": utterance, "event_id": event_id})
         reply = result.get("speech")
         if not isinstance(reply, str) or not 1 <= len(reply.strip()) <= 600:
             raise Unavailable("No valid curator reply")
-        return reply
+        raw = result.get("gallery_links")
+        links, seen = [], set()
+        for item in raw[:3] if isinstance(raw, list) else []:
+            if not isinstance(item, dict) or set(item) != {"label", "path"}:
+                continue
+            path, label = item["path"], item["label"]
+            if (isinstance(path, str) and re.fullmatch(r"/gallery(?:/[a-z0-9][a-z0-9-]{0,95})?", path)
+                    and path not in seen and isinstance(label, str) and 1 <= len(label.strip()) <= 120
+                    and len(label) <= 120 and not re.search(r"[\x00-\x1f\x7f]", label)):
+                links.append({"path": path, "label": label})
+                seen.add(path)
+        return reply, links

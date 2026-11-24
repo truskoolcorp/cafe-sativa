@@ -125,7 +125,9 @@ test('foreign subscription never grants membership',async()=>{
   assert.equal(h.actions.length,0)
 })
 
-const refundEvent = (full=true) => ({type:'charge.refunded',livemode:false,data:{object:{id:'ch_1',payment_intent:'pi_1',refunded:full}}})
+const refundEvent = (full=true) => ({type:'charge.refunded',livemode:false,data:{object:{id:'ch_1',payment_intent:'pi_1',currency:'usd',amount_captured:1200,amount_refunded:full?1200:100,refunded:full}}})
+const galleryRefundOrder={id:'order_1',currency:'usd',total_cents:1200}
+const refundReceipt=(overrides={})=>({id:'re_1',charge:'ch_1',payment_intent:'pi_1',currency:'usd',amount:100,status:'succeeded',...overrides})
 test('ticket refund is independent of Gallery DB and provider failures',async()=>{
   const h=setup(refundEvent(),{ticket:{id:'ticket_1',state:'paid'},env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'missing orders',orderLookupError:'missing Gallery schema',refundListError:true})
   assert.equal((await h.post()).status,200)
@@ -151,20 +153,34 @@ test('ticket lookup or update outage stays retryable without Gallery writes',asy
   }
 })
 test('Gallery full refund revokes access even when ledger provider lookup fails and remains retryable',async()=>{
-  const h=setup(refundEvent(),{order:{id:'order_1',currency:'usd'},env:{GALLERY_REFUND_LEDGER:'true'},refundListError:true})
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundListError:true})
   assert.equal((await h.post()).status,500)
   assert.deepEqual(h.actions.map(a=>a.table),['orders'])
   assert.equal(h.actions[0].data.fulfillment_state,'refunded')
   assert.equal(h.calls.refundLists,1)
 })
 test('Gallery partial refund records evidence without revoking fulfillment or restocking',async()=>{
-  const h=setup(refundEvent(false),{order:{id:'order_1',currency:'usd'},env:{GALLERY_REFUND_LEDGER:'true'},refunds:[{id:'re_1',currency:'usd',amount:100,status:'succeeded'}]})
+  const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt()]})
   assert.equal((await h.post()).status,200)
   assert.deepEqual(h.actions.map(a=>a.table),['gallery_refund_receipts'])
-  assert.equal(h.actions[0].data.amount_cents,100)
+  assert.equal(h.actions[0].data[0].amount_cents,100)
+})
+test('Gallery refund rejects foreign, duplicate or invalid receipts before any ledger write',async()=>{
+  for(const invalid of [refundReceipt({id:'re_2',charge:'ch_foreign'}),refundReceipt({id:'re_2',payment_intent:'pi_foreign'}),refundReceipt({id:'re_2',amount:0.5}),refundReceipt({id:'re_2',amount:1200}),refundReceipt()]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),invalid]})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.actions.length,0)
+  }
+})
+test('Gallery old partial refund event reads current receipts in one ledger batch',async()=>{
+  const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),refundReceipt({id:'re_2',amount:1100})]})
+  assert.equal((await h.post()).status,200)
+  assert.equal(h.actions.length,1)
+  assert.equal(h.actions[0].data.length,2)
+  assert.equal(h.actions[0].data.reduce((sum,r)=>sum+r.amount_cents,0),1200)
 })
 test('Gallery full refund records evidence only after order revocation succeeds',async()=>{
-  const h=setup(refundEvent(),{order:{id:'order_1',currency:'usd'},env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'order unavailable'})
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'order unavailable'})
   assert.equal((await h.post()).status,500)
   assert.equal(h.calls.refundLists,0)
 })

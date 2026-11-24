@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     .from('products')
     .select(
       `
-      id, title, description, kind, status, price_cents, currency,
+      id, slug, title, description, kind, status, price_cents, currency,
       primary_image_url, stock_count, digital_delivery_url,
       artist:artists!inner (
         id, display_name, stripe_account_id, is_approved,
@@ -237,7 +237,7 @@ export async function POST(req: Request) {
         : undefined,
       phone_number_collection: isPhysical ? { enabled: true } : undefined,
       success_url: `${siteUrl}/gallery/thanks?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/gallery/${product.id}?canceled=1`,
+      cancel_url: `${siteUrl}/gallery/${product.slug}?canceled=1`,
     })
 
     return NextResponse.json({ url: session.url })

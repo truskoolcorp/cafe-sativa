@@ -6,7 +6,7 @@ type Scope = 'artist'|'owner'
 type Order = {order_id:string,title_snapshot:string,currency:string,sale_kind:string,
   quantity:number,line_total_cents:number,recorded_commission_cents:number|null,
   evidence_state:string,financial_evidence:Record<string,unknown>|null}
-type Refund = {order_id:string,currency:string,total_cents:number,succeeded_refund_cents:number,
+type Refund = {order_id:string,currency:string,total_cents:number,succeeded_refund_cents:number|null,
   review_reason:string,review_state:string}
 type Report = {scope:Scope,mode:'isolated-test',orders:Order[],refund_review:Refund[],more_orders:boolean,more_refunds:boolean}
 type Result = {scope:Scope,report?:Report,error?:string}
@@ -35,21 +35,27 @@ export default function FinancialReview(){
   const report=current?.report
   const fields=(order:Order):[string,unknown][]=>[
     ['Artwork total',order.line_total_cents],
+    ['Expected original commission',order.financial_evidence?.expected_original_commission_cents],
     ['Recorded commission',order.recorded_commission_cents],
+    ['Expected original artist allocation',order.financial_evidence?.expected_original_artist_cents],
+    ['Expected remaining commission',order.financial_evidence?.expected_remaining_commission_cents],
     ['Expected remaining artist allocation',order.financial_evidence?.expected_remaining_artist_cents],
+    ['Observed gross transfer',order.financial_evidence?.gross_transfer_cents],
+    ['Observed original application fee',order.financial_evidence?.original_application_fee_cents],
     ['Observed artist Connect allocation',order.financial_evidence?.artist_connect_allocation_cents],
     ['Observed platform application fee',order.financial_evidence?.platform_application_fee_cents],
     ['Observed processing fees',order.financial_evidence?.processing_fees_cents],
     ['Observed transfer reversals',order.financial_evidence?.transfer_reversed_cents],
     ['Observed refunded application fees',order.financial_evidence?.application_fee_refunded_cents],
     ['Captured',order.financial_evidence?.captured_cents],
-    ['Refunded',order.financial_evidence?.refunded_cents]
+    ['Refunded',order.financial_evidence?.refunded_cents],
+    ['Observed platform amount after charge/refund fees',order.financial_evidence?.platform_after_charge_refund_fees_cents]
   ]
   return <section className="space-y-6">
     <header>
       <p className="text-sm text-primary">Isolated test environment · read only</p>
       <h1 className="font-heading text-3xl font-bold mt-2">Gallery financial review</h1>
-      <p className="text-muted-foreground mt-2">Expected allocations and observed provider evidence are separate. Neither is a bank payout. Missing amounts are unknown, not zero.</p>
+      <p className="text-muted-foreground mt-2">Expected allocations and observed provider evidence are separate. Neither is a bank payout or total profit. Missing amounts are unknown, not zero. House sales have no independent artist allocation; Connect fields are not applicable to house sales.</p>
     </header>
     <div className="flex flex-wrap gap-3">
       <button type="button" aria-pressed={scope==='artist'} onClick={()=>{if(scope!=='artist'){setResult(null);setScope('artist')}}} className="border rounded px-4 py-2">Artist report</button>

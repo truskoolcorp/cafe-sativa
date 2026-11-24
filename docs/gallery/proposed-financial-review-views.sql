@@ -12,10 +12,17 @@ select o.id as order_id, i.artist_id, i.product_id, i.title_snapshot, o.currency
       when jsonb_array_length(s.provider_snapshot#>'{order_comparison,attention}')>0 then 'attention'
       else 'observed' end as evidence_state,
  jsonb_build_object(
+ -- Original expectation is derived from the recorded artwork line, even before provider observation.
+ 'expected_original_commission_cents',case when i.line_total_cents>0 then
+   case when i.gallery_sale_kind='house' then 0 else floor(i.line_total_cents::numeric/10)::bigint end end,
+ 'expected_original_artist_cents',case when i.line_total_cents>0 then
+   case when i.gallery_sale_kind='house' then 0 else i.line_total_cents-floor(i.line_total_cents::numeric/10)::bigint end end,
  'captured_cents',s.provider_snapshot->'captured_cents',
  'refunded_cents',s.provider_snapshot->'refunded_cents',
  'expected_remaining_commission_cents',s.provider_snapshot#>'{order_comparison,expected_remaining_commission_cents}',
  'expected_remaining_artist_cents',s.provider_snapshot#>'{order_comparison,expected_remaining_artist_cents}',
+ 'gross_transfer_cents',s.provider_snapshot->'transfer_cents',
+ 'original_application_fee_cents',s.provider_snapshot->'application_fee_cents',
  'artist_connect_allocation_cents',s.provider_snapshot->'observed_artist_connect_allocation_cents',
  'platform_application_fee_cents',s.provider_snapshot->'observed_platform_application_fee_cents',
  'processing_fees_cents',s.provider_snapshot->'observed_charge_refund_balance_fee_cents',
@@ -43,7 +50,7 @@ grant select on public.gallery_order_financial_review to service_role;
 -- must be explicit even after a confirmed full refund.
 create view public.gallery_refund_review_candidates with (security_invoker=true) as
 select o.id as order_id, i.product_id,i.artist_id, p.kind::text as product_kind,
- i.quantity, o.currency,o.total_cents, coalesce(r.succeeded_cents,0) as succeeded_refund_cents,
+ i.quantity, o.currency,o.total_cents, r.succeeded_cents as succeeded_refund_cents,
  p.stock_count, coalesce(rr.state,'not_reviewed') as review_state,
  case when coalesce(r.succeeded_cents,0)<>o.total_cents then 'provider_refund_evidence_incomplete'
       when p.stock_count is null then 'unlimited_no_restock'

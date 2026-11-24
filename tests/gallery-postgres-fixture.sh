@@ -204,7 +204,7 @@ if psql_house -f tests/fixtures/gallery-local-house-base.sql >/dev/null 2>&1; th
  exit 1
 fi
 psql_house -c "set gallery.local_sandbox='on'" -f tests/fixtures/gallery-local-house-base.sql >/dev/null
-for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations proposed-house-checkout; do
+for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations proposed-house-checkout proposed-artwork-publication-guard; do
  psql_house -f "docs/gallery/$file.sql" >/dev/null
 done
 psql_house -q <<'SQL'
@@ -222,8 +222,57 @@ do $thin_shape$ begin
  if has_table_privilege('anon','public.orders','SELECT') or has_table_privilege('authenticated','public.products','INSERT') then
   raise exception 'Thin fixture permits public order read or write'; end if;
 end $thin_shape$;
+
+-- Exercise the exact house payment RPC under its actual route role *after*
+-- installing the publication trigger. Run as service_role, not table owner.
+do $publication_paid$
+declare
+ pid uuid:='00000000-0000-4000-8000-000000000003';
+ artist uuid:='00000000-0000-4000-8000-000000000002';
+ buyer uuid:='00000000-0000-4000-8000-000000000001';
+ asset uuid:='00000000-0000-4000-8000-000000000004';
+ hold uuid; issued uuid; result jsonb; receipt jsonb;
+begin
+ if current_user <> 'service_role' or current_user=(select
+   pg_get_userbyid(relowner) from pg_class where oid='public.products'::regclass) then
+   raise exception 'Paid proof must run as service_role, not table owner';
+ end if;
+ if not exists(select 1 from pg_trigger where tgrelid='public.products'::regclass
+    and tgname='cs_guard_gallery_product_publication' and tgenabled='O') then
+   raise exception 'Publication guard was not enabled during paid proof';
+ end if;
+ if (select prosecdef from pg_proc where oid='public.cs_record_house_gallery_payment(uuid,uuid,uuid,uuid,integer,jsonb)'::regprocedure) then
+   raise exception 'House payment proof must exercise invoker privileges';
+ end if;
+ if (select stock_count from products where id=pid) is distinct from 1 then
+   raise exception 'Expected one reviewed limited edition at test start';
+ end if;
+ hold:=cs_hold_gallery_inventory(pid,buyer,1);
+ if hold is null then raise exception 'Expected service_role inventory reservation'; end if;
+ update gallery_inventory_holds set stripe_session_id='cs_test_publication' where id=hold;
+ receipt:=jsonb_build_object('session_id','cs_test_publication','payment_intent_id','pi_test_publication',
+   'payment_status','paid','user_id',buyer,'subtotal_cents',1200,'total_cents',1200,
+   'currency','usd','application_fee_cents',0);
+ result:=cs_record_house_gallery_payment(hold,asset,pid,artist,1,receipt);
+ issued:=(result->>'id')::uuid;
+ if result->>'created' is distinct from 'true' or issued is null
+    or not exists(select 1 from products where id=pid and status='published' and stock_count=0)
+    or not exists(select 1 from gallery_inventory_holds where id=hold and state='consumed')
+    or not exists(select 1 from gallery_private_deliveries where order_id=issued and approved_asset_id=asset)
+    or not exists(select 1 from order_items where order_id=issued and gallery_sale_kind='house'
+       and quantity=1 and application_fee_cents=0 and transfer_destination is null) then
+   raise exception 'Paid inventory, publication and entitlement invariants failed';
+ end if;
+ result:=cs_record_house_gallery_payment(hold,asset,pid,artist,1,receipt);
+ if result->>'created' is distinct from 'false' or (result->>'id')::uuid is distinct from issued
+    or (select count(*) from orders where stripe_checkout_session_id='cs_test_publication')<>1
+    or (select stock_count from products where id=pid) is distinct from 0 then
+   raise exception 'Paid replay changed stock, order count or receipt identity';
+ end if;
+ raise notice 'PASS: non-owner service_role house payment consumed one reviewed edition with publication trigger active; replay was idempotent';
+end $publication_paid$;
 SQL
-echo 'Exact thin local house SQL and service-role readiness passed against synthetic Auth/Storage tables; real service integration not run.'
+echo 'Exact thin local house SQL and service-role paid stock passed against synthetic Auth/Storage tables; real service integration not run.'
 
 # Service-only financial reporting and restock-review read model.
 psql -f docs/gallery/proposed-financial-review-views.sql >/dev/null

@@ -59,6 +59,8 @@ function fixturePage(file, rows) {
     }) },
     '@radix-ui/react-slot': { Slot: () => null },
     'lucide-react': { Package: Icon, ArrowLeft: Icon },
+    './ZariaPortrait': () => null,
+    '@/lib/gallery/zaria': { zariaChatEnabled: () => false, zariaPortraitEnabled: () => false },
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
     '@/components/ui/badge': { Badge },
   }

@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LiveVoiceConnection, VoiceState } from '@/lib/concierge/live-voice-client'
 
-export default function LiveVoiceConversation({ host, conversationId, signedIn, onStart, onActive }: {
-  host: string; conversationId: string | null; signedIn: boolean
+export default function LiveVoiceConversation({ host, galleryWork, conversationId, signedIn, onStart, onActive }: {
+  host: string; galleryWork?:string|null; conversationId: string | null; signedIn: boolean
   onStart: () => void; onActive: (active: boolean) => void
 }) {
   const [available, setAvailable] = useState(false)
+  const [checked,setChecked]=useState(false)
   const [ready, setReady] = useState(false)
   const [state, setState] = useState<VoiceState>('idle')
   const [message, setMessage] = useState('')
@@ -19,10 +20,12 @@ export default function LiveVoiceConversation({ host, conversationId, signedIn, 
 
   useEffect(() => {
     const abort = new AbortController()
-    fetch('/api/concierge/livekit/session', { signal: abort.signal, cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null).then(data => { if (!abort.signal.aborted) setAvailable(data?.available === true) }).catch(() => {})
+    setAvailable(false); setChecked(false)
+    const url='/api/concierge/livekit/session'+(host==='zaria'?'?host=zaria':'')
+    fetch(url, { signal: abort.signal, cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null).then(data => { if (!abort.signal.aborted) setAvailable(data?.available === true) }).catch(() => {}).finally(()=>{if(!abort.signal.aborted)setChecked(true)})
     return () => abort.abort()
-  }, [])
+  }, [host])
   useEffect(() => {
     let canceled = false
     setReady(false)
@@ -52,7 +55,7 @@ export default function LiveVoiceConversation({ host, conversationId, signedIn, 
     try {
       const response = await fetch('/api/concierge/livekit/session', {
         method: 'POST', signal: abort.signal, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host, conversation_id: conversationId }),
+        body: JSON.stringify({ host, conversation_id: conversationId, ...(host==='zaria'&&galleryWork?{gallery_work:galleryWork}:{}) }),
       })
       const data = await response.json()
       if (abort.signal.aborted) return
@@ -72,6 +75,7 @@ export default function LiveVoiceConversation({ host, conversationId, signedIn, 
     connection.current?.stop(); setState('ended'); setMessage(''); onActive(false)
   }
   const active = ['connecting', 'waiting', 'connected', 'reconnecting'].includes(state)
+  if(host==='zaria'&&checked&&!available)return <p role="status" className="py-3 text-sm text-muted-foreground">Live voice is not available. You can still chat with Zaria by text.</p>
   return <div className={available ? 'mt-4 rounded-lg border border-primary/40 p-4' : 'hidden'}>
     <div ref={root} />
     {available && <>

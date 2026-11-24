@@ -76,3 +76,40 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
   charge_balance:chargeBalance,refunds,attention
  }
 }
+
+/** Independent order-based 90/10 expectation for ordinary artwork only.
+ * Refund rounding is a review expectation, not evidence of returned money.
+ * Shipping, tax, discounts and mixed-currency cases need separate allocation policy.
+ */
+export function compareGalleryOrderSettlement(
+ order:{subtotal_cents:number,total_cents:number,shipping_cents:number,tax_cents:number,currency:string},
+ snapshot:Awaited<ReturnType<typeof observeGallerySettlement>>
+){
+ const {subtotal_cents:subtotal,total_cents:total,shipping_cents:shipping,tax_cents:tax}=order
+ if(snapshot.currency!==order.currency||![subtotal,total,shipping,tax].every(Number.isSafeInteger)||
+   subtotal<=0||total<=0||shipping<0||tax<0||snapshot.captured_cents!==total)
+  throw Error('Order settlement basis mismatch')
+ const originalFee=Math.floor(subtotal/10)
+ const attention=[...snapshot.attention]
+ if(snapshot.expected_original_fee_cents!==originalFee||
+   (snapshot.application_fee_cents!==null&&snapshot.application_fee_cents!==originalFee))
+  attention.push('order_commission_mismatch')
+ const ordinary=shipping===0&&tax===0&&subtotal===total
+ if(!ordinary)attention.push('non_artwork_amount_review')
+ const refunded=snapshot.refunded_cents
+ if(!Number.isSafeInteger(refunded)||refunded<0||refunded>total)throw Error('Order refund amount mismatch')
+ const final=ordinary&&!attention.includes('refund_not_final')
+ const expectedFee=final?originalFee-Math.floor(originalFee*refunded/subtotal):null
+ const expectedArtist=expectedFee===null?null:subtotal-refunded-expectedFee
+ if(expectedFee!==null&&snapshot.observed_platform_application_fee_cents!==null&&
+    snapshot.observed_platform_application_fee_cents!==expectedFee)attention.push('order_net_commission_mismatch')
+ if(expectedArtist!==null&&snapshot.observed_artist_connect_allocation_cents!==null&&
+    snapshot.observed_artist_connect_allocation_cents!==expectedArtist)attention.push('order_net_artist_mismatch')
+ return {order_subtotal_cents:subtotal,order_total_cents:total,
+  expected_original_commission_cents:originalFee,
+  expected_remaining_commission_cents:expectedFee,expected_remaining_artist_cents:expectedArtist,
+  observed_platform_after_charge_refund_fees_cents:
+   snapshot.observed_platform_application_fee_cents!==null&&snapshot.observed_charge_refund_balance_fee_cents!==null
+    ?snapshot.observed_platform_application_fee_cents-snapshot.observed_charge_refund_balance_fee_cents:null,
+  attention:[...new Set(attention)]}
+}

@@ -137,6 +137,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'This item is not ready for checkout.' }, { status: 409 })
   }
 
+  // Private delivery preview pins the reviewed edition before payment.
+  let approvedAssetId: string | undefined
+  if (product.kind === 'digital' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true') {
+    const {data:assets,error:assetError}=await admin.from('gallery_approved_assets')
+      .select('id').eq('product_id',product.id).is('revoked_at',null)
+      .order('approved_at',{ascending:false}).order('id',{ascending:false}).limit(1)
+    if(assetError || !assets?.[0])return NextResponse.json({error:'No approved digital edition is available.'},{status:409})
+    approvedAssetId=assets[0].id
+  }
+
   // The PostgREST embed returns artist as an array in some shapes and
   // as a single object in others depending on the query. Normalize.
   const artistRow = Array.isArray(product.artist)
@@ -229,6 +239,8 @@ export async function POST(req: Request) {
         artist_id: artistRow.id,
         user_id: authData.user.id,
         quantity: String(quantity),
+        site: 'cafe-sativa',
+        ...(approvedAssetId ? {approved_asset_id:approvedAssetId} : {}),
       },
       customer_email: authData.user.email ?? undefined,
       // Only collect shipping for physical goods

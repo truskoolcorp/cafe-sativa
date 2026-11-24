@@ -8,6 +8,10 @@ select o.id as order_id, i.artist_id, i.product_id, i.title_snapshot, o.currency
  i.application_fee_cents as recorded_commission_cents,
  s.observed_at, s.provider_snapshot->'livemode' as provider_livemode,
  case when s.id is null then 'unobserved'
+      when ((o.fulfillment_state::text='refunded' and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(o.total_cents))
+       or (refund_totals.succeeded_cents is not null and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(refund_totals.succeeded_cents))) then 'attention'
       when jsonb_typeof(s.provider_snapshot#>'{order_comparison,attention}') is distinct from 'array' then 'incomplete'
       when jsonb_array_length(s.provider_snapshot#>'{order_comparison,attention}')>0 then 'attention'
       else 'observed' end as evidence_state,
@@ -29,6 +33,10 @@ select o.id as order_id, i.artist_id, i.product_id, i.title_snapshot, o.currency
  'transfer_reversed_cents',s.provider_snapshot->'transfer_reversed_cents',
  'application_fee_refunded_cents',s.provider_snapshot->'application_fee_refunded_cents',
  'platform_after_charge_refund_fees_cents',s.provider_snapshot#>'{order_comparison,observed_platform_after_charge_refund_fees_cents}',
+ 'refund_evidence_mismatch',case when s.id is not null then ((o.fulfillment_state::text='refunded' and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(o.total_cents))
+       or (refund_totals.succeeded_cents is not null and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(refund_totals.succeeded_cents))) end,
  'attention',s.provider_snapshot#>'{order_comparison,attention}'
  ) as financial_evidence
 from public.orders o
@@ -40,6 +48,11 @@ left join lateral (
    and obs.provider_snapshot->>'sale_kind'=case when i.gallery_sale_kind='house' then 'house' else 'consigned' end
  order by obs.observed_at desc,obs.id desc limit 1
 ) s on true
+left join lateral (
+ select sum(f.amount_cents) as succeeded_cents from public.gallery_refund_receipts f
+ where f.order_id=o.id and f.stripe_payment_intent_id=o.stripe_payment_intent_id
+   and f.currency=o.currency and f.provider_status='succeeded'
+) refund_totals on true
 where o.paid_at is not null and i.artist_id is not null and i.product_id is not null
  and (select count(*) from public.order_items oi where oi.order_id=o.id)=1;
 revoke all on public.gallery_order_financial_review from public,anon,authenticated,service_role;

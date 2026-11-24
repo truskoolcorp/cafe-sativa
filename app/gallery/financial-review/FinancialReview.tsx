@@ -5,7 +5,7 @@ import {reportAmount,reportEvidence,refundReviewReason} from '@/lib/gallery/fina
 type Scope = 'artist'|'owner'
 type Order = {order_id:string,title_snapshot:string,currency:string,sale_kind:string,
   quantity:number,line_total_cents:number,recorded_commission_cents:number|null,
-  evidence_state:string,financial_evidence:Record<string,unknown>|null}
+  observed_at:string|null,evidence_state:string,financial_evidence:Record<string,unknown>|null}
 type Refund = {order_id:string,currency:string,total_cents:number,succeeded_refund_cents:number|null,
   review_reason:string,review_state:string}
 type Report = {scope:Scope,mode:'isolated-test',orders:Order[],refund_review:Refund[],more_orders:boolean,more_refunds:boolean}
@@ -71,6 +71,8 @@ export default function FinancialReview(){
         {report.orders.map(order=><article key={order.order_id} className="rounded-lg border p-4 space-y-3">
           <h3 className="font-semibold break-words">{order.title_snapshot}</h3>
           <p className="text-sm text-muted-foreground">{order.sale_kind==='house'?'House sale':'Consigned sale'} · Quantity {order.quantity} · {reportEvidence(order.evidence_state)}</p>
+          {order.observed_at&&<p className="text-sm text-muted-foreground">Provider snapshot: <time dateTime={order.observed_at}>{order.observed_at}</time></p>}
+          {order.financial_evidence?.refund_evidence_mismatch===true&&<p className="text-sm" role="status">Refund evidence differs from the latest settlement snapshot. Review required; displayed provider amounts are historical.</p>}
           <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {fields(order).map(([label,value])=><div key={label}><dt className="text-sm text-muted-foreground">{label}</dt><dd className="font-medium">{reportAmount(value,order.currency)}</dd></div>)}
           </dl>

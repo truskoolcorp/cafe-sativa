@@ -50,3 +50,6 @@ Owner approved autonomous ordinary artwork launch only after acceptance gates. K
 
 ### Refund isolation regression (draft)
 Shared signed charge.refunded events first resolve the existing ticket by payment intent. A matched ticket, including a partial refund or already-refunded replay, bypasses Gallery tables and refund enumeration. A ticket lookup/update failure remains retryable; the dedicated isolated Gallery ingress never reads tickets. Full Gallery refunds revoke order access before recording the refund ledger, so a provider/ledger outage remains retryable without leaving a new download grant active. Partial refunds retain entitlement and enter evidence review; no restock. Require exact-head webhook CI and actual provider proof before release. No shared production deployment authorized by this source change alone.
+
+### Refund evidence freshness (draft)
+The financial review flags a previously observed snapshot as attention when its refunded amount differs from the full-refund order total or recorded successful refund receipts. Existing provider amounts remain historical, with their observation timestamp visible; missing evidence is not synthesized. Matching amounts alone do not establish actual provider settlement, and no inventory or refund action is performed. Disposable SQL regression and exact-head checks required.

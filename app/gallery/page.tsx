@@ -1,3 +1,6 @@
+import { getSiteContent } from '@/lib/content/site'
+import { ContentVideo } from '@/components/events/ContentVideo'
+import { canDownloadContentMedia } from '@/lib/content/media-access'
 import GalleryWallet from './GalleryWallet'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import { SiteFeatures } from '@/components/events/SiteFeatures'
@@ -84,7 +87,9 @@ async function loadGallery(): Promise<GalleryRow[]> {
 }
 
 export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
-  const [products,covers] = await Promise.all([loadGallery(),approvedVenueCovers()])
+  const [products,covers,features] = await Promise.all([loadGallery(),approvedVenueCovers(),getSiteContent('gallery').catch(() => [])])
+  const tour = features.find(item => item.released && item.media_url)
+  const allowDownload = tour ? await canDownloadContentMedia().catch(() => false) : false
 
   const kind = ['physical', 'digital', 'nft'].includes(searchParams.kind || '') ? searchParams.kind : undefined
   const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
@@ -123,6 +128,10 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
         </div>
       </section>
 
+      <section aria-labelledby="gallery-tour-heading" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10">
+        <h2 id="gallery-tour-heading" className="font-heading text-3xl mb-4">Step inside The Gallery</h2>
+        {tour && tour.media_url ? <><ContentVideo src={tour.media_url} poster={tour.cover_url || covers.gallery || ''} allowDownload={allowDownload}/><p className="text-sm text-muted-foreground">{tour.title}</p></> : <p className="text-muted-foreground">The approved moving Gallery preview will appear here when released. Explore the artwork and curator below in the meantime.</p>}
+      </section>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><SiteFeatures category="gallery" /></div>
       <section aria-labelledby="curator-heading" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10">
         <div className="rounded-xl border border-border bg-card p-6 md:p-8">

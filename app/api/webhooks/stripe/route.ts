@@ -160,22 +160,44 @@ export async function POST(req: Request) {
               !await verifiedGalleryHouseAccount(stripe,house.accountId,false))throw Error('Invalid house Gallery settlement')
             applicationFee=0
           }else if(applicationFee===null||sessionSaleKind||intentSaleKind)throw Error('Invalid artist Gallery settlement')
+          const privateMarker=session.metadata?.gallery_private_schema
+          const privateIntentMarker=intent.metadata?.gallery_private_schema
+          const privateConsignment=!!privateMarker || !!privateIntentMarker
+          let privateDestination: string | undefined
+          if(privateConsignment){
+            const destination=intent.transfer_data?.destination
+            privateDestination=typeof destination==='string'?destination:destination?.id
+            if(housePayment||product.kind!=='digital'||privateMarker!=='consigned-v1'||privateIntentMarker!=='consigned-v1'||
+              !holdId||!approvedAssetId||!/^[0-9a-f-]{36}$/i.test(approvedAssetId)||
+              !privateDestination||!/^acct_[A-Za-z0-9]+$/.test(privateDestination)||
+              session.metadata?.gallery_transfer_destination!==privateDestination||intent.metadata?.gallery_transfer_destination!==privateDestination||
+              intent.metadata?.approved_asset_id!==approvedAssetId||intent.metadata?.inventory_hold_id!==holdId||
+              session.mode!=='payment'||intent.metadata?.kind!=='gallery_order'||intent.metadata?.product_id!==productId||
+              intent.metadata?.artist_id!==artistId||intent.metadata?.user_id!==userId||intent.id!==paymentIntentId||
+              intent.status!=='succeeded'||intent.livemode!==(galleryMode==='production')||
+              event.livemode!==intent.livemode||session.livemode!==intent.livemode||
+              intent.currency!==session.currency||line.currency!==intent.currency||
+              !Number.isSafeInteger(session.amount_total)||intent.amount_received!==session.amount_total||
+              intent.amount!==session.amount_total||intent.on_behalf_of||
+              applicationFee!==Math.floor(lineTotal/10))throw Error('Invalid private consigned Gallery settlement')
+          }
           if (galleryMode === 'isolated-test' && (!holdId || (product.kind === 'digital' && !session.metadata?.approved_asset_id))) throw Error('Isolated test purchase requires a reservation and approved digital edition')
           if(holdId && (session.metadata?.site!=='cafe-sativa' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(holdId)))throw Error('Invalid gallery reservation')
-          const {data:recorded,error:recordError}=await admin.rpc(housePayment?'cs_record_house_gallery_payment':holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
+          const {data:recorded,error:recordError}=await admin.rpc(housePayment?'cs_record_house_gallery_payment':privateConsignment?'cs_record_consigned_private_gallery_payment':holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
             ...(holdId?{p_hold:holdId}:{}),
-            ...(housePayment?{p_asset:approvedAssetId}:{}),
+            ...((housePayment||privateConsignment)?{p_asset:approvedAssetId}:{}),
             product_uuid:productId,artist_uuid:artistId,quantity,
             receipt:{session_id:session.id,payment_status:session.payment_status,user_id:userId,
               payment_intent_id:paymentIntentId,email:session.customer_details?.email || session.customer_email || '',
               subtotal_cents:lineTotal,total_cents:session.amount_total,currency:session.currency || 'usd',
               application_fee_cents:applicationFee,title:line.description,
+              ...(privateConsignment?{transfer_destination:privateDestination}:{}),
               shipping_cents:session.shipping_cost?.amount_total || 0,tax_cents:session.total_details?.amount_tax || 0,
               shipping_name:shipping?.name,shipping_line1:addr?.line1,shipping_line2:addr?.line2,
               shipping_city:addr?.city,shipping_state:addr?.state,shipping_postal_code:addr?.postal_code,shipping_country:addr?.country},
           })
           if(recordError || !recorded?.id)throw Error('Atomic paid order write failed')
-          if(!housePayment && approvedAssetId && session.metadata?.site==='cafe-sativa' && product.kind==='digital'){
+          if(!housePayment && !privateConsignment && approvedAssetId && session.metadata?.site==='cafe-sativa' && product.kind==='digital'){
             const {data:asset,error:assetError}=await admin.from('gallery_approved_assets').select('id,product_id,revoked_at').eq('id',approvedAssetId).eq('product_id',productId).maybeSingle()
             if(assetError || !asset || asset.revoked_at)throw Error('Purchased edition requires reconciliation')
             const {error:mappingError}=await admin.from('gallery_private_deliveries').upsert({

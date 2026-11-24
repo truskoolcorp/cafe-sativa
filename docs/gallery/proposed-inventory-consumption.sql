@@ -1,4 +1,4 @@
--- Proposed only. Confirm existing payment RPC signature and stock semantics first.
+-- Proposed only. Read-only production catalog audit confirmed the existing receipt-first RPC signature, product row lock, session idempotency and stock decrement.
 begin;
 create function public.cs_record_reserved_gallery_payment(
  p_hold uuid, product_uuid uuid, artist_uuid uuid, quantity integer, receipt jsonb
@@ -16,7 +16,7 @@ begin
  raise exception 'Reservation mismatch';
  end if;
  -- Existing RPC must be idempotent and decrement stock only on first order creation.
- select to_jsonb(public.cs_record_gallery_payment(product_uuid,artist_uuid,quantity,receipt)) into result;
+ select to_jsonb(public.cs_record_gallery_payment(receipt,product_uuid,artist_uuid,quantity)) into result;
  if result is null or result->>'id' is null then raise exception 'Order recording failed'; end if;
  update public.gallery_inventory_holds set state='consumed' where id=p_hold;
  return result;
@@ -25,5 +25,5 @@ $$;
 revoke all on function public.cs_record_reserved_gallery_payment(uuid,uuid,uuid,integer,jsonb) from public,anon,authenticated;
 grant execute on function public.cs_record_reserved_gallery_payment(uuid,uuid,uuid,integer,jsonb) to service_role;
 commit;
--- Validate existing RPC signature, lock order, idempotency and stock decrement.
+-- Verified signature from pg_get_functiondef: (receipt jsonb, product_uuid uuid, artist_uuid uuid, quantity integer). Execute concurrency and rollback tests on isolated database only.
 -- Do not activate until concurrent checkout, duplicate webhook and rollback tests pass.

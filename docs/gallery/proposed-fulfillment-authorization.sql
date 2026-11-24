@@ -1,4 +1,4 @@
--- Proposed migration; requires private-delivery migration and schema validation.
+-- Proposed migration; requires private-delivery and approved-assets migrations and schema validation.
 begin;
 create or replace function public.cs_authorize_gallery_delivery(p_order uuid)
 returns boolean language plpgsql security invoker set search_path = '' as $$
@@ -16,6 +16,7 @@ begin
     select 1 from public.gallery_private_deliveries d
     join public.order_items i on i.order_id=d.order_id and i.product_id=d.product_id
     join public.products p on p.id=i.product_id and p.kind='digital'
+    join public.gallery_approved_assets a on a.id=d.approved_asset_id and a.product_id=d.product_id and a.revoked_at is null
     join storage.objects s on s.bucket_id='gallery-private' and s.name=d.object_path
     where d.order_id=p_order
   ) then return false; end if;

@@ -138,7 +138,8 @@ export async function POST(req: Request) {
     )
   }
   if (!Number.isInteger(product.price_cents) || product.price_cents <= 0 ||
-      (product.kind !== 'physical' && !product.digital_delivery_url)) {
+      (product.kind !== 'physical' && !product.digital_delivery_url &&
+        !(product.kind === 'digital' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true'))) {
     return NextResponse.json({ error: 'This item is not ready for checkout.' }, { status: 409 })
   }
 

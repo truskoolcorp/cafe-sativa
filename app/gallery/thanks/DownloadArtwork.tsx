@@ -11,7 +11,7 @@ export default function DownloadArtwork({orderId}:{orderId:string}) {
    if(!response.ok)throw Error('Download unavailable')
    const data=await response.json()
    const url=new URL(data.url)
-   if(url.protocol!=='https:')throw Error('Invalid download')
+   if(url.protocol!=='https:' && !(url.protocol==='http:' && ['localhost','127.0.0.1','[::1]'].includes(url.hostname) && ['localhost','127.0.0.1','[::1]'].includes(window.location.hostname)))throw Error('Invalid download')
    window.location.assign(url.href)
   }catch{setError('Your download is unavailable right now. Check your order status or contact support.')}
   finally{setBusy(false)}

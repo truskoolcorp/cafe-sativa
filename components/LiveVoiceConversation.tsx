@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { LiveVoiceConnection, VoiceState } from '@/lib/concierge/live-voice-client'
+import type { GalleryVoiceLink, LiveVoiceConnection, VoiceState } from '@/lib/concierge/live-voice-client'
 
 export default function LiveVoiceConversation({ host, galleryWork, conversationId, signedIn, onStart, onActive }: {
   host: string; galleryWork?:string|null; conversationId: string | null; signedIn: boolean
@@ -12,6 +12,7 @@ export default function LiveVoiceConversation({ host, galleryWork, conversationI
   const [ready, setReady] = useState(false)
   const [state, setState] = useState<VoiceState>('idle')
   const [message, setMessage] = useState('')
+  const [voiceLinks, setVoiceLinks] = useState<GalleryVoiceLink[]>([])
   const root = useRef<HTMLDivElement>(null)
   const connection = useRef<LiveVoiceConnection | null>(null)
   const pending = useRef<AbortController | null>(null)
@@ -29,12 +30,13 @@ export default function LiveVoiceConversation({ host, galleryWork, conversationI
   useEffect(() => {
     let canceled = false
     setReady(false)
+    setVoiceLinks([])
     if (available) void import('@/lib/concierge/live-voice-client').then(({ LiveVoiceConnection }) => {
       if (canceled) return
       connection.current = new LiveVoiceConnection((next, detail) => {
       setState(next); setMessage(detail || '')
       activeCallback.current(['connecting', 'waiting', 'connected', 'reconnecting'].includes(next))
-      }, root.current!)
+      }, root.current!, undefined, host === 'zaria' ? links => { if (!canceled) setVoiceLinks(links) } : undefined)
       setReady(true)
     }).catch(() => { if (!canceled) { setState('error'); setMessage('Live conversation could not load. Refresh to try again.') } })
     return () => {
@@ -88,6 +90,10 @@ export default function LiveVoiceConversation({ host, galleryWork, conversationI
           state === 'connecting' ? 'Connecting…' : state === 'waiting' ? 'Waiting for your host…' : state === 'reconnecting' ? 'Reconnecting…' :
           state === 'connected' ? 'Speak naturally. You can interrupt the host or end the call at any time.' : 'Voice conversations last up to five minutes. Your conversation is saved to your account.')}
       </p>
+      {host === 'zaria' && state === 'connected' && voiceLinks.length > 0 &&
+        <nav aria-label="Suggestions from Zaria’s live conversation" className="mt-3 flex flex-wrap gap-3 text-sm">
+          {voiceLinks.map(link => <a key={link.path} href={link.path} className="text-primary underline underline-offset-4">{link.label}</a>)}
+        </nav>}
     </>}
   </div>
 }

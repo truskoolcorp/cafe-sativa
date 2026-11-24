@@ -8,7 +8,6 @@ const postcss = require('postcss')
 const tailwind = require('tailwindcss')
 const source = process.env.GALLERY_FIXTURE_SOURCE || '.'
 const Out = process.env.GALLERY_FIXTURE_OUT || '.gallery-browser-evidence'
-const noNetwork = () => { throw new Error('Unexpected fixture dependency') }
 const svg = (caption, art, width = 1000, height = 620) => 'data:image/svg+xml;base64,' + Buffer.from(
   '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 1000 620" preserveAspectRatio="none">' +
   '<defs><linearGradient id="g"><stop stop-color="#140d0a"/><stop offset="1" stop-color="#764e34"/></linearGradient></defs>' +
@@ -28,7 +27,6 @@ const portrait = {
   ...product, id: 'fixture-portrait', slug: 'synthetic-portrait', title: 'Synthetic portrait',
   primary_image_url: svg('SYNTHETIC PORTRAIT / BROWSE-ONLY QA', true, 800, 1000),
 }
-const Button = () => { throw new Error('Checkout UI rendered when the fixture is browse-only') }
 const Link = ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children)
 const Image = ({ fill, priority, alt, className, ...props }) =>
   React.createElement('img', {
@@ -38,7 +36,7 @@ const Image = ({ fill, priority, alt, className, ...props }) =>
 const Badge = ({ variant, ...props }) => React.createElement('span', props)
 const Icon = props => React.createElement('svg', { width: 24, height: 24, 'aria-hidden': true, ...props })
 
-function fixturePage(file, rows, methodEnabled = false) {
+function fixturePage(file, rows, { sales = false, method = false } = {}) {
   const modules = {
     'react/jsx-runtime': require('react/jsx-runtime'),
     'next/link': Link, 'next/image': Image,
@@ -60,17 +58,14 @@ function fixturePage(file, rows, methodEnabled = false) {
       },
     }) },
     '@radix-ui/react-slot': { Slot: () => null },
-    'lucide-react': { Package: Icon, ArrowLeft: Icon, ShieldCheck: Icon, Truck: Icon, Download: Icon, Gem: Icon },
-    '@/lib/content/site': { getSiteContent: async () => [] },
-    '@/lib/content/media-access': { canDownloadContentMedia: noNetwork },
-    '@/components/events/ContentVideo': { ContentVideo: noNetwork },
+    'lucide-react': { Package: Icon, ArrowLeft: Icon },
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
-    './GalleryWallet': noNetwork, './BuyButton': { BuyButton: Button },
     '@/components/ui/badge': { Badge },
-    '@/lib/gallery/environment': { galleryEnvironment: () => 'blocked', gallerySalesEnabled: () => false },
+    './BuyButton': { BuyButton: ({productId, soldOut}) => React.createElement('button', {'data-fixture-product': productId, disabled: soldOut}, 'Synthetic checkout enabled') },
+    '@/lib/gallery/environment': { galleryEnvironment: () => sales ? 'isolated-test' : 'blocked', gallerySalesEnabled: mode => mode === 'isolated-test' && sales },
     '@/lib/gallery/artwork-creation-method': {
-      artworkCreationMethodEnabled: methodEnabled,
-      declaredAiArtworkLabel: () => null,
+      artworkCreationMethodEnabled: method,
+      declaredAiArtworkLabel: v => v === 'ai_assisted' ? 'AI-assisted' : null,
     },
   }
   const mod = { exports: {} }
@@ -110,7 +105,17 @@ async function main() {
   assert.match(gallery, /Digital art/)
   assert.match(detail, /Digital art/)
   assert.match(gallery, /Some works in the Gallery are created wholly or partly with AI\./)
-  assert.doesNotMatch(gallery + detail, /Synthetic NFT hidden|AI-generated|AI-assisted/)
+  assert.doesNotMatch(gallery + detail, /Synthetic NFT hidden|AI-generated|AI-assisted|Ask Zaria|\/ask\?|Buy now|Connect wallet/)
+  assert.match(detail, /Available to browse\. Purchases are not open yet\./)
+  assert.doesNotMatch(detail, /Synthetic checkout enabled/)
+  const enabled = renderToStaticMarkup(await fixturePage(detailFile, rows, {sales: true})({params:{slug:product.slug}}))
+  assert.match(enabled, /<button data-fixture-product="fixture-1">Synthetic checkout enabled<\/button>/)
+  assert.doesNotMatch(enabled, /Purchases are not open yet/)
+  const ways = [{...product, declared_ai_creation_method:'ai_assisted'}]
+  const optionalOff = renderToStaticMarkup(await fixturePage(detailFile, ways)({params:{slug:product.slug}}))
+  const optionalOn = renderToStaticMarkup(await fixturePage(detailFile, ways, {method:true})({params:{slug:product.slug}}))
+  assert.doesNotMatch(optionalOff, /Artist-declared creation method/)
+  assert.match(optionalOn, /Artist-declared creation method: AI-assisted/)
   assert.match(empty, /first collection is taking shape/)
   assert.match(filtered, /No published work in this category/)
   assert.match(gallery, /Sold out/)

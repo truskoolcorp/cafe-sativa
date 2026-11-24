@@ -1,7 +1,3 @@
-import { getSiteContent } from '@/lib/content/site'
-import { ContentVideo } from '@/components/events/ContentVideo'
-import { canDownloadContentMedia } from '@/lib/content/media-access'
-import GalleryWallet from './GalleryWallet'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -42,7 +38,7 @@ type GalleryRow = {
   slug: string
   title: string
   description: string | null
-  kind: 'physical' | 'digital' | 'nft'
+  kind: 'physical' | 'digital'
   price_cents: number
   currency: string
   primary_image_url: string | null
@@ -87,10 +83,7 @@ async function loadGallery(): Promise<GalleryRow[]> {
 }
 
 export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
-  const [products,covers,features] = await Promise.all([loadGallery(),approvedVenueCovers(),getSiteContent('gallery').catch(() => [])])
-  // The approved current still is the launch fallback; older tour jobs use retired canon.
-  const tour = undefined as (typeof features)[number] | undefined
-  const allowDownload = tour ? await canDownloadContentMedia().catch(() => false) : false
+  const [products, covers] = await Promise.all([loadGallery(), approvedVenueCovers()])
 
   const kind = ['physical', 'digital'].includes(searchParams.kind || '') ? searchParams.kind : undefined
   const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
@@ -114,12 +107,12 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
       <section id="inside-gallery" aria-labelledby="gallery-tour-heading" className="scroll-mt-24 max-w-7xl mx-auto px-6 lg:px-12 py-14 md:py-20">
         <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8 lg:gap-14 items-center">
           <div className="overflow-hidden rounded-sm bg-card border border-border">
-            {tour?.media_url ? <ContentVideo src={tour.media_url} poster={tour.cover_url || covers.gallery || ''} allowDownload={allowDownload}/> : covers.gallery ? <div className="relative aspect-video"><Image src={covers.gallery} alt="Approved Café Sativa Gallery interior" fill sizes="(min-width:1024px) 60vw, 100vw" className="object-cover"/></div> : <div className="aspect-video flex items-center justify-center text-muted-foreground">Gallery preview unavailable</div>}
+            {covers.gallery ? <div className="relative aspect-video"><Image src={covers.gallery} alt="Approved Café Sativa Gallery interior" fill sizes="(min-width:1024px) 60vw, 100vw" className="object-cover"/></div> : <div className="aspect-video flex items-center justify-center text-muted-foreground">Gallery preview unavailable</div>}
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-primary">01 / The space</p>
             <h2 id="gallery-tour-heading" className="font-heading text-4xl md:text-5xl mt-3">Take in the room.</h2>
-            <p className="text-muted-foreground leading-relaxed mt-4">{tour?.media_url ? tour.title : 'Explore the Gallery’s approved interior while our moving tour is being prepared.'}</p>
+            <p className="text-muted-foreground leading-relaxed mt-4">Take a look inside the Café Sativa Gallery.</p>
             <a href="#curator-heading" className="inline-block mt-5 underline underline-offset-4 text-primary">Meet your curator</a>
           </div>
         </div>
@@ -131,11 +124,9 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
             <p className="text-xs uppercase tracking-[0.24em] text-primary">02 / Curator’s perspective</p>
             <h2 id="curator-heading" className="font-heading text-4xl mt-3">Meet Zaria Solenne.</h2>
             <p className="text-muted-foreground mt-4 max-w-xl leading-relaxed">Discover the creative practice behind the work, explore different media, and learn how collecting supports artists. Only approved pieces and confirmed exhibition details appear here.</p>
-            <Link href="/ask?host=zaria" className="inline-block mt-6 border border-primary px-5 py-3 rounded-sm text-primary focus-visible:outline focus-visible:outline-2">Ask Zaria</Link>
           </div>
         </div>
       </section>
-      {process.env.GALLERY_WEB3_PREVIEW === 'true' && <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><GalleryWallet /></div>}
       {/* Grid */}
       <div id="artwork" className="scroll-mt-24 max-w-7xl mx-auto px-6 lg:px-12 py-14 md:py-20">
         <p className="text-xs uppercase tracking-[0.24em] text-primary">03 / The collection</p>
@@ -162,8 +153,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
         <p className="text-xs uppercase tracking-[0.24em] text-primary">04 / Gallery journal</p>
         <h2 id="editorial-heading" className="font-heading text-4xl mt-3 mb-6">Beyond the frame.</h2>
         <div className="grid md:grid-cols-2 gap-6">
-          {features.filter(item=>item.released).map(item=><article key={item.id} className="border-t border-primary/40 pt-5"><h3 className="font-heading text-2xl">{item.title}</h3><p className="mt-3 whitespace-pre-line text-muted-foreground leading-relaxed">{item.copy_final}</p></article>)}
-          <article className="border-t border-primary/40 pt-5"><h3 className="font-heading text-2xl">A space for artists</h3><p className="mt-3 text-muted-foreground">Our standard artist share is 90% of eligible artwork sales, subject to fees and adjustments. Submit work for curatorial review.</p><Link href="/artist-dashboard" className="inline-block mt-4 text-primary underline">Artist applications</Link></article>
+          <article className="border-t border-primary/40 pt-5"><h3 className="font-heading text-2xl">A space for artists</h3><p className="mt-3 text-muted-foreground">Discover original work across physical and digital media. Artists can manage submissions through the existing artist dashboard.</p><Link href="/artist-dashboard" className="inline-block mt-4 text-primary underline">Artist dashboard</Link></article>
         </div>
       </section>
     </div>
@@ -175,7 +165,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
   })
-  const kindLabel = row.kind === 'nft' ? 'Digital collectible' : row.kind === 'digital' ? 'Digital art' : row.kind
+  const kindLabel = row.kind === 'digital' ? 'Digital art' : 'Physical'
 
   const soldOut = row.stock_count !== null && row.stock_count <= 0
 
@@ -235,7 +225,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
 
 function EmptyGallery() {
   return <div className="grid md:grid-cols-2 gap-6 border-t border-border pt-8">
-    <article className="bg-card p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Curator’s note</p><h3 className="font-heading text-3xl mt-3">The first collection is taking shape.</h3><p className="mt-4 text-muted-foreground leading-relaxed">No approved works are listed for purchase right now. Explore the Gallery and learn about the different ways to collect without a sales commitment.</p><Link href="/ask?host=zaria" className="inline-block mt-6 underline text-primary">Explore with Zaria</Link></article>
+    <article className="bg-card p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Curator’s note</p><h3 className="font-heading text-3xl mt-3">The first collection is taking shape.</h3><p className="mt-4 text-muted-foreground leading-relaxed">No approved artwork is on display just yet. Take a look around and meet the Gallery’s curator.</p><a href="#curator-heading" className="inline-block mt-6 underline text-primary">Meet the curator</a></article>
     <article className="border border-border p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Collector’s guide</p><h3 className="font-heading text-3xl mt-3">Find your medium.</h3><p className="mt-4 text-muted-foreground leading-relaxed">Physical works and digital editions have different ownership and delivery terms. Explore the work without a sales commitment.</p><Link href="/events" className="inline-block mt-6 underline text-primary">Browse venue programming</Link></article>
   </div>
 }

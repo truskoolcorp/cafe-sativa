@@ -1,30 +1,15 @@
-import { artworkCreationMethodEnabled, declaredAiArtworkLabel } from '@/lib/gallery/artwork-creation-method'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, ShieldCheck, Truck, Download, Gem } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { BuyButton } from './BuyButton'
 import { Badge } from '@/components/ui/badge'
+import { BuyButton } from './BuyButton'
 import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
+import { artworkCreationMethodEnabled, declaredAiArtworkLabel } from '@/lib/gallery/artwork-creation-method'
 
-/**
- * /gallery/[slug]
- *
- * Server-rendered product detail. We look up by product slug (not by
- * id) so URLs are shareable and SEO-friendly.
- *
- * Two parts:
- *   - SSR data fetch here (title, price, image, artist, etc.)
- *   - <BuyButton> client component wrapped in interactive state for
- *     the POST to /api/gallery/checkout
- *
- * Trust signals in the sidebar change per kind:
- *   - physical: "Ships worldwide"
- *   - digital: "Delivered by email"
- *   - nft: "Digital certificate for now, on-chain mint coming"
- */
+/** Published physical/digital artwork. New checkout is default-off and never available on unisolated previews. */
 
 export const dynamic = 'force-dynamic'
 
@@ -85,40 +70,16 @@ export default async function ProductDetailPage({ params }: Params) {
     notFound()
   }
 
-  const methodLabel = artworkCreationMethodEnabled ? declaredAiArtworkLabel(product.declared_ai_creation_method) : null
-
   const priceDisplay = (product.price_cents / 100).toLocaleString('en-US', {
     style: 'currency',
     currency: (product.currency || 'usd').toUpperCase(),
   })
 
   const salesEnabled = gallerySalesEnabled(galleryEnvironment(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'))
+  const methodLabel = artworkCreationMethodEnabled ? declaredAiArtworkLabel(product.declared_ai_creation_method) : null
   const soldOut = product.stock_count !== null && product.stock_count <= 0
   const kindLabel =
-    product.kind === 'nft' ? 'NFT' : product.kind === 'digital' ? 'Digital art' : 'Physical'
-
-  // Icon + copy for the trust-signal block
-  const trustSignal =
-    product.kind === 'physical'
-      ? {
-          icon: Truck,
-          label: 'Physical item',
-          detail: 'Checkout shows the available destination countries. Delivery timing requires confirmation.',
-        }
-      : product.kind === 'digital'
-        ? {
-            icon: Download,
-            label: 'Digital download',
-            detail: 'Access requires confirmed payment. Delivery status appears with your order.',
-          }
-        : {
-            icon: Gem,
-            label: 'Digital certificate',
-            detail:
-              'Review the product’s actual delivery terms. On-chain minting is not promised by this checkout.',
-          }
-
-  const TrustIcon = trustSignal.icon
+    product.kind === 'digital' ? 'Digital art' : 'Physical'
 
   return (
     <div className="pt-24 pb-16 bg-background min-h-screen">
@@ -205,21 +166,6 @@ export default async function ProductDetailPage({ params }: Params) {
               </div>
             </div>
 
-            {/* Trust signal */}
-            <div className="rounded-xl border border-border bg-card/50 p-4">
-              <div className="flex items-start gap-3">
-                <TrustIcon className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-body font-semibold text-foreground text-sm">
-                    {trustSignal.label}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-body mt-0.5 leading-relaxed">
-                    {trustSignal.detail}
-                  </p>
-                </div>
-              </div>
-            </div>
-
             {/* Description */}
             {product.description && (
               <div>
@@ -232,15 +178,6 @@ export default async function ProductDetailPage({ params }: Params) {
               </div>
             )}
 
-            {/* Platform note */}
-            <div className="pt-4 border-t border-border">
-              <div className="flex items-start gap-2 text-xs text-muted-foreground font-body">
-                <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-primary/60" />
-                <p className="leading-relaxed">
-                  Independent artist sales use a standard 90/10 artwork allocation, subject to fees and refund adjustments. House artwork is sold by Café Sativa.
-                </p>
-              </div>
-            </div>
           </div>
         </div>
       </div>

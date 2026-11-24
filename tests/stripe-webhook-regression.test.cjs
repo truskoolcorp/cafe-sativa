@@ -209,3 +209,25 @@ test('house event with wrong key account, Connect destination, or inconsistent c
   assert.equal(h.actions.length,0)
  }
 })
+
+test('temporary sandbox webhook processes only the exact house flow and refunds',async()=>{
+ const url='http://127.0.0.1:4116/api/gallery/webhook',app='http://127.0.0.1:4116',db='http://127.0.0.1:54321'
+ for(const kind of ['house','consigned','account.updated','charge.refunded']){
+  const [event,opts]=houseEvent()
+  event.livemode=false;event.data.object.livemode=false;opts.intent.livemode=false
+  opts.url=url
+  Object.assign(opts.env,{VERCEL_ENV:undefined,GALLERY_LOCAL_STRIPE_CLI:'true',GALLERY_ISOLATED_TEST:'true',
+   STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_house',
+   GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_synthetic_anonymous',NEXT_PUBLIC_SITE_URL:app,
+   NEXT_PUBLIC_SUPABASE_URL:db,GALLERY_TEST_SUPABASE_URL:db,NEXT_PUBLIC_SUPABASE_ANON_KEY:'anon',
+   SUPABASE_SERVICE_ROLE_KEY:'service',GALLERY_INVENTORY_HOLDS:'true',GALLERY_PRIVATE_DOWNLOADS:'true'})
+  if(kind==='consigned') delete event.data.object.metadata.gallery_sale_kind
+  if(kind==='account.updated') event.type=kind
+  if(kind==='charge.refunded'){event.type=kind;event.data.object={id:'ch_synthetic',payment_intent:'pi_house',refunded:true}}
+  const h=setup(event,opts)
+  assert.equal((await h.post()).status,200)
+  assert.equal(h.actions.length,['house','charge.refunded'].includes(kind)?1:0)
+  if(kind==='house') assert.equal(h.actions[0].name,'cs_record_house_gallery_payment')
+  if(kind==='charge.refunded'){assert.equal(h.actions[0].table,'orders');assert.equal(h.actions[0].data.fulfillment_state,'refunded')}
+ }
+})

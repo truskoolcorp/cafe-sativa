@@ -64,3 +64,32 @@ test('new sales default off and cannot use a test key in production', () => {
  // Existing paid/refunded webhook environment classification is unchanged by the sales switch.
  assert.equal(galleryEnvironment(site,{...ready,GALLERY_SALES_ENABLED:'false'}),'production')
 })
+
+test('temporary restricted Stripe CLI key works only for explicit non-Vercel local isolation', () => {
+ const app = 'http://127.0.0.1:4116'
+ const db = 'http://127.0.0.1:54321'
+ const local = {...sandbox, VERCEL_ENV:undefined, GALLERY_LOCAL_STRIPE_CLI:'true',
+  STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',
+  GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_synthetic',
+  GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_synthetic',
+  NEXT_PUBLIC_SITE_URL:app, NEXT_PUBLIC_SUPABASE_URL:db, GALLERY_TEST_SUPABASE_URL:db,
+  GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true'}
+ assert.equal(galleryEnvironment(app+'/api/gallery/checkout',local),'isolated-test')
+ assert.equal(gallerySalesEnabled('isolated-test',local),true)
+ assert.equal(gallerySalesEnabled('production',{...local,VERCEL_ENV:'production'}),false)
+ const hosted = {...local, VERCEL_ENV:'preview', NEXT_PUBLIC_SITE_URL:site,
+  NEXT_PUBLIC_SUPABASE_URL:database, GALLERY_TEST_SUPABASE_URL:database}
+ assert.equal(galleryEnvironment(site,hosted),'blocked')
+ assert.equal(galleryEnvironment(site,{...hosted,STRIPE_SECRET_KEY:'sk_test_synthetic'}),'isolated-test')
+ for(const change of [{VERCEL_ENV:'development'},{VERCEL:'1'},{VERCEL_URL:'preview.invalid'},{VERCEL_DEPLOYMENT_ID:'test'},
+   {GALLERY_LOCAL_STRIPE_CLI:'false'},{GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_unexpected'},
+   {GALLERY_HOUSE_STRIPE_ACCOUNT_ID:undefined},{NEXT_PUBLIC_SITE_URL:'http://localhost:4116'},
+   {NEXT_PUBLIC_SITE_URL:'https://127.0.0.1:4116'},{NEXT_PUBLIC_SITE_URL:db},
+   {NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co',GALLERY_TEST_SUPABASE_URL:'https://syntheticgallery.supabase.co'},
+   {GALLERY_DELIVERY_NOTICES:'true'}]){
+  const candidate={...local,...change}
+  assert.equal(galleryEnvironment(app,candidate),'blocked')
+  assert.equal(gallerySalesEnabled('isolated-test',candidate),false)
+ }
+ assert.equal(galleryEnvironment('http://127.0.0.1:9999/api/gallery/checkout',local),'blocked')
+})

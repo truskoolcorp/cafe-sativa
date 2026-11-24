@@ -33,6 +33,10 @@ export async function POST(req: Request) {
     if (event.livemode !== false) return NextResponse.json({ error: 'Test event required.' }, { status: 400 })
     const isGalleryCheckout = (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') &&
       (event.data.object as Stripe.Checkout.Session).metadata?.kind === 'gallery_order' && (event.data.object as Stripe.Checkout.Session).metadata?.site === 'cafe-sativa'
+    if (stripeSecretKey.startsWith('rkcs_test_') && event.type !== 'charge.refunded' &&
+        (!isGalleryCheckout || (event.data.object as Stripe.Checkout.Session).metadata?.gallery_sale_kind !== 'house')) {
+      return NextResponse.json({ received: true })
+    }
     if (!isGalleryCheckout && event.type !== 'charge.refunded' && event.type !== 'account.updated') {
       return NextResponse.json({ received: true })
     }

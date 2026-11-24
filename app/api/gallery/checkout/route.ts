@@ -179,6 +179,9 @@ export async function POST(req: Request) {
   }
   const saleKind = gallerySellerKind(product.id, artistRow.id, product.kind)
   const house = saleKind === 'house' ? configuredHouse : null
+  if (stripeSecretKey.startsWith('rkcs_test_') && !house) {
+    return NextResponse.json({ error: 'Temporary test credentials support this house fixture only.' }, { status: 409 })
+  }
   if (saleKind === 'blocked' || (house && process.env.GALLERY_HOUSE_CHECKOUT_ENABLED !== 'true')) {
     return NextResponse.json({ error: 'This house artwork is not ready for checkout.' }, { status: 409 })
   }

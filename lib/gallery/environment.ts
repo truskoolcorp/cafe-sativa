@@ -6,10 +6,29 @@ type Env = Record<string, string | undefined>
 
 export type GalleryEnvironment = 'production' | 'isolated-test' | 'blocked'
 
+// Temporary Stripe CLI credentials are supported only on an explicit non-Vercel,
+// literal-loopback test harness. Hosted preview cannot use these credentials.
+function acceptsEphemeralStripe(env: Env): boolean {
+  if (env.GALLERY_LOCAL_STRIPE_CLI !== 'true' || env.VERCEL_ENV || env.VERCEL ||
+      env.VERCEL_URL || env.VERCEL_DEPLOYMENT_ID || env.GALLERY_ISOLATED_TEST !== 'true' ||
+      env.GALLERY_DELIVERY_NOTICES === 'true' ||
+      !/^rkcs_test_[A-Za-z0-9_]+$/.test(env.STRIPE_SECRET_KEY ?? '') ||
+      !/^acct_[A-Za-z0-9]+$/.test(env.GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID ?? '') ||
+      env.GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID !== env.GALLERY_HOUSE_STRIPE_ACCOUNT_ID) return false
+  try {
+    const site = new URL(env.NEXT_PUBLIC_SITE_URL ?? '')
+    const database = new URL(env.NEXT_PUBLIC_SUPABASE_URL ?? '')
+    const literalLoopback = (u: URL) => u.protocol === 'http:' && u.hostname === '127.0.0.1' &&
+      !!u.port && u.pathname === '/' && !u.username && !u.password && !u.search && !u.hash
+    return literalLoopback(site) && literalLoopback(database) && site.origin !== database.origin &&
+      database.href === new URL(env.GALLERY_TEST_SUPABASE_URL ?? '').href
+  } catch { return false }
+}
+
 export function galleryEnvironment(requestUrl: string, env: Env = process.env): GalleryEnvironment {
   if (env.VERCEL_ENV === 'production') return 'production'
   if (env.GALLERY_ISOLATED_TEST !== 'true' ||
-      !env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ||
+      (!env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && !acceptsEphemeralStripe(env)) ||
       !env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET?.startsWith('whsec_') ||
       env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET === env.STRIPE_WEBHOOK_SECRET ||
       !env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -43,5 +62,5 @@ export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process
       env.GALLERY_INVENTORY_HOLDS !== 'true' || env.GALLERY_PRIVATE_DOWNLOADS !== 'true' ||
       env.GALLERY_DIGITAL_WORKER !== 'true') return false
   return mode === 'production' ? env.STRIPE_SECRET_KEY?.startsWith('sk_live_') === true :
-    env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true
+    env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env)
 }

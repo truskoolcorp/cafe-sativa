@@ -2,7 +2,7 @@ const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require(
 let calls=0,dbCalls=0,accountCheck=0,checkoutInput,platformAccount='acct_house',assets=[],houseReady=true;let product={id:'12345678-1234-1234-1234-123456789abc',status:'published',price_cents:1200,kind:'physical',stock_count:2,artist:{id:'artist',is_approved:true,charges_enabled:true,payouts_enabled:true,stripe_account_id:'acct_test'}};
 const context={exports:{},URL,process:{env:{VERCEL_ENV:'production',STRIPE_SECRET_KEY:'sk_live_mock',GALLERY_SALES_ENABLED:'true',GALLERY_INVENTORY_HOLDS:'true',GALLERY_PRIVATE_DOWNLOADS:'true',GALLERY_DIGITAL_WORKER:'true'}},console,require(name){if(name==='@/lib/gallery/environment')return require('./helpers/load-gallery-environment.cjs')(context.process.env);if(name==='@/lib/gallery/house-checkout'){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/house-checkout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:context.process});return exports}if(name==='next/server')return {NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})}};if(name==='stripe')return {default:class {accounts={retrieveCurrent:async()=>{accountCheck++;return {id:platformAccount,charges_enabled:true,payouts_enabled:true}}};checkout={sessions:{create:async input=>{calls++;checkoutInput=input;assert.equal(input.line_items[0].quantity,1);return {id:'cs_mock',url:'https://checkout.stripe.com/test'}}}}}};if(name==='@supabase/ssr')return {createServerClient:()=>({auth:{getUser:async()=>({data:{user:{id:'user'}}})}})};if(name==='next/headers')return {cookies:()=>({get:()=>null})};if(name.endsWith('/admin'))return {createAdminClient:()=>({rpc:async name=>({data:name==='cs_gallery_house_ready'?houseReady:'hold'}),from(table){dbCalls++;return {select(){return this},eq(){return this},update(){return this},is(){return this},order(){return this},limit:async()=>({data:assets}),maybeSingle:async()=>({data:table==='gallery_inventory_holds'?{id:'hold'}:product})}}})};throw Error(name)}};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/gallery/checkout/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
-const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({url:'https://www.cafe-sativa.com/api/gallery/checkout',headers:{get:()=>origin},json:async()=>body});
+const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({url:(context.process.env.NEXT_PUBLIC_SITE_URL||'https://www.cafe-sativa.com')+'/api/gallery/checkout',headers:{get:()=>origin},json:async()=>body});
 (async()=>{
  assert.equal((await send({product_id:product.id},'https://evil.example')).status,403);
  for(const quantity of [0,-1,1.5,11,'2',null]) {if(quantity===null)continue;assert.equal((await send({product_id:product.id,quantity})).status,400)}
@@ -45,6 +45,16 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  assert.equal(checkoutInput.metadata.gallery_sale_kind,'house');
  assert.equal(checkoutInput.payment_intent_data.metadata.gallery_platform_account_id,'acct_house');
  assert.equal(checkoutInput.metadata.approved_asset_id,'approved_edition');
+ const local='http://127.0.0.1:4116', db='http://127.0.0.1:54321';
+ Object.assign(env,{VERCEL_ENV:undefined,GALLERY_ISOLATED_TEST:'true',GALLERY_LOCAL_STRIPE_CLI:'true',
+  STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_house',
+  GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_synthetic',NEXT_PUBLIC_SITE_URL:local,
+  NEXT_PUBLIC_SUPABASE_URL:db,GALLERY_TEST_SUPABASE_URL:db,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY:'synthetic-anon',SUPABASE_SERVICE_ROLE_KEY:'synthetic-service'});
+ assert.equal((await send({product_id:product.id},local)).status,200);assert.equal(calls,3);
+ // Same local test key cannot send checkout to an unrelated artist destination.
+ product={...product,id:'22222222-2222-4222-8222-222222222222',kind:'physical',artist:{id:'artist_independent',is_approved:true,charges_enabled:true,payouts_enabled:true,stripe_account_id:'acct_unrelated'}};
+ assert.equal((await send({product_id:product.id},local)).status,409);assert.equal(calls,3);
  console.log('PASS: cross-origin/malformed/invalid quantity rejected before provider; missing digital asset and stock blocked; valid mocked checkout succeeds');
 })().catch(e=>{console.error(e);process.exitCode=1});
 

@@ -116,6 +116,17 @@ export async function POST(req: Request) {
               shipping_city:addr?.city,shipping_state:addr?.state,shipping_postal_code:addr?.postal_code,shipping_country:addr?.country},
           })
           if(recordError || !recorded?.id)throw Error('Atomic paid order write failed')
+          const approvedAssetId=session.metadata?.approved_asset_id
+          if(approvedAssetId && session.metadata?.site==='cafe-sativa' && product.kind==='digital'){
+            const {data:asset,error:assetError}=await admin.from('gallery_approved_assets').select('id,product_id,revoked_at').eq('id',approvedAssetId).eq('product_id',productId).maybeSingle()
+            if(assetError || !asset || asset.revoked_at)throw Error('Purchased edition requires reconciliation')
+            const {error:mappingError}=await admin.from('gallery_private_deliveries').upsert({
+              order_id:recorded.id,product_id:productId,approved_asset_id:asset.id,object_path:recorded.id+'/'+asset.id
+            },{onConflict:'order_id',ignoreDuplicates:true})
+            if(mappingError)throw Error('Digital entitlement assignment failed')
+            const {data:mapping,error:readError}=await admin.from('gallery_private_deliveries').select('product_id,approved_asset_id').eq('order_id',recorded.id).maybeSingle()
+            if(readError || mapping?.product_id!==productId || mapping?.approved_asset_id!==asset.id)throw Error('Digital entitlement mismatch')
+          }
           if(!recorded.created)break
           const order={id:recorded.id}
           try {

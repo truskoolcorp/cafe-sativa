@@ -36,7 +36,7 @@ const Image = ({ fill, priority, alt, className, ...props }) =>
 const Badge = ({ variant, ...props }) => React.createElement('span', props)
 const Icon = props => React.createElement('svg', { width: 24, height: 24, 'aria-hidden': true, ...props })
 
-function fixturePage(file, rows) {
+function fixturePage(file, rows, zariaEnabled=false) {
   const modules = {
     'react/jsx-runtime': require('react/jsx-runtime'),
     'next/link': Link, 'next/image': Image,
@@ -59,6 +59,8 @@ function fixturePage(file, rows) {
     }) },
     '@radix-ui/react-slot': { Slot: () => null },
     'lucide-react': { Package: Icon, ArrowLeft: Icon },
+    './ZariaPortrait': () => zariaEnabled ? React.createElement('span',{'data-fixture':'canonical-portrait'}) : null,
+    '@/lib/gallery/zaria': { zariaChatEnabled: () => zariaEnabled, zariaPortraitEnabled: () => zariaEnabled, zariaGalleryHref: slug => '/ask?host=zaria'+(slug?'&work='+slug:'') },
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
     '@/components/ui/badge': { Badge },
   }
@@ -96,6 +98,11 @@ async function main() {
   const filtered = renderToStaticMarkup(await populated({ searchParams: { kind: 'physical' } }))
   const detail = renderToStaticMarkup(await fixturePage(detailFile, rows)({ params: { slug: product.slug } }))
   const portraitDetail = renderToStaticMarkup(await fixturePage(detailFile, [portrait])({ params: { slug: portrait.slug } }))
+  const privateIndex=renderToStaticMarkup(await fixturePage(indexFile, rows, true)({ searchParams: {} }))
+  const privateDetail=renderToStaticMarkup(await fixturePage(detailFile, rows, true)({ params: { slug: product.slug } }))
+  assert.match(privateIndex, /href="\/ask\?host=zaria"[^>]*>Talk to Zaria/)
+  assert.match(privateIndex, /data-fixture="canonical-portrait"/)
+  assert.ok(privateDetail.includes('href="/ask?host=zaria&amp;work='+product.slug+'"'))
   assert.match(gallery, /Digital art/)
   assert.match(detail, /Digital art/)
   assert.match(gallery, /Some works in the Gallery are created wholly or partly with AI\./)

@@ -1,3 +1,4 @@
+import {zariaChatEnabled,zariaGalleryHref} from '@/lib/gallery/zaria'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -136,6 +137,8 @@ export default async function ProductDetailPage({ params }: Params) {
               </p>
             </div>
 
+
+            {zariaChatEnabled() && <Link href={zariaGalleryHref(product.slug)} className="inline-flex text-primary underline underline-offset-4">Ask Zaria about this work</Link>}
 
             {/* Price card */}
             <div className="rounded-xl border border-primary/40 bg-card p-5">

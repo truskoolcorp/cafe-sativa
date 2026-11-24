@@ -1,3 +1,5 @@
+import {zariaGrounding} from '@/lib/gallery/zaria-answer'
+import {zariaChatEnabled} from '@/lib/gallery/zaria'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getSiteContent } from '@/lib/content/site'
 import { getUpcomingEvents, type EventRow } from '@/lib/events'
@@ -88,6 +90,7 @@ async function handlePost(req: Request) {
   const parsed = validateConciergeRequest(value)
   if (!parsed.valid) return jsonWithCors({ error: parsed.error }, { status: 400, request: req })
   const body = parsed.body
+  if(body.host==='zaria'&&(!zariaChatEnabled()||body.surface!=='web-chat'))return jsonWithCors({error:'Zaria is not available on this surface.'},{status:404,request:req,noStore:true})
   const host = getHost(body.host)!
   const surface = body.surface
   const performing = () => jsonWithCors({ error: STAGE_HOST_ON_STAGE, code: 'host_performing' }, { status: 409, request: req, noStore: true })
@@ -146,11 +149,14 @@ async function handlePost(req: Request) {
   if(!canonicalHost)return jsonWithCors({error:'The approved host context is temporarily unavailable. Please retry; no substitute identity was used.'},{status:503,request:req})
   let liveProgramming='Current programming could not be verified. Do not invent dates or availability.'
   let verifiedEvents: EventRow[] = []
-  try {
+  if (host.id !== 'zaria') try {
     const [features,events]=await Promise.all([getSiteContent().catch(() => []),getUpcomingEvents({limit:6,futureOnly:true})])
     verifiedEvents = events
     liveProgramming=JSON.stringify({features:features.slice(0,6).map(item=>({title:item.title,category:item.site_category,releaseAt:item.release_at,released:item.released,overview:item.copy_final.slice(0,1200)})),events:events.map(conciergeEventFacts)})
   }catch{}
+
+  const gallery = host.id==='zaria' ? await zariaGrounding(body.room_id) : null
+  if(gallery) liveProgramming = gallery.liveProgramming
 
   // Find or create conversation. We key by (user_id or session_id) +
   // host_agent. Same user talking to Laviche on web and again on mall
@@ -256,7 +262,7 @@ async function handlePost(req: Request) {
 
   // Exact launch FAQ answers are grounded in the fresh public event record.
   // They still pass ownership/rate checks and persist like any other turn.
-  let replyText = verifiedPremiereAnswer(body.message, verifiedEvents)
+  let replyText = gallery ? null : verifiedPremiereAnswer(body.message, verifiedEvents)
   if (stageHostIsPerforming(host.id)) return performing()
   if (replyText === null) {
     if (!anthropicKey) {
@@ -360,6 +366,7 @@ async function handlePost(req: Request) {
       conversation_id: conversationId,
       host: host.id,
       remaining: rate.remaining,
+      ...(gallery?{gallery_links:gallery.links}:{}),
       memory_saved: !persistError,
       ...(persistError ? { warning: 'Your reply was delivered, but this turn could not be saved for future conversation memory.' } : {}),
     },

@@ -57,7 +57,7 @@ async function loadOrder(sessionId: string) {
       id, total_cents, currency, fulfillment_state, created_at, paid_at,
       order_items (
         product_id, title_snapshot, price_cents, quantity,
-        products ( kind, digital_delivery_url )
+        products ( kind )
       )
     `
     )
@@ -86,7 +86,6 @@ export default async function ThanksPage({ searchParams }: SP) {
   const product = item?.products
   const kind = product?.kind || 'physical'
   const refunded = orderReceiptState(order) === 'refunded'
-  const digitalUrl = refunded ? null : product?.digital_delivery_url
 
   const total = (order.total_cents / 100).toLocaleString('en-US', {
     style: 'currency',
@@ -141,26 +140,9 @@ export default async function ThanksPage({ searchParams }: SP) {
             </p>
           )}
 
-          {!refunded && kind === 'digital' && digitalUrl && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 mb-6 text-left">
-              <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold mb-2">
-                Your download
-              </p>
-              <a
-                href={digitalUrl}
-                className="text-sm font-body text-foreground hover:text-primary underline break-all"
-              >
-                {digitalUrl}
-              </a>
-              <p className="text-xs text-muted-foreground font-body mt-2">
-                Delivery email status is separate from payment confirmation.
-              </p>
-            </div>
-          )}
-
-          {!refunded && kind === 'digital' && !digitalUrl && (
+          {!refunded && kind === 'digital' && (
             <p className="text-sm text-foreground font-body leading-relaxed mb-6">
-              Digital delivery is pending. Check your account for fulfillment updates.
+              Payment is confirmed. Check your account for authorized digital delivery and fulfillment updates.
             </p>
           )}
 

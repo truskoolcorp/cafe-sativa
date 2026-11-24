@@ -13,7 +13,7 @@ Owner approved autonomous ordinary artwork launch only after acceptance gates. K
 - Existing checkout requires approved artist Connect destination; DO NOT fabricate an artist or use unrelated account. House settlement needs explicit recorded house sale model, provider mapping and refund tests; independent 90/10 tested separately in dedicated sandbox. No DB listing mutation yet.
 
 ## Optional per-work artist disclosure
-- Add an optional Artwork creation method field to real product intake, not the artist application. Choices: Not declared (default), No AI used, AI-assisted, Primarily AI-generated. Keep missing data distinct from No AI used; never infer a declaration.
+- Optional Artwork creation method field belongs to real product intake, not the artist application. Apply and verify the proposed additive migration in isolated staging first; the UI/API/buyer display remain off unless `NEXT_PUBLIC_GALLERY_ARTWORK_METHOD=true` at build and runtime. Choices: Not declared (default), No AI used, AI-assisted, Primarily AI-generated. Keep missing data distinct from No AI used; never infer a declaration.
 - Save a validated enum on the artwork, preserve it across edits that omit the field, and show an unobtrusive buyer-visible method on published listings when an artist makes an affirmative AI disclosure. No unchecked state should produce a buyer label. Do not expose unapproved work or a private provenance record.
 - Acceptance: an existing artist can save with no declaration; two works by one artist can declare different methods; a selected AI method survives reload and appears to a buyer on the published work; changing it to Not declared removes the public note; existing artwork and purchase behavior remain unchanged.
 

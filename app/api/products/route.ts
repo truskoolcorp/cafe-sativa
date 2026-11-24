@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { artworkCreationMethodEnabled, isArtworkCreationMethod } from '@/lib/gallery/artwork-creation-method'
 
 /**
  * POST /api/products
@@ -45,6 +46,7 @@ type Body = {
   digital_delivery_url?: string
   blockchain?: 'polygon' | 'ethereum' | 'base'
   status?: ProductStatus
+  artwork_creation_method?: unknown
 }
 
 function slugify(input: string): string {
@@ -80,6 +82,14 @@ export async function POST(req: Request) {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 })
+  }
+
+  const creationMethod = body.artwork_creation_method
+  if (creationMethod !== undefined && !artworkCreationMethodEnabled) {
+    return NextResponse.json({ error: 'Artwork creation method is not available.' }, { status: 400 })
+  }
+  if (creationMethod !== undefined && creationMethod !== null && !isArtworkCreationMethod(creationMethod)) {
+    return NextResponse.json({ error: 'Invalid artwork creation method.' }, { status: 400 })
   }
 
   // Validate required fields
@@ -149,6 +159,8 @@ export async function POST(req: Request) {
     blockchain: body.kind === 'nft' ? body.blockchain ?? null : null,
     on_chain_status: body.kind === 'nft' ? 'not_minted' : null,
   }
+
+  if (creationMethod !== undefined) payload.artwork_creation_method = creationMethod
 
   if (body.id) {
     // Update path. RLS will block this if the row isn't owned by the

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { artworkCreationMethodEnabled, artworkCreationMethods, isArtworkCreationMethod, type ArtworkCreationMethod } from '@/lib/gallery/artwork-creation-method'
 
 /**
  * /artist-dashboard
@@ -581,6 +582,7 @@ function NewProductForm({
   const [blockchain, setBlockchain] = useState<'polygon' | 'ethereum' | 'base'>(
     'polygon'
   )
+  const [creationMethod, setCreationMethod] = useState<ArtworkCreationMethod | ''>('')
   const [publishNow, setPublishNow] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -607,6 +609,9 @@ function NewProductForm({
       primary_image_url: imageUrl.trim() || undefined,
       stock_count: stock.trim() ? parseInt(stock.trim(), 10) : null,
       status: publishNow ? 'published' : 'draft',
+    }
+    if (artworkCreationMethodEnabled && creationMethod) {
+      payload.artwork_creation_method = creationMethod
     }
     if (kind === 'physical' && weight.trim()) {
       payload.weight_grams = parseInt(weight.trim(), 10)
@@ -640,6 +645,7 @@ function NewProductForm({
       setStock('')
       setWeight('')
       setDeliveryUrl('')
+      setCreationMethod('')
       onCreated()
     } catch (err: any) {
       setError(err?.message || 'Save failed.')
@@ -734,6 +740,31 @@ function NewProductForm({
             className="w-full resize-none rounded-lg border border-border bg-background px-4 py-3 text-sm font-body text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
           />
         </div>
+
+        {artworkCreationMethodEnabled && (
+          <div>
+            <label htmlFor="artworkCreationMethod" className="mb-2 block text-sm font-semibold text-foreground">
+              Artwork creation method (optional)
+            </label>
+            <select
+              id="artworkCreationMethod"
+              aria-describedby="artworkCreationMethodHelp"
+              value={creationMethod}
+              onChange={(event) => {
+                const value = event.target.value
+                setCreationMethod(isArtworkCreationMethod(value) ? value : '')
+              }}
+              disabled={submitting}
+              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="">Not declared</option>
+              {artworkCreationMethods.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <p id="artworkCreationMethodHelp" className="mt-2 text-sm text-muted-foreground">
+              If you disclose AI use, buyers will see your selection on this artwork’s listing once it is published.
+            </p>
+          </div>
+        )}
 
         {/* Price + stock */}
         <div className="grid grid-cols-2 gap-4">

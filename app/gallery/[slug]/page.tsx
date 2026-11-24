@@ -1,3 +1,4 @@
+import { artworkCreationMethodEnabled, declaredAiArtworkLabel } from '@/lib/gallery/artwork-creation-method'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -83,6 +84,8 @@ export default async function ProductDetailPage({ params }: Params) {
   if (!product) {
     notFound()
   }
+
+  const methodLabel = artworkCreationMethodEnabled ? declaredAiArtworkLabel(product.declared_ai_creation_method) : null
 
   const priceDisplay = (product.price_cents / 100).toLocaleString('en-US', {
     style: 'currency',
@@ -176,6 +179,8 @@ export default async function ProductDetailPage({ params }: Params) {
                 </span>
               </p>
             </div>
+
+            {methodLabel && <p className="text-sm text-muted-foreground">Artist-declared creation method: {methodLabel}</p>}
 
             {/* Price card */}
             <div className="rounded-xl border border-primary/40 bg-card p-5">

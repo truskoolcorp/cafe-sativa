@@ -24,7 +24,7 @@ create table public.order_items(order_id uuid references orders(id),product_id u
 -- A synthetic base RPC with the previously inspected signature and locking/idempotency
 -- contract. This is NOT the production function body or a production-schema clone.
 create function public.cs_record_gallery_payment(receipt jsonb,product_uuid uuid,artist_uuid uuid,quantity integer)
-returns jsonb language plpgsql set search_path=public,pg_catalog as $
+returns jsonb language plpgsql set search_path=public,pg_catalog as $$
 declare oid uuid;
 begin
  perform 1 from products where id=product_uuid for update;
@@ -103,8 +103,8 @@ SQL
 # A NULL publication state must not be treated as published.
 psql -v ON_ERROR_STOP=1 <<'SQL'
 insert into products values('00000000-0000-4000-8000-000000000002','digital',null,1);
-do $ begin
+do $$ begin
  if cs_hold_gallery_inventory('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000011',1) is not null then raise exception 'unpublished null state accepted'; end if;
-end $;
+end $$;
 SQL
 echo 'Synthetic PostgreSQL migration/RPC fixture passed; not actual Stripe, Supabase storage, or production RPC proof.'

@@ -1,6 +1,7 @@
 """Standalone private Zaria worker. Intentionally not referenced by deployment manifests."""
 import asyncio
 from contextlib import aclosing, asynccontextmanager
+import json
 import os
 
 from core import AGENT, Bridge, Settings, Unavailable, parse_job
@@ -76,7 +77,20 @@ async def entrypoint(ctx):
         # No preemptive generation: must not answer before authenticated final turn.
         session = AgentSession(stt=deepgram.STT(api_key=cfg.stt_key, model="nova-3", language="en"),
                                vad=silero.VAD.load(), preemptive_generation=False)
-        turns = Turns(bridge, play, interrupt, stopped.set)
+        async def publish_links(sequence, links):
+            # Scope the reliable packet to the exact admitted guest. Data is
+            # optional: a failed packet must not discard a spoken answer.
+            try:
+                encoded = json.dumps({"sequence": sequence, "links": links},
+                                     separators=(",", ":"), ensure_ascii=False).encode()
+                if len(encoded) <= 2048:
+                    await asyncio.wait_for(ctx.room.local_participant.publish_data(
+                        encoded, reliable=True, destination_identities=[guest],
+                        topic="cafe-sativa.zaria.gallery-links.v1"), timeout=0.5)
+            except Exception:
+                pass
+
+        turns = Turns(bridge, play, interrupt, stopped.set, publish=publish_links)
 
         @session.on("user_state_changed")
         def on_user_state(event):

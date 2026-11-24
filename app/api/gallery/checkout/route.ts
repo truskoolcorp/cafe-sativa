@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
-import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
+import {galleryMerchantRequestUrl, usesMerchantSandboxKey, galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
  * POST /api/gallery/checkout
@@ -45,7 +45,7 @@ type Body = {
 }
 
 export async function POST(req: Request) {
-  if (req.headers.get('origin') !== new URL(req.url).origin) {
+  if (req.headers.get('origin') !== new URL(galleryMerchantRequestUrl(req)).origin) {
     return NextResponse.json({ error: 'Invalid origin.' }, { status: 403 })
   }
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
@@ -56,11 +56,11 @@ export async function POST(req: Request) {
     )
   }
 
-  if (galleryEnvironment(req.url) === 'blocked') {
+  if (galleryEnvironment(galleryMerchantRequestUrl(req)) === 'blocked') {
     return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
   }
 
-  if (!gallerySalesEnabled(galleryEnvironment(req.url))) {
+  if (!gallerySalesEnabled(galleryEnvironment(galleryMerchantRequestUrl(req)))) {
     return NextResponse.json({ error: 'Gallery purchases are temporarily unavailable.' }, { status: 503 })
   }
 
@@ -179,7 +179,7 @@ export async function POST(req: Request) {
   }
   const saleKind = gallerySellerKind(product.id, artistRow.id, product.kind)
   const house = saleKind === 'house' ? configuredHouse : null
-  if (stripeSecretKey.startsWith('rkcs_test_') && !house) {
+  if ((stripeSecretKey.startsWith('rkcs_test_') || usesMerchantSandboxKey(stripeSecretKey)) && !house) {
     return NextResponse.json({ error: 'Temporary test credentials support this house fixture only.' }, { status: 409 })
   }
   if (saleKind === 'blocked' || (house && process.env.GALLERY_HOUSE_CHECKOUT_ENABLED !== 'true')) {
@@ -312,7 +312,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: session.url })
   } catch (err: any) {
-    console.error('[gallery/checkout] session create failed', err)
+    if (usesMerchantSandboxKey(stripeSecretKey)) console.error('[gallery/checkout] sandbox session failed (details suppressed)')
+    else console.error('[gallery/checkout] session create failed', err)
     return NextResponse.json(
       { error: 'Could not start checkout. Please retry.' },
       { status: 500 }

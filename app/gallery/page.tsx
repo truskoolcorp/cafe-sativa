@@ -29,7 +29,7 @@ import { Badge } from '@/components/ui/badge'
 export const metadata: Metadata = {
   title: 'The Gallery — Café Sativa',
   description:
-    'Original work from our resident artists. Shoppable art across physical editions, digital pieces, and NFTs — with a cut going directly to each artist.',
+    'Original work from our resident artists. Shoppable art across physical editions, digital pieces, and NFTs — supporting our resident artists.',
 }
 
 export const dynamic = 'force-dynamic'
@@ -82,9 +82,11 @@ async function loadGallery(): Promise<GalleryRow[]> {
   return (data as GalleryRow[]) || []
 }
 
-export default async function GalleryPage() {
+export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
   const [products,covers] = await Promise.all([loadGallery(),approvedVenueCovers()])
 
+  const kind = ['physical', 'digital', 'nft'].includes(searchParams.kind || '') ? searchParams.kind : undefined
+  const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
   return (
     <div className="pb-16 bg-background min-h-screen">
       {/* Hero band */}
@@ -113,8 +115,7 @@ export default async function GalleryPage() {
               </h1>
               <p className="text-base md:text-lg text-muted-foreground font-body mt-4 leading-relaxed">
                 Original pieces, editions, digital work, and NFTs across the
-                Dallas–Tenerife axis. Every purchase sends funds directly to the
-                artist. We keep 10% to run the place.
+                Dallas–Tenerife axis. Our standard artist share is 90% of eligible artwork sales, subject to applicable fees and adjustments.
               </p>
             </div>
           </div>
@@ -122,8 +123,21 @@ export default async function GalleryPage() {
       </section>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><SiteFeatures category="gallery" /></div>
+      <section aria-labelledby="curator-heading" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10">
+        <div className="rounded-xl border border-border bg-card p-6 md:p-8">
+          <p className="text-xs uppercase tracking-widest text-primary">Curated by Zaria Solenne</p>
+          <h2 id="curator-heading" className="font-heading text-3xl mt-2">Discover. Experience. Collect.</h2>
+          <p className="text-muted-foreground mt-3 max-w-2xl">Explore physical and digital artwork, discover the artists behind each piece, and learn about digital collectibles. On-chain ownership and collector benefits will be identified explicitly when available.</p>
+          <Link href="/events" className="inline-block mt-4 text-primary underline">Explore upcoming events</Link>
+        </div>
+      </section>
       {/* Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
+        <nav aria-label="Artwork categories" className="flex flex-wrap gap-2 mb-6">
+          {[['All work',''],['Physical','physical'],['Digital','digital'],['Collectibles','nft']].map(([label,value]) => (
+            <Link key={label} href={value ? '/gallery?kind='+value : '/gallery'} aria-current={(kind || '') === value ? 'page' : undefined} className={'rounded-full border px-4 py-2 text-sm '+((kind || '') === value ? 'border-primary text-primary' : 'border-border text-muted-foreground')}>{label}</Link>
+          ))}
+        </nav>
         <div className="flex justify-end mb-6">
           <Link
             href="/artist-dashboard"
@@ -135,9 +149,11 @@ export default async function GalleryPage() {
 
         {products.length === 0 ? (
           <EmptyGallery />
+        ) : visibleProducts.length === 0 ? (
+          <p role="status" className="text-muted-foreground py-8">No published work in this category yet. <Link href="/gallery" className="underline">Browse all work.</Link></p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map((p) => (
+            {visibleProducts.map((p) => (
               <GalleryCard key={p.id} row={p} />
             ))}
           </div>
@@ -152,7 +168,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
   })
-  const kindLabel = row.kind === 'nft' ? 'NFT' : row.kind
+  const kindLabel = row.kind === 'nft' ? 'Digital collectible' : row.kind
 
   const soldOut = row.stock_count !== null && row.stock_count <= 0
 

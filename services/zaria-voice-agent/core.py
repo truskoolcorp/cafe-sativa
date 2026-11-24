@@ -53,11 +53,20 @@ class Settings:
         bridge = origin(env.get("CS_ZARIA_BRIDGE_ORIGIN", ""), "https")
         if bridge != "https://" + env.get("CS_ZARIA_APPROVED_BRIDGE_HOST", ""):
             raise Unavailable("Private bridge not allowlisted")
-        room = origin(env.get("CS_ZARIA_LIVEKIT_URL", ""), "wss")
+        mode = env.get("CS_ZARIA_LIVEKIT_CREDENTIALS", "isolated-explicit")
+        explicit = ("CS_ZARIA_LIVEKIT_URL", "CS_ZARIA_LIVEKIT_KEY", "CS_ZARIA_LIVEKIT_SECRET")
+        if mode == "cloud-injected":
+            if any(name in env for name in explicit):
+                raise Unavailable("Private project credential sources cannot be mixed")
+            names = ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")
+        elif mode == "isolated-explicit":
+            names = explicit
+        else:
+            raise Unavailable("Private project credential source unavailable")
+        room = origin(env.get(names[0], ""), "wss")
         if room != "wss://" + env.get("CS_ZARIA_APPROVED_LIVEKIT_HOST", ""):
             raise Unavailable("Private LiveKit project not allowlisted")
-        keys = [env.get(k, "") for k in ("CS_ZARIA_LIVEKIT_KEY", "CS_ZARIA_LIVEKIT_SECRET",
-                                               "CS_ZARIA_ELEVENLABS_KEY", "CS_ZARIA_DEEPGRAM_KEY")]
+        keys = [env.get(k, "") for k in (*names[1:], "CS_ZARIA_ELEVENLABS_KEY", "CS_ZARIA_DEEPGRAM_KEY")]
         if any(not k or k != k.strip() for k in keys):
             raise Unavailable("Private credentials unavailable")
         return cls(bridge, room, *keys)

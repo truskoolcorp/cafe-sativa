@@ -1,3 +1,4 @@
+import GalleryWallet from './GalleryWallet'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import { SiteFeatures } from '@/components/events/SiteFeatures'
 import type { Metadata } from 'next'
@@ -131,6 +132,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
           <Link href="/events" className="inline-block mt-4 text-primary underline">Explore upcoming events</Link>
         </div>
       </section>
+      {process.env.GALLERY_WEB3_PREVIEW === 'true' && <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><GalleryWallet /></div>}
       {/* Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12">
         <nav aria-label="Artwork categories" className="flex flex-wrap gap-2 mb-6">

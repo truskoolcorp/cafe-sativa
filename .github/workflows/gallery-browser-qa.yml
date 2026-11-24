@@ -1,0 +1,37 @@
+name: Gallery responsive fixture QA
+on:
+  pull_request:
+    paths:
+      - 'app/gallery/**'
+      - 'app/globals.css'
+      - 'tailwind.config.js'
+      - 'tests/browser/gallery/**'
+      - '.github/workflows/gallery-browser-qa.yml'
+permissions:
+  contents: read
+jobs:
+  gallery-responsive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install isolated Playwright
+        run: |
+          npm install --prefix "$RUNNER_TEMP/gallery-playwright" --ignore-scripts --no-audit --no-fund --package-lock=false playwright@1.56.1
+          node "$RUNNER_TEMP/gallery-playwright/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Render exact Gallery source with synthetic data and network blocked
+        env:
+          NODE_PATH: ${{ runner.temp }}/gallery-playwright/node_modules
+        run: node tests/browser/gallery/responsive-qa.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gallery-responsive-fixture
+          path: .gallery-browser-evidence/
+          include-hidden-files: true
+          retention-days: 7

@@ -1,0 +1,33 @@
+name: Gallery one-shot synthetic runtime QA
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [feature/gallery-web3-preview]
+    paths:
+      - 'tests/gallery-local-house-runtime.*'
+      - '.github/workflows/gallery-local-house-runtime.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-synthetic-only:
+    if: github.repository == 'truskoolcorp/cafe-sativa' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'qa/gallery-house-local-runtime-20261124' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated Chromium without provider credentials
+        run: |
+          npm install --prefix "$RUNNER_TEMP/gallery-playwright" --ignore-scripts --no-audit --no-fund --package-lock=false playwright@1.56.1
+          node "$RUNNER_TEMP/gallery-playwright/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Run strictly local Supabase, test app and synthetic buyer flow
+        env:
+          GALLERY_QA_EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+          GALLERY_PLAYWRIGHT_MODULE: ${{ runner.temp }}/gallery-playwright/node_modules/playwright
+        run: bash tests/gallery-local-house-runtime.sh

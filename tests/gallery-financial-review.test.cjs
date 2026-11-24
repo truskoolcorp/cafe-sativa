@@ -44,3 +44,16 @@ test('only explicitly configured authenticated isolated owner can read all test 
 test('missing view or unexpected live evidence fails closed without returning financial rows',async()=>{
  for(const o of [{fail:true},{foreignMode:true}]){const r=await setup(o).get();assert.equal(r.status,503);assert.equal(r.body.orders,undefined)}
 })
+
+const displaySource=ts.transpileModule(fs.readFileSync('lib/gallery/financial-review-display.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+const displayCtx={exports:{},Intl};vm.runInNewContext(displaySource,displayCtx)
+test('financial report display preserves unknown, actual zero, signed fees and non-USD minor units',()=>{
+ const {reportAmount,reportEvidence,refundReviewReason}=displayCtx.exports
+ for(const unknown of [null,undefined,'0',NaN,Infinity,1.5])assert.equal(reportAmount(unknown,'usd'),'Unknown')
+ assert.equal(reportAmount(0,'usd'),'$0.00 USD')
+ assert.equal(reportAmount(-35,'USD'),'-$0.35 USD')
+ assert.equal(reportAmount(1200,'jpy'),'1,200 JPY minor units')
+ assert.equal(reportAmount(100,'bad currency'),'Unknown')
+ assert.equal(reportEvidence('attention'),'Review required')
+ assert.equal(refundReviewReason('digital_edition_manual_review'),'Digital edition — manual review')
+})

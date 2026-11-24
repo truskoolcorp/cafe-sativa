@@ -224,3 +224,40 @@ do $thin_shape$ begin
 end $thin_shape$;
 SQL
 echo 'Exact thin local house SQL and service-role readiness passed against synthetic Auth/Storage tables; real service integration not run.'
+
+# Service-only financial reporting and restock-review read model.
+psql -f docs/gallery/proposed-financial-review-views.sql >/dev/null
+psql <<'SQL'
+do $review$
+declare oid uuid; pid uuid; expected_artist uuid; result record;
+begin
+ select id into strict oid from orders where stripe_payment_intent_id='pi_test_house';
+ select product_id,artist_id into strict pid,expected_artist from order_items where order_id=oid;
+ select * into strict result from gallery_order_financial_review where order_id=oid;
+ if result.evidence_state<>'unobserved' or result.artist_id<>expected_artist
+  or result.financial_evidence->'processing_fees_cents' is distinct from 'null'::jsonb
+ then raise exception 'Unobserved fees must remain unknown'; end if;
+ insert into gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
+ values(oid,'pi_test_house','{"payment_intent_id":"pi_test_house","currency":"usd","livemode":false,"sale_kind":"house","captured_cents":1200,"refunded_cents":1200,"observed_charge_refund_balance_fee_cents":65,"order_comparison":{"attention":[],"observed_platform_after_charge_refund_fees_cents":-65}}');
+ select * into strict result from gallery_order_financial_review where order_id=oid;
+ if result.evidence_state<>'observed' or result.provider_livemode is distinct from 'false'::jsonb
+   or result.financial_evidence->'processing_fees_cents' is distinct from '65'::jsonb
+   or result.financial_evidence->'platform_after_charge_refund_fees_cents' is distinct from '-65'::jsonb
+ then raise exception 'Settlement report did not preserve actual fee and loss'; end if;
+ select * into strict result from gallery_refund_review_candidates where order_id=oid;
+ if result.review_reason<>'provider_refund_evidence_incomplete' then raise exception 'Missing refund receipts not flagged'; end if;
+ insert into gallery_refund_receipts(stripe_refund_id,order_id,stripe_payment_intent_id,amount_cents,currency,provider_status)
+ values('re_fixture_house',oid,'pi_test_house',1200,'usd','succeeded');
+ select * into strict result from gallery_refund_review_candidates where order_id=oid;
+ if result.review_reason<>'digital_edition_manual_review' or result.review_state<>'not_reviewed' or result.stock_count<>0
+ then raise exception 'Digital refund requires manual review without stock restoration'; end if;
+ if (select stock_count from products where id=pid)<>0 or exists(select 1 from gallery_restock_reviews where order_id=oid)
+ then raise exception 'Read model changed stock or review'; end if;
+ if has_table_privilege('anon','gallery_order_financial_review','SELECT') or
+ has_table_privilege('authenticated','gallery_refund_review_candidates','SELECT') or
+ has_table_privilege('service_role','gallery_refund_review_candidates','UPDATE') or
+ not has_table_privilege('service_role','gallery_order_financial_review','SELECT')
+ then raise exception 'Financial review view privileges invalid'; end if;
+ raise notice 'PASS: service-only review projection, unknown fees, test mode, negative margin, no automatic restock';
+end $review$;
+SQL

@@ -330,9 +330,11 @@ function FirstTimeOnboarding({ onCreated }: { onCreated: () => void }) {
             Sell your work in the Gallery.
           </h1>
           <p className="text-base text-muted-foreground font-body mt-4 leading-relaxed">
-            Original work, editions, digital pieces, or NFTs. We take 10% of
-            each sale; the rest flows straight to your connected bank account
-            via Stripe. Onboarding takes about five minutes.
+            Submit physical and digital artwork for Gallery review. For independent
+            artist sales, the expected artwork allocation is 90% to the artist
+            and 10% to the Gallery, before applicable adjustments. Stripe
+            transfers, fees, refunds and bank payouts are distinct; selling
+            requires approval and verified payment readiness.
           </p>
         </div>
 
@@ -536,7 +538,7 @@ function OnboardingStatusCard({ artist }: { artist: Artist }) {
           <p className="text-sm text-muted-foreground font-body mb-4">
             {artist.onboarding_state === 'rejected'
               ? 'Stripe needs more information before your account can accept payments.'
-              : 'Finish the Stripe flow to start selling. Your draft products are saved and will publish once you\u2019re approved.'}
+              : 'Complete Stripe onboarding for payment readiness. Draft artwork still requires Gallery review before it can be offered for sale.'}
           </p>
           <Button
             onClick={resumeOnboarding}

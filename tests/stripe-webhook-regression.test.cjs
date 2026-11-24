@@ -22,8 +22,9 @@ function setup(event, options = {}) {
   const stripe = {
     webhooks: { constructEvent: (_body,_sig,secret) => { calls.signed++; calls.secret=secret; return event } },
     subscriptions: { retrieve: async () => sub },
-    checkout: { sessions: { listLineItems: async () => ({ data: [], has_more: false }) } },
-    paymentIntents: { retrieve: async () => ({ application_fee_amount: 0 }) }
+    checkout: { sessions: { listLineItems: async () => ({ data: options.lines ?? [], has_more: false }) } },
+    paymentIntents: { retrieve: async () => options.intent ?? ({ application_fee_amount: 0 }) },
+    accounts: { retrieveCurrent: async () => ({ id: options.accountId }) }
   }
   const db = {
     rpc: async (name, input) => {
@@ -37,7 +38,7 @@ function setup(event, options = {}) {
         const q={eq:()=>q,is:()=>q,select:()=>q,maybeSingle:async()=>({data:{user_id:'user_1'},error:null}),then:resolve=>Promise.resolve({error:null}).then(resolve)};return q
       },
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({data: table==='tickets' ? options.ticket || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:null}) })
+        eq: () => ({ maybeSingle: async () => ({data: table==='products' ? options.product || null : table==='tickets' ? options.ticket || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:null}) })
       })
     })
   }
@@ -48,6 +49,11 @@ function setup(event, options = {}) {
     if (name === '@/lib/sync-membership') {const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/sync-membership.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports:mod.exports,require:requireMock,Date,Number,Error});return mod.exports}
     if (name === 'stripe') return { __esModule:true,default:StripeMock }
     if (name === '@/lib/supabase/admin') return {createAdminClient:()=>{ calls.admin++; return db }}
+    if (name === '@/lib/gallery/house-checkout') {
+      const exports = {}
+      vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/house-checkout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,process:{env}})
+      return exports
+    }
     if (name === '@/lib/gallery/environment') return require('./helpers/load-gallery-environment.cjs')(env)
     if (name === '@/lib/gallery/reconcile-refunds') {
       const exports = {}
@@ -159,4 +165,47 @@ test('dedicated test refund never updates ticket records; blocked shared refund 
   assert.equal((await h.post()).status,200);assert.deepEqual(h.actions.map(a=>a.table),['orders'])
   const blocked=setup(event,{env:{VERCEL_ENV:'preview'},url:testSite+'/api/webhooks/stripe',ticket:{id:'ticket_1',state:'paid'}})
   assert.equal((await blocked.post()).status,200);assert.deepEqual(blocked.actions.map(a=>a.table),['tickets'])
+})
+
+function houseEvent() {
+ const product='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', artist='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+ const ids={kind:'gallery_order',site:'cafe-sativa',user_id:'user_1',product_id:product,artist_id:artist,
+   gallery_sale_kind:'house',gallery_platform_account_id:'acct_house'}
+ const session={id:'cs_house',mode:'payment',currency:'usd',payment_status:'paid',amount_total:1200,
+   livemode:true,payment_intent:'pi_house',metadata:{...ids,quantity:'1',
+     inventory_hold_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',approved_asset_id:'approved_edition'}}
+ return [{type:'checkout.session.completed',livemode:true,data:{object:session}},{
+   env:{GALLERY_HOUSE_PRODUCT_ID:product,GALLERY_HOUSE_ARTIST_ID:artist,GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+        GALLERY_HOUSE_CHECKOUT_ENABLED:'false'}, // existing paid events must finish with new sales off
+   product:{id:product,kind:'digital'},accountId:'acct_house',
+   lines:[{quantity:1,amount_subtotal:1200,currency:'usd'}],
+   intent:{id:'pi_house',status:'succeeded',currency:'usd',livemode:true,amount:1200,amount_received:1200,
+     metadata:{...ids},application_fee_amount:null,transfer_data:null,on_behalf_of:null},
+   rpcResult:{id:'order_house',created:false}
+ }]
+}
+test('house paid receipt is persisted without fee or separate entitlement write while new sales disabled',async()=>{
+ const h=setup(...houseEvent())
+ assert.equal((await h.post()).status,200)
+ assert.equal(h.actions.length,1)
+ const a=h.actions[0]
+ assert.equal(a.name,'cs_record_house_gallery_payment')
+ assert.equal(a.input.receipt.application_fee_cents,0)
+ assert.equal(a.input.p_asset,'approved_edition')
+})
+test('house event with wrong key account, Connect destination, or inconsistent classification makes no writes',async()=>{
+ for(const modify of [
+  (e,o)=>o.accountId='acct_wrong',
+  (e,o)=>o.intent.transfer_data={destination:'acct_wrong'},
+  (e,o)=>o.intent.application_fee_amount=120,
+  (e,o)=>delete e.data.object.metadata.gallery_sale_kind,
+  (e,o)=>delete e.data.object.metadata.approved_asset_id,
+  (e,o)=>o.intent.amount_received=1000,
+  (e,o)=>o.intent.livemode=false
+ ]){
+  const [e,o]=houseEvent();modify(e,o)
+  const h=setup(e,o)
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.actions.length,0)
+ }
 })

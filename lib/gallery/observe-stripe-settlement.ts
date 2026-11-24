@@ -7,7 +7,7 @@ const idOf = (value: string | {id:string} | null | undefined) =>
  * Stripe transfers gross and separately returns the application fee to the platform.
  * Unknown provider records or cross-currency settlements cannot establish a net split.
  */
-export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean){
+export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean,expectedSaleKind:'consigned'|'house'='consigned'){
  const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:['latest_charge']})
  const charge=intent.latest_charge
  if(intent.id!==paymentIntentId||intent.livemode!==expectedLive||intent.status!=='succeeded'||
@@ -16,7 +16,12 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
    intent.metadata?.kind!=='gallery_order'||charge.currency!==intent.currency)throw Error('Gallery charge unavailable')
  const transferId=idOf(charge.transfer),feeId=idOf(charge.application_fee)
  const destination=idOf(intent.transfer_data?.destination)
- if(!destination)throw Error('Gallery destination unavailable')
+ const house=expectedSaleKind==='house'
+ if(house){
+  if(intent.metadata?.gallery_sale_kind!=='house'||intent.transfer_data||intent.on_behalf_of||
+    (intent.application_fee_amount!==null&&intent.application_fee_amount!==0)||transferId||feeId)
+   throw Error('House charge has invalid settlement classification')
+ }else if(!destination||intent.metadata?.gallery_sale_kind)throw Error('Gallery destination unavailable')
  const [transfer,fee]=await Promise.all([
   transferId?stripe.transfers.retrieve(transferId):Promise.resolve(null),
   feeId?stripe.applicationFees.retrieve(feeId):Promise.resolve(null)
@@ -55,7 +60,7 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
   ?chargeBalance.fee_cents+succeeded.reduce((n,r)=>n+(r.balance?.fee_cents??0),0):null
  const actualArtist=netFee!==null&&netTransfer!==null?netTransfer-netFee:null
  const attention:string[]=[]
- if(!transfer||!fee)attention.push('missing_connect_records')
+ if(!house&&(!transfer||!fee))attention.push('missing_connect_records')
  if(transfer&&transfer.amount!==charge.amount_captured)attention.push('gross_transfer_mismatch')
  if(fee&&fee.amount!==intent.application_fee_amount)attention.push('application_fee_mismatch')
  if(succeededTotal!==charge.amount_refunded||refunds.some(r=>!['succeeded','failed','canceled'].includes(r.status)))attention.push('refund_not_final')
@@ -64,7 +69,7 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
  if(fee&&charge.amount_captured>0&&fee.amount_refunded!==Math.floor(fee.amount*succeededTotal/charge.amount_captured))attention.push('fee_reversal_review')
  return {
   payment_intent_id:intent.id,charge_id:charge.id,currency:charge.currency,livemode:expectedLive,
-  captured_cents:charge.amount_captured,refunded_cents:charge.amount_refunded,
+  captured_cents:charge.amount_captured,refunded_cents:charge.amount_refunded,sale_kind:expectedSaleKind,
   expected_original_fee_cents:intent.application_fee_amount,
   transfer_id:transfer?.id??null,transfer_cents:transfer?.amount??null,
   transfer_reversed_cents:transfer?.amount_reversed??null,
@@ -89,9 +94,10 @@ export function compareGalleryOrderSettlement(
  if(snapshot.currency!==order.currency||![subtotal,total,shipping,tax].every(Number.isSafeInteger)||
    subtotal<=0||total<=0||shipping<0||tax<0||snapshot.captured_cents!==total)
   throw Error('Order settlement basis mismatch')
- const originalFee=Math.floor(subtotal/10)
+ const house=snapshot.sale_kind==='house'
+ const originalFee=house?0:Math.floor(subtotal/10)
  const attention=[...snapshot.attention]
- if(snapshot.expected_original_fee_cents!==originalFee||
+ if((snapshot.expected_original_fee_cents??(house?0:null))!==originalFee||
    (snapshot.application_fee_cents!==null&&snapshot.application_fee_cents!==originalFee))
   attention.push('order_commission_mismatch')
  const ordinary=shipping===0&&tax===0&&subtotal===total
@@ -100,16 +106,19 @@ export function compareGalleryOrderSettlement(
  if(!Number.isSafeInteger(refunded)||refunded<0||refunded>total)throw Error('Order refund amount mismatch')
  const final=ordinary&&!attention.includes('refund_not_final')
  const expectedFee=final?originalFee-Math.floor(originalFee*refunded/subtotal):null
- const expectedArtist=expectedFee===null?null:subtotal-refunded-expectedFee
+ const expectedArtist=expectedFee===null?null:house?0:subtotal-refunded-expectedFee
  if(expectedFee!==null&&snapshot.observed_platform_application_fee_cents!==null&&
     snapshot.observed_platform_application_fee_cents!==expectedFee)attention.push('order_net_commission_mismatch')
  if(expectedArtist!==null&&snapshot.observed_artist_connect_allocation_cents!==null&&
     snapshot.observed_artist_connect_allocation_cents!==expectedArtist)attention.push('order_net_artist_mismatch')
- return {order_subtotal_cents:subtotal,order_total_cents:total,
+ return {sale_kind:snapshot.sale_kind,order_subtotal_cents:subtotal,order_total_cents:total,
   expected_original_commission_cents:originalFee,
   expected_remaining_commission_cents:expectedFee,expected_remaining_artist_cents:expectedArtist,
   observed_platform_after_charge_refund_fees_cents:
-   snapshot.observed_platform_application_fee_cents!==null&&snapshot.observed_charge_refund_balance_fee_cents!==null
-    ?snapshot.observed_platform_application_fee_cents-snapshot.observed_charge_refund_balance_fee_cents:null,
+   snapshot.observed_charge_refund_balance_fee_cents!==null
+    ?house?(attention.includes('refund_not_final')?null:total-refunded-snapshot.observed_charge_refund_balance_fee_cents)
+     :snapshot.observed_platform_application_fee_cents!==null
+      ?snapshot.observed_platform_application_fee_cents-snapshot.observed_charge_refund_balance_fee_cents:null
+    :null,
   attention:[...new Set(attention)]}
 }

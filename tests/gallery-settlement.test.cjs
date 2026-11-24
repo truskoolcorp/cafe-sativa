@@ -55,3 +55,23 @@ test('non-artwork allocation, pending refund and invalid order basis fail closed
  assert.throws(()=>compare({...order,total_cents:9999},snapshot),/basis mismatch/)
  assert.throws(()=>compare({...order,currency:'eur'},snapshot),/basis mismatch/)
 })
+
+test('house sale stays on platform without touching Connect and reports processor fees and a refund',async()=>{
+ const stripe=mock({refund:2000,missing:true})
+ const pi=await stripe.paymentIntents.retrieve()
+ pi.metadata.gallery_sale_kind='house'
+ pi.transfer_data=null
+ pi.application_fee_amount=null
+ stripe.transfers.retrieve=()=>{throw Error('Connect API must not run')}
+ stripe.applicationFees.retrieve=()=>{throw Error('Connect API must not run')}
+ const x=await observe(stripe,'pi_fixture',false,'house')
+ assert.equal(x.transfer_id,null)
+ assert.equal(x.application_fee_id,null)
+ assert.equal(x.attention.length,0)
+ assert.equal(compare(order,x).expected_remaining_artist_cents,0)
+ assert.equal(compare(order,x).expected_original_commission_cents,0)
+ assert.equal(compare(order,x).observed_platform_after_charge_refund_fees_cents,7680)
+ await assert.rejects(observe(stripe,'pi_fixture',false),/destination unavailable/)
+ pi.transfer_data={destination:'acct_wrong'}
+ await assert.rejects(observe(stripe,'pi_fixture',false,'house'),/invalid settlement classification/)
+})

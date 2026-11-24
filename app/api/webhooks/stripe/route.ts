@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import {recordGalleryRefunds} from '@/lib/gallery/reconcile-refunds'
 import {galleryEnvironment} from '@/lib/gallery/environment'
+import {galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount} from '@/lib/gallery/house-checkout'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncCafeMembership } from '@/lib/sync-membership'
 
@@ -123,18 +124,43 @@ export async function POST(req: Request) {
           ])
           if(lines.has_more || lines.data.length!==1 || lines.data[0].quantity!==quantity)throw Error('Checkout line mismatch')
           const line=lines.data[0],lineTotal=line.amount_subtotal
-          const applicationFee=intent.application_fee_amount
-          if(!Number.isInteger(lineTotal)||lineTotal<=0||lineTotal%quantity!==0||applicationFee===null)throw Error('Invalid paid line')
+          if(!Number.isSafeInteger(lineTotal)||lineTotal<=0||lineTotal%quantity!==0)throw Error('Invalid paid line')
           const shipping = session.collected_information?.shipping_details ?? null
           const addr = shipping?.address ?? null
           const { data: product,error:productError } = await admin.from('products').select('id,title,kind,digital_delivery_url').eq('id', productId).maybeSingle()
           if(productError || !product)throw Error('Paid product unavailable')
           const fulfillmentState='pending'
           const holdId=session.metadata?.inventory_hold_id
+          const approvedAssetId=session.metadata?.approved_asset_id
+          const sellerKind=gallerySellerKind(productId,artistId,product.kind)
+          const house=galleryHouseConfig()
+          const sessionSaleKind=session.metadata?.gallery_sale_kind
+          const intentSaleKind=intent.metadata?.gallery_sale_kind
+          const housePayment=sessionSaleKind==='house' || intentSaleKind==='house' || sellerKind!=='consigned'
+          let applicationFee=intent.application_fee_amount
+          if(housePayment){
+            // A signed Stripe event still must match server-controlled identities, pending reservation,
+            // the actual platform key's account, and the provider's transfer-free settlement.
+            if(sellerKind!=='house'||!house||sessionSaleKind!=='house'||intentSaleKind!=='house'||
+              session.metadata?.gallery_platform_account_id!==house.accountId||intent.metadata?.gallery_platform_account_id!==house.accountId||
+              (event.account&&event.account!==house.accountId)||
+              !holdId||!approvedAssetId||session.metadata?.site!=='cafe-sativa'||session.mode!=='payment'||
+              intent.metadata.kind!=='gallery_order'||intent.metadata.product_id!==productId||
+              intent.metadata.artist_id!==artistId||intent.metadata.user_id!==userId||
+              intent.id!==paymentIntentId||intent.status!=='succeeded'||intent.livemode!==(galleryMode==='production')||
+              event.livemode!==intent.livemode||session.livemode!==intent.livemode||
+              intent.currency!==session.currency||line.currency!==intent.currency||
+              !Number.isSafeInteger(session.amount_total)||intent.amount_received!==session.amount_total||
+              intent.amount!==session.amount_total||intent.transfer_data||intent.on_behalf_of||
+              (applicationFee!==null&&applicationFee!==0)||
+              !await verifiedGalleryHouseAccount(stripe,house.accountId,false))throw Error('Invalid house Gallery settlement')
+            applicationFee=0
+          }else if(applicationFee===null||sessionSaleKind||intentSaleKind)throw Error('Invalid artist Gallery settlement')
           if (galleryMode === 'isolated-test' && (!holdId || (product.kind === 'digital' && !session.metadata?.approved_asset_id))) throw Error('Isolated test purchase requires a reservation and approved digital edition')
           if(holdId && (session.metadata?.site!=='cafe-sativa' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(holdId)))throw Error('Invalid gallery reservation')
-          const {data:recorded,error:recordError}=await admin.rpc(holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
+          const {data:recorded,error:recordError}=await admin.rpc(housePayment?'cs_record_house_gallery_payment':holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
             ...(holdId?{p_hold:holdId}:{}),
+            ...(housePayment?{p_asset:approvedAssetId}:{}),
             product_uuid:productId,artist_uuid:artistId,quantity,
             receipt:{session_id:session.id,payment_status:session.payment_status,user_id:userId,
               payment_intent_id:paymentIntentId,email:session.customer_details?.email || session.customer_email || '',
@@ -145,8 +171,7 @@ export async function POST(req: Request) {
               shipping_city:addr?.city,shipping_state:addr?.state,shipping_postal_code:addr?.postal_code,shipping_country:addr?.country},
           })
           if(recordError || !recorded?.id)throw Error('Atomic paid order write failed')
-          const approvedAssetId=session.metadata?.approved_asset_id
-          if(approvedAssetId && session.metadata?.site==='cafe-sativa' && product.kind==='digital'){
+          if(!housePayment && approvedAssetId && session.metadata?.site==='cafe-sativa' && product.kind==='digital'){
             const {data:asset,error:assetError}=await admin.from('gallery_approved_assets').select('id,product_id,revoked_at').eq('id',approvedAssetId).eq('product_id',productId).maybeSingle()
             if(assetError || !asset || asset.revoked_at)throw Error('Purchased edition requires reconciliation')
             const {error:mappingError}=await admin.from('gallery_private_deliveries').upsert({

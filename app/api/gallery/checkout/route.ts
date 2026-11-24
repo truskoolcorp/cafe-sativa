@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
 import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
@@ -172,7 +173,17 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!artistRow.is_approved || !artistRow.charges_enabled || !artistRow.payouts_enabled) {
+  const configuredHouse = galleryHouseConfig()
+  if (process.env.GALLERY_HOUSE_CHECKOUT_ENABLED === 'true' && !configuredHouse) {
+    return NextResponse.json({ error: 'House checkout configuration is unavailable.' }, { status: 503 })
+  }
+  const saleKind = gallerySellerKind(product.id, artistRow.id, product.kind)
+  const house = saleKind === 'house' ? configuredHouse : null
+  if (saleKind === 'blocked' || (house && process.env.GALLERY_HOUSE_CHECKOUT_ENABLED !== 'true')) {
+    return NextResponse.json({ error: 'This house artwork is not ready for checkout.' }, { status: 409 })
+  }
+
+  if (!artistRow.is_approved || (!house && (!artistRow.charges_enabled || !artistRow.payouts_enabled))) {
     return NextResponse.json(
       {
         error:
@@ -183,7 +194,7 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!artistRow.stripe_account_id) {
+  if (!house && !artistRow.stripe_account_id) {
     return NextResponse.json(
       { error: 'Artist payout account is missing.' },
       { status: 500 }
@@ -206,6 +217,23 @@ export async function POST(req: Request) {
   const applicationFee = Math.floor((lineTotal * PLATFORM_FEE_BPS) / 10000)
 
   const stripe = new Stripe(stripeSecretKey)
+  if (house) {
+    if (!approvedAssetId) return NextResponse.json({ error: 'House edition is unavailable.' }, { status: 409 })
+    const { data: ready, error: readyError } = await admin.rpc('cs_gallery_house_ready', {
+      p_product: product.id, p_artist: artistRow.id, p_asset: approvedAssetId,
+    })
+    if (readyError || ready !== true) {
+      return NextResponse.json({ error: 'House checkout is not ready.' }, { status: 503 })
+    }
+    try {
+      if (!await verifiedGalleryHouseAccount(stripe, house.accountId, true)) {
+        return NextResponse.json({ error: 'House checkout account is unavailable.' }, { status: 503 })
+      }
+    } catch {
+      return NextResponse.json({ error: 'House checkout account is unavailable.' }, { status: 503 })
+    }
+  }
+  const houseMetadata: Stripe.MetadataParam = house ? { gallery_sale_kind: 'house', gallery_platform_account_id: house.accountId } : {}
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'
 
@@ -239,15 +267,15 @@ export async function POST(req: Request) {
           },
         },
       ],
-      // Destination charge — platform collects, then transfers net
-      // to the artist's connected account. Application fee is in
-      // cents on the base currency.
+      // Consigned artwork is a destination charge with an application fee.
+      // House artwork is a direct charge to the verified platform account.
       payment_intent_data: {
-        application_fee_amount: applicationFee,
-        transfer_data: {
-          destination: artistRow.stripe_account_id,
-        },
+        ...(!house ? {
+          application_fee_amount: applicationFee,
+          transfer_data: { destination: artistRow.stripe_account_id },
+        } : {}),
         metadata: {
+          ...houseMetadata,
           kind: 'gallery_order',
           product_id: product.id,
           artist_id: artistRow.id,
@@ -255,6 +283,7 @@ export async function POST(req: Request) {
         },
       },
       metadata: {
+        ...houseMetadata,
         kind: 'gallery_order',
         product_id: product.id,
         artist_id: artistRow.id,

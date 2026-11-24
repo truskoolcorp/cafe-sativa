@@ -18,9 +18,12 @@ create schema storage;
 create table storage.buckets(id text primary key,name text,public boolean);
 create table storage.objects(bucket_id text,name text,primary key(bucket_id,name));
 alter table storage.objects enable row level security;
-create table public.products(id uuid primary key,kind text,status text,stock_count integer);
-create table public.orders(id uuid primary key default gen_random_uuid(),session_id text unique,user_id uuid,paid_at timestamptz,fulfillment_state text,updated_at timestamptz default now());
-create table public.order_items(order_id uuid references orders(id),product_id uuid references products(id));
+create table public.artists(id uuid primary key,is_approved boolean not null default false);
+create table public.products(id uuid primary key,kind text,status text,stock_count integer,artist_id uuid,title text,price_cents integer,currency text);
+create table public.orders(id uuid primary key default gen_random_uuid(),session_id text unique,user_id uuid,paid_at timestamptz,fulfillment_state text,updated_at timestamptz default now(),
+ stripe_checkout_session_id text unique,stripe_payment_intent_id text unique,buyer_email text,subtotal_cents integer,shipping_cents integer,tax_cents integer,total_cents integer,currency text);
+create table public.order_items(order_id uuid references orders(id),product_id uuid references products(id),
+ artist_id uuid,title_snapshot text,price_cents integer,quantity integer,line_total_cents integer,application_fee_cents integer,transfer_destination text);
 -- A synthetic base RPC with the previously inspected signature and locking/idempotency
 -- contract. This is NOT the production function body or a production-schema clone.
 create function public.cs_record_gallery_payment(receipt jsonb,product_uuid uuid,artist_uuid uuid,quantity integer)
@@ -40,7 +43,7 @@ begin
 end; $$;
 insert into products values('00000000-0000-4000-8000-000000000001','digital','published',1);
 SQL
-for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations; do
+for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations proposed-house-checkout; do
  psql -f "docs/gallery/$file.sql" >/dev/null
 done
 # Independent sessions contend for a single limited edition; only one may hold it.
@@ -96,7 +99,7 @@ begin
  if cs_authorize_gallery_delivery(oid) then raise exception 'refunded delivery authorized'; end if;
  if (select state from gallery_delivery_outbox where order_id=oid)<>'canceled' then raise exception 'refund did not cancel pending notice'; end if;
  if (select stock_count from products where id=h.product_id)<>0 then raise exception 'refund automatically restocked'; end if;
- if has_function_privilege('authenticated','cs_authorize_gallery_delivery(uuid)','EXECUTE') or has_function_privilege('anon','cs_hold_gallery_inventory(uuid,uuid,integer)','EXECUTE') or has_function_privilege('authenticated','cs_record_reserved_gallery_payment(uuid,uuid,uuid,integer,jsonb)','EXECUTE') then raise exception 'public RPC permission'; end if;
+ if has_function_privilege('authenticated','cs_gallery_house_ready(uuid,uuid,uuid)','EXECUTE') or has_function_privilege('anon','cs_record_house_gallery_payment(uuid,uuid,uuid,uuid,integer,jsonb)','EXECUTE') or has_function_privilege('authenticated','cs_record_house_gallery_payment(uuid,uuid,uuid,uuid,integer,jsonb)','EXECUTE') or has_function_privilege('authenticated','cs_authorize_gallery_delivery(uuid)','EXECUTE') or has_function_privilege('anon','cs_hold_gallery_inventory(uuid,uuid,integer)','EXECUTE') or has_function_privilege('authenticated','cs_record_reserved_gallery_payment(uuid,uuid,uuid,integer,jsonb)','EXECUTE') then raise exception 'public RPC permission'; end if;
  raise notice 'PASS: concurrent hold, mismatched receipt rejection, synthetic payment replay, approved mapping/object gate, outbox deduplication, refund access-state denial and no automatic restock';
 end $$;
 SQL
@@ -129,3 +132,55 @@ begin
 end $settlement$;
 SQL
 echo 'Synthetic PostgreSQL migration/RPC fixture passed; not actual Stripe, Supabase storage, or production RPC proof.'
+
+psql <<'SQL'
+do $house$
+declare pid uuid:='00000000-0000-4000-8000-000000000003'; artist uuid:='00000000-0000-4000-8000-000000000023';
+ buyer uuid:='00000000-0000-4000-8000-000000000013'; hold uuid; asset uuid; oid uuid; r jsonb; receipt jsonb;
+begin
+ insert into artists(id,is_approved) values(artist,true);
+ insert into products(id,kind,status,stock_count,artist_id,title,price_cents,currency) values(pid,'digital','published',1,artist,'House fixture',1200,'usd');
+ hold:=cs_hold_gallery_inventory(pid,buyer,1);
+ update gallery_inventory_holds set stripe_session_id='cs_test_house' where id=hold;
+ insert into gallery_approved_assets(product_id,object_path,sha256,approved_by)
+ values(pid,pid::text||'/house.bin',repeat('b',64),buyer) returning id into asset;
+ if cs_gallery_house_ready(pid,artist,asset) then raise exception 'house checkout readiness allowed missing private source'; end if;
+ insert into storage.objects values('gallery-approved',pid::text||'/house.bin');
+ if not cs_gallery_house_ready(pid,artist,asset) or cs_gallery_house_ready(pid,buyer,asset) then raise exception 'house checkout readiness misclassified'; end if;
+ receipt:=jsonb_build_object('session_id','cs_test_house','payment_intent_id','pi_test_house','payment_status','paid',
+  'user_id',buyer,'subtotal_cents',1200,'total_cents',1200,'currency','usd','application_fee_cents',0);
+ begin
+  perform cs_record_house_gallery_payment(hold,asset,pid,artist,1,receipt||'{"application_fee_cents":120}');
+  raise exception 'house accepted application fee';
+ exception when others then
+  if sqlerrm<>'Invalid house receipt' then raise; end if;
+ end;
+ begin
+  perform cs_record_house_gallery_payment(hold,asset,pid,buyer,1,receipt);
+  raise exception 'house accepted mismatched artist';
+ exception when others then
+  if sqlerrm<>'House product mismatch' then raise; end if;
+ end;
+ begin
+  perform cs_record_house_gallery_payment(hold,buyer,pid,artist,1,receipt);
+  raise exception 'house accepted mismatched approved edition';
+ exception when others then
+  if sqlerrm<>'House edition unavailable' then raise; end if;
+ end;
+ r:=cs_record_house_gallery_payment(hold,asset,pid,artist,1,receipt); oid:=(r->>'id')::uuid;
+ if r->>'created'<>'true' or not exists(select 1 from order_items where order_id=oid and gallery_sale_kind='house'
+    and application_fee_cents=0 and transfer_destination is null) or
+    not exists(select 1 from gallery_private_deliveries where order_id=oid and approved_asset_id=asset) then
+  raise exception 'house receipt not recorded with atomic edition mapping';
+ end if;
+ r:=cs_record_house_gallery_payment(hold,asset,pid,artist,1,receipt);
+ if r->>'created'<>'false' or (r->>'id')::uuid<>oid or (select stock_count from products where id=pid)<>0 then
+  raise exception 'invalid replay or stock';
+ end if;
+ insert into storage.objects values('gallery-private',oid::text||'/'||asset::text);
+ if not cs_authorize_gallery_delivery(oid) then raise exception 'house entitlement not authorized'; end if;
+ update orders set fulfillment_state='refunded' where id=oid;
+ if cs_authorize_gallery_delivery(oid) or (select stock_count from products where id=pid)<>0 then raise exception 'house refund handling failed'; end if;
+ raise notice 'PASS: house route no fee or transfer, edition mapping, idempotent stock and refund denial';
+end $house$;
+SQL

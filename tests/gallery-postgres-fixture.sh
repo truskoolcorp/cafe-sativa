@@ -108,7 +108,7 @@ do $$ begin
 end $$;
 SQL
 psql <<'SQL'
-do $
+do $settlement$
 declare oid uuid;
 begin
  select id into strict oid from orders;
@@ -126,6 +126,6 @@ begin
   raise exception 'mismatched provider identifier accepted';
  exception when check_violation then null;
  end;
-end $;
+end $settlement$;
 SQL
 echo 'Synthetic PostgreSQL migration/RPC fixture passed; not actual Stripe, Supabase storage, or production RPC proof.'

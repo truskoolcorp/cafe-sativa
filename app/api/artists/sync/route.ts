@@ -11,8 +11,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
  * onboarding (?onboarding=complete) or clicks a manual "refresh"
  * button. Retrieves the current Connect account state from Stripe
  * and mirrors payouts_enabled / charges_enabled / onboarding_state
- * into our artists row, plus flips is_approved on when both
- * capabilities are active.
+ * into our artists row. Editorial approval remains independent.
  *
  * This is belt-and-suspenders alongside the account.updated webhook
  * (which also syncs): webhooks can be delayed or drop, and the
@@ -55,7 +54,7 @@ export async function POST(req: Request) {
 
   const { data: artist } = await admin
     .from('artists')
-    .select('id, stripe_account_id')
+    .select('id, stripe_account_id, is_approved')
     .eq('user_id', authData.user.id)
     .maybeSingle()
 
@@ -84,17 +83,17 @@ export async function POST(req: Request) {
       onboardingState = 'rejected'
     }
 
-    const isApproved = onboardingState === 'active'
+    const isApproved = artist.is_approved === true
 
-    await admin
+    const { error: syncError } = await admin
       .from('artists')
       .update({
         payouts_enabled: payoutsEnabled,
         charges_enabled: chargesEnabled,
         onboarding_state: onboardingState,
-        is_approved: isApproved,
       })
       .eq('id', artist.id)
+    if (syncError) throw syncError
 
     return NextResponse.json({
       onboarding_state: onboardingState,

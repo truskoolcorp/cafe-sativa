@@ -1,4 +1,3 @@
-import {createClient} from '@supabase/supabase-js'
 import {galleryWorkSlug} from './zaria'
 
 type PublicWork = {slug:unknown; title?:unknown; description?:unknown; kind?:unknown; artist_name?:unknown}
@@ -23,6 +22,7 @@ export async function loadZariaGallery(value: unknown) {
   try {
     const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     if(!url||!key)return publicGallerySelection([],slug,true)
+    const {createClient}=await import('@supabase/supabase-js')
     const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}})
     const columns='slug,title,description,kind,artist_name'
     const base=()=>db.from('gallery_v').select(columns).in('kind',['digital','physical']).abortSignal(AbortSignal.timeout(3500))

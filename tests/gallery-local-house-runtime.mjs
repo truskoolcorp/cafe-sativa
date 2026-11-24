@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, openSync, closeSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { randomBytes, createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
@@ -14,7 +15,7 @@ const get = (path,opts={}) => fetch(app+path,{...opts,redirect:'error',signal:Ab
 const must=(x)=>{if(!x||x.error)throw Error('Fixture operation failed');return x.data}
 const check=(predicate)=>{if(!predicate)throw Error('Fixture expectation did not pass')}
 const phase=(label)=>{process.stdout.write('PASS: '+label+'\n')}
-let stage='verified local runtime inputs', server, browser
+let stage='verified local runtime inputs', server, browser, serverLog, lastStatus=0
 try {
  check(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_REPOSITORY==='truskoolcorp/cafe-sativa'&&
   process.env.GITHUB_EVENT_NAME==='pull_request'&&process.env.GITHUB_HEAD_REF==='qa/gallery-house-local-runtime-20261124'&&process.env.GITHUB_RUN_ATTEMPT==='1')
@@ -40,15 +41,26 @@ try {
   GALLERY_DELIVERY_NOTICES:'false',GALLERY_SALES_ENABLED:'false',GALLERY_INVENTORY_RECONCILE:'false',
   CRON_SECRET:cron}
  delete env.LIVEKIT_API_KEY
- server=spawn(process.execPath,['node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port','4116'],
-  {env,stdio:'ignore',detached:true})
+ serverLog=join(dirname(process.argv[2]),'next-private.log')
+ const fd=openSync(serverLog,'wx',0o600)
+ try {
+  server=spawn(process.execPath,['node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port','4116'],
+   {env,stdio:['ignore',fd,fd],detached:true})
+ } finally {closeSync(fd)}
  let ready=false
- for(let n=0;n<30&&!ready;n++){
+ for(let n=0;n<45&&!ready;n++){
   if(server.exitCode!==null)break
-  try {ready=(await fetch(app+orderPath,{signal:AbortSignal.timeout(7000)})).status===404} catch {}
+  try {
+   const response=await fetch(app+orderPath,{redirect:'manual',signal:AbortSignal.timeout(10000)})
+   lastStatus=response.status
+   if(lastStatus<500||lastStatus===503)ready=true
+  } catch {}
   if(!ready)await new Promise(r=>setTimeout(r,1000))
  }
  check(ready)
+ phase(stage)
+ stage='local Gallery route mode'
+ check(lastStatus===404)
  phase(stage)
  stage='sale remains disabled and no provider call'
  const off=await get('/api/gallery/checkout',{method:'POST',headers:{Cookie:cookieA,Origin:app,'Content-Type':'application/json'},
@@ -107,7 +119,16 @@ try {
  phase(stage)
  console.log('PASS: isolated real Supabase/Next/browser runtime; Stripe provider was not contacted or verified.')
 } catch {
- console.error('Isolated synthetic run failed at: '+stage+'. Diagnostics suppressed.')
+ let reason='unclassified'
+ try{
+  const log=readFileSync(serverLog,'utf8')
+  reason=/Module not found|Cannot find module/.test(log)?'next dependency resolution':
+    /EADDRINUSE/.test(log)?'local port already occupied':
+    /Failed to load SWC|SWC binary/.test(log)?'next compiler startup':
+    /SyntaxError|Failed to compile/.test(log)?'next source compilation':
+    /Ready in/.test(log)?'server listening':'server readiness not seen'
+ }catch{}
+ console.error('Isolated synthetic run failed at: '+stage+'. Last startup HTTP='+String(lastStatus)+', '+reason+'. Raw diagnostics suppressed.')
  process.exitCode=1
 } finally {
  if(browser)await browser.close().catch(()=>{})

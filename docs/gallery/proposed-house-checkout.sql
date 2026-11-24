@@ -6,7 +6,7 @@ alter table public.order_items add column gallery_sale_kind text
 
 -- Prevent starting Stripe Checkout before both this migration and a private approved edition are ready.
 create function public.cs_gallery_house_ready(p_product uuid,p_artist uuid,p_asset uuid)
-returns boolean language sql stable security invoker set search_path='' as $
+returns boolean language sql stable security invoker set search_path='' as $ready$
  select exists(select 1 from public.products p
   join public.artists ar on ar.id=p.artist_id
   join public.gallery_approved_assets a on a.product_id=p.id
@@ -15,7 +15,7 @@ returns boolean language sql stable security invoker set search_path='' as $
   where p.id=p_product and p.artist_id=p_artist and p.status::text='published'
    and p.kind::text='digital' and p.price_cents>0 and lower(p.currency)='usd'
    and ar.is_approved and a.id=p_asset and a.revoked_at is null);
-$;
+$ready$;
 revoke all on function public.cs_gallery_house_ready(uuid,uuid,uuid) from public,anon,authenticated;
 grant execute on function public.cs_gallery_house_ready(uuid,uuid,uuid) to service_role;
 

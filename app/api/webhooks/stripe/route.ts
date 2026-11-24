@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import {recordGalleryRefunds} from '@/lib/gallery/reconcile-refunds'
-import {galleryEnvironment} from '@/lib/gallery/environment'
+import {galleryMerchantRequestUrl, usesMerchantSandboxKey, galleryEnvironment} from '@/lib/gallery/environment'
 import {galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount} from '@/lib/gallery/house-checkout'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncCafeMembership } from '@/lib/sync-membership'
@@ -9,8 +9,12 @@ import { syncCafeMembership } from '@/lib/sync-membership'
 type MembershipTier = 'regular' | 'vip'
 export async function POST(req: Request) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY
-  const galleryMode = galleryEnvironment(req.url)
+  const galleryMode = galleryEnvironment(galleryMerchantRequestUrl(req))
   const dedicated = new URL(req.url).pathname === '/api/gallery/webhook'
+  const merchantSandbox = usesMerchantSandboxKey(stripeSecretKey)
+  if (merchantSandbox && (!dedicated || galleryMode !== 'isolated-test')) {
+    return NextResponse.json({ error: 'Merchant sandbox requires dedicated local ingress.' }, { status: 503 })
+  }
   // Dedicated sandbox ingress never accepts production credentials; shared ingress
   // must not consume Gallery test events or operate on the isolated database.
   if ((dedicated && galleryMode !== 'isolated-test') || (!dedicated && galleryMode === 'isolated-test')) {
@@ -33,7 +37,22 @@ export async function POST(req: Request) {
     if (event.livemode !== false) return NextResponse.json({ error: 'Test event required.' }, { status: 400 })
     const isGalleryCheckout = (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') &&
       (event.data.object as Stripe.Checkout.Session).metadata?.kind === 'gallery_order' && (event.data.object as Stripe.Checkout.Session).metadata?.site === 'cafe-sativa'
-    if (stripeSecretKey.startsWith('rkcs_test_') && event.type !== 'charge.refunded' &&
+    if (merchantSandbox && event.type === 'charge.refunded') {
+      const house = galleryHouseConfig()
+      const charge = event.data.object as Stripe.Charge
+      const meta = charge.metadata
+      if (!house || charge.livemode !== false || meta?.gallery_sale_kind !== 'house' ||
+          meta.gallery_platform_account_id !== house.accountId || meta.product_id !== house.productId ||
+          meta.artist_id !== house.artistId || meta.kind !== 'gallery_order') return NextResponse.json({ received: true })
+      try {
+        if (!await verifiedGalleryHouseAccount(stripe, house.accountId, false)) {
+          return NextResponse.json({ error: 'Merchant sandbox account mismatch.' }, { status: 503 })
+        }
+      } catch {
+        return NextResponse.json({ error: 'Merchant sandbox account verification unavailable.' }, { status: 503 })
+      }
+    }
+    if ((merchantSandbox || stripeSecretKey.startsWith('rkcs_test_')) && event.type !== 'charge.refunded' &&
         (!isGalleryCheckout || (event.data.object as Stripe.Checkout.Session).metadata?.gallery_sale_kind !== 'house')) {
       return NextResponse.json({ received: true })
     }

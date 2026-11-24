@@ -105,7 +105,10 @@ export async function POST(req: Request) {
           const { data: product,error:productError } = await admin.from('products').select('id,title,kind,digital_delivery_url').eq('id', productId).maybeSingle()
           if(productError || !product)throw Error('Paid product unavailable')
           const fulfillmentState='pending'
-          const {data:recorded,error:recordError}=await admin.rpc('cs_record_gallery_payment',{
+          const holdId=session.metadata?.inventory_hold_id
+          if(holdId && (session.metadata?.site!=='cafe-sativa' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(holdId)))throw Error('Invalid gallery reservation')
+          const {data:recorded,error:recordError}=await admin.rpc(holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
+            ...(holdId?{p_hold:holdId}:{}),
             product_uuid:productId,artist_uuid:artistId,quantity,
             receipt:{session_id:session.id,payment_status:session.payment_status,user_id:userId,
               payment_intent_id:paymentIntentId,email:session.customer_details?.email || session.customer_email || '',

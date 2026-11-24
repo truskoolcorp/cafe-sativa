@@ -135,16 +135,16 @@ export default async function ProductDetailPage({ params }: Params) {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-12">
           {/* Image */}
           <div className="lg:col-span-3">
-            <div className="rounded-xl overflow-hidden bg-muted border border-border aspect-[4/5] lg:aspect-auto lg:min-h-[600px]">
+            <div className="flex justify-center overflow-hidden rounded-xl border border-border bg-muted">
               {product.primary_image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={product.primary_image_url}
                   alt={product.title}
-                  className="w-full h-full object-cover"
+                  className="block h-auto w-auto max-h-[min(78svh,850px)] max-w-full"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                <div className="flex aspect-[4/5] w-full items-center justify-center text-muted-foreground">
                   No image
                 </div>
               )}

@@ -9,8 +9,8 @@ const tailwind = require('tailwindcss')
 const source = process.env.GALLERY_FIXTURE_SOURCE || '.'
 const Out = process.env.GALLERY_FIXTURE_OUT || '.gallery-browser-evidence'
 const noNetwork = () => { throw new Error('Unexpected fixture dependency') }
-const svg = (caption, art) => 'data:image/svg+xml;base64,' + Buffer.from(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">' +
+const svg = (caption, art, width = 1000, height = 620) => 'data:image/svg+xml;base64,' + Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 1000 620" preserveAspectRatio="none">' +
   '<defs><linearGradient id="g"><stop stop-color="#140d0a"/><stop offset="1" stop-color="#764e34"/></linearGradient></defs>' +
   '<path fill="url(#g)" d="M0 0h1000v620H0z"/><path stroke="#b48b65" stroke-width="2" fill="none" d="M65 60h870v475H65zM285 60v475m430-475v475" opacity=".65"/>' +
   (art ? '<circle cx="505" cy="282" r="140" fill="#bf8850" opacity=".7"/>' : '<path fill="#c99968" opacity=".27" d="M336 77h329v393H336z"/>') +
@@ -22,7 +22,11 @@ const product = {
   title: 'Where the Brass Meets the Tide', artist_name: 'Café Sativa Studio',
   artist_slug: 'cafe-sativa-studio', description: 'Synthetic catalogue fixture, not a live listing.',
   kind: 'digital', price_cents: 1200, currency: 'usd', stock_count: null,
-  primary_image_url: svg('SYNTHETIC ART / BROWSE-ONLY QA', true),
+  primary_image_url: svg('SYNTHETIC LANDSCAPE / BROWSE-ONLY QA', true, 1600, 900),
+}
+const portrait = {
+  ...product, id: 'fixture-portrait', slug: 'synthetic-portrait', title: 'Synthetic portrait',
+  primary_image_url: svg('SYNTHETIC PORTRAIT / BROWSE-ONLY QA', true, 800, 1000),
 }
 const Button = () => { throw new Error('Checkout UI rendered when the fixture is browse-only') }
 const Link = ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children)
@@ -102,6 +106,7 @@ async function main() {
   const empty = renderToStaticMarkup(await fixturePage(indexFile, [])({ searchParams: {} }))
   const filtered = renderToStaticMarkup(await populated({ searchParams: { kind: 'physical' } }))
   const detail = renderToStaticMarkup(await fixturePage(detailFile, rows)({ params: { slug: product.slug } }))
+  const portraitDetail = renderToStaticMarkup(await fixturePage(detailFile, [portrait])({ params: { slug: portrait.slug } }))
   assert.match(gallery, /Digital art/)
   assert.match(detail, /Digital art/)
   assert.match(gallery, /Some works in the Gallery are created wholly or partly with AI\./)
@@ -149,12 +154,31 @@ async function main() {
       assert.equal(await step.evaluate(el => el === document.activeElement), true)
       await page.keyboard.press('Enter')
       assert.equal(await page.locator('html').evaluate(() => location.hash), '#inside-gallery')
+      const assertWholeArt = async title => {
+        const art = page.getByRole('img', { name: title, exact: true })
+        const measured = await art.evaluate(el => {
+          const box = el.getBoundingClientRect()
+          const frame = el.parentElement.getBoundingClientRect()
+          return { w: box.width, h: box.height, frameH: frame.height,
+            expected: el.naturalWidth / el.naturalHeight, fit: getComputedStyle(el).objectFit }
+        })
+        assert.ok(measured.w > 0 && measured.h > 0 && Number.isFinite(measured.expected), name + ' art image did not load')
+        assert.ok(Math.abs(measured.w / measured.h - measured.expected) < 0.01, name + ' art did not maintain intrinsic aspect: ' + JSON.stringify(measured))
+        assert.ok(Math.abs(measured.frameH - measured.h - 2) < 1, name + ' art frame contains a vertical band: ' + JSON.stringify(measured))
+        assert.notEqual(measured.fit, 'cover', name + ' art image is configured to crop')
+        return measured
+      }
       await render(detail)
       await fits()
+      const landscape = await assertWholeArt(product.title)
       assert.ok(await page.getByText('Digital art', { exact: true }).first().isVisible())
       assert.equal(await page.getByRole('button', { name: /buy|checkout|cart/i }).count(), 0)
       assert.equal(await page.getByRole('link', { name: 'All work' }).getAttribute('href'), '/gallery')
       await page.screenshot({ path: path.join(Out, 'detail-' + name + '.png'), fullPage: true })
+      await render(portraitDetail)
+      await fits()
+      const portraitFrame = await assertWholeArt(portrait.title)
+      await page.screenshot({ path: path.join(Out, 'portrait-' + name + '.png'), fullPage: true })
       await render(empty)
       await fits()
       assert.ok(await page.getByText('The first collection is taking shape.').isVisible())
@@ -164,7 +188,7 @@ async function main() {
       assert.ok(await page.getByRole('status').isVisible())
       assert.deepEqual(requests, [])
       assert.deepEqual(errors, [])
-      results.sizes.push({ name, width, height, cardGrid, horizontalOverflow: false, networkRequests: 0, pageErrors: 0, keyboardAnchor: true, browseOnlyDetail: true })
+      results.sizes.push({ name, width, height, cardGrid, horizontalOverflow: false, networkRequests: 0, pageErrors: 0, keyboardAnchor: true, browseOnlyDetail: true, landscapeFrame: landscape, portraitFrame })
       fs.writeFileSync(path.join(Out, 'results.json'), JSON.stringify(results, null, 2))
       await page.close()
     }

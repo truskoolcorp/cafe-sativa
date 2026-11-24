@@ -2,14 +2,14 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { galleryEnvironment } from '@/lib/gallery/environment'
+import {galleryMerchantRequestUrl, galleryEnvironment } from '@/lib/gallery/environment'
 
 export const dynamic = 'force-dynamic'
 const headers = {'Cache-Control':'private, no-store'}
 const deny = (status=404) => NextResponse.json({error:'Download unavailable'},{status,headers})
 
 export async function GET(req: Request) {
-  if(process.env.GALLERY_PRIVATE_DOWNLOADS !== 'true' || galleryEnvironment(req.url)==='blocked') return deny(503)
+  if(process.env.GALLERY_PRIVATE_DOWNLOADS !== 'true' || galleryEnvironment(galleryMerchantRequestUrl(req))==='blocked') return deny(503)
   const orderId = new URL(req.url).searchParams.get('order')
   if(!orderId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) return deny()
   const jar = cookies()

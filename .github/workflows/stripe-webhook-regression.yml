@@ -12,6 +12,7 @@ on:
       - 'tests/helpers/load-gallery-environment.cjs'
       - 'app/api/gallery/**'
       - 'lib/gallery/**'
+      - 'docs/gallery/*.sql'
       - '.github/workflows/stripe-webhook-regression.yml'
   push:
     branches: [main]
@@ -26,6 +27,7 @@ on:
       - 'tests/helpers/load-gallery-environment.cjs'
       - 'app/api/gallery/**'
       - 'lib/gallery/**'
+      - 'docs/gallery/*.sql'
       - '.github/workflows/stripe-webhook-regression.yml'
   workflow_dispatch:
 jobs:
@@ -42,4 +44,6 @@ jobs:
       - run: node --test tests/stripe-webhook-regression.test.cjs tests/membership-sync.test.cjs
       - run: node tests/stripe-entitlements.cjs
       - run: node tests/membership-refresh.cjs
-      - run: node --test tests/gallery-environment.test.mjs tests/gallery-checkout.cjs
+      - run: node --test tests/gallery-environment.test.mjs tests/gallery-checkout.cjs tests/gallery-download.test.cjs
+      - name: Disposable Gallery PostgreSQL migration fixture
+        run: bash tests/gallery-postgres-fixture.sh

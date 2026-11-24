@@ -184,3 +184,43 @@ begin
  raise notice 'PASS: house route no fee or transfer, edition mapping, idempotent stock and refund denial';
 end $house$;
 SQL
+
+# Second isolated database: exercise the exact thin local developer schema against
+# Auth/Storage table stand-ins. Does not run Supabase Auth or Storage services.
+psql -c 'create database gallery_house_local_schema' >/dev/null
+psql_house() { "$bin/psql" -X -h "$tmp/socket" -p 55439 -U gallery_fixture -d gallery_house_local_schema -v ON_ERROR_STOP=1 "$@"; }
+psql_house -q <<'SQL'
+create schema auth;
+create table auth.users(id uuid primary key);
+create schema storage;
+create table storage.buckets(id text primary key,name text,public boolean);
+create table storage.objects(bucket_id text,name text,primary key(bucket_id,name));
+alter table storage.objects enable row level security;
+grant usage on schema storage to service_role;
+grant select on storage.buckets,storage.objects to service_role;
+SQL
+if psql_house -f tests/fixtures/gallery-local-house-base.sql >/dev/null 2>&1; then
+ echo 'Local house base accepted without explicit local marker' >&2
+ exit 1
+fi
+psql_house -c "set gallery.local_sandbox='on'" -f tests/fixtures/gallery-local-house-base.sql >/dev/null
+for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations proposed-house-checkout; do
+ psql_house -f "docs/gallery/$file.sql" >/dev/null
+done
+psql_house -q <<'SQL'
+insert into auth.users(id) values ('00000000-0000-4000-8000-000000000001');
+insert into artists(id,user_id,display_name,is_approved) values('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Synthetic Gallery Studio',true);
+insert into products(id,artist_id,slug,title,kind,status,price_cents,currency,stock_count)
+ values('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','local-fixture','Synthetic House Art','digital','published',1200,'usd',1);
+insert into storage.objects values('gallery-approved','00000000-0000-4000-8000-000000000003/synthetic.bin');
+insert into gallery_approved_assets(id,product_id,object_path,sha256,approved_by)
+ values('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000003/synthetic.bin',repeat('c',64),'00000000-0000-4000-8000-000000000001');
+set role service_role;
+do $thin_shape$ begin
+ if not cs_gallery_house_ready('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000004')
+ then raise exception 'Thin local schema did not pass readiness'; end if;
+ if has_table_privilege('anon','public.orders','SELECT') or has_table_privilege('authenticated','public.products','INSERT') then
+  raise exception 'Thin fixture permits public order read or write'; end if;
+end $thin_shape$;
+SQL
+echo 'Exact thin local house SQL and service-role readiness passed against synthetic Auth/Storage tables; real service integration not run.'

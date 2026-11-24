@@ -9,6 +9,7 @@ on:
       - 'tests/*membership*'
       - 'tests/stripe-*'
       - 'tests/gallery-*'
+      - 'tests/fixtures/gallery-local-house-base.sql'
       - 'tests/helpers/load-gallery-environment.cjs'
       - 'app/api/gallery/**'
       - 'lib/gallery/**'
@@ -24,6 +25,7 @@ on:
       - 'tests/*membership*'
       - 'tests/stripe-*'
       - 'tests/gallery-*'
+      - 'tests/fixtures/gallery-local-house-base.sql'
       - 'tests/helpers/load-gallery-environment.cjs'
       - 'app/api/gallery/**'
       - 'lib/gallery/**'
@@ -46,5 +48,6 @@ jobs:
       - run: node tests/membership-refresh.cjs
       - run: node --test tests/gallery-environment.test.mjs tests/gallery-checkout.cjs tests/gallery-download.test.cjs tests/gallery-settlement.test.cjs
       - run: node tests/gallery-house-sandbox-prep.mjs --self-test
+      - run: node tests/gallery-house-local-driver.mjs --self-test
       - name: Disposable Gallery PostgreSQL migration fixture
         run: bash tests/gallery-postgres-fixture.sh

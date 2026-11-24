@@ -1,4 +1,4 @@
-import {loadZariaGallery,zariaGalleryGroundRules} from '@/lib/gallery/zaria-catalog'
+import {zariaGrounding} from '@/lib/gallery/zaria-answer'
 import {zariaChatEnabled} from '@/lib/gallery/zaria'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getSiteContent } from '@/lib/content/site'
@@ -155,8 +155,8 @@ async function handlePost(req: Request) {
     liveProgramming=JSON.stringify({features:features.slice(0,6).map(item=>({title:item.title,category:item.site_category,releaseAt:item.release_at,released:item.released,overview:item.copy_final.slice(0,1200)})),events:events.map(conciergeEventFacts)})
   }catch{}
 
-  const gallery = host.id==='zaria' ? await loadZariaGallery(body.room_id) : null
-  if(gallery) liveProgramming = zariaGalleryGroundRules+'\nGallery catalogue: '+gallery.context+'\nVerified venue programming: '+liveProgramming
+  const gallery = host.id==='zaria' ? await zariaGrounding(body.room_id) : null
+  if(gallery) liveProgramming = gallery.liveProgramming
 
   // Find or create conversation. We key by (user_id or session_id) +
   // host_agent. Same user talking to Laviche on web and again on mall
@@ -262,7 +262,7 @@ async function handlePost(req: Request) {
 
   // Exact launch FAQ answers are grounded in the fresh public event record.
   // They still pass ownership/rate checks and persist like any other turn.
-  let replyText = verifiedPremiereAnswer(body.message, verifiedEvents)
+  let replyText = gallery ? null : verifiedPremiereAnswer(body.message, verifiedEvents)
   if (stageHostIsPerforming(host.id)) return performing()
   if (replyText === null) {
     if (!anthropicKey) {

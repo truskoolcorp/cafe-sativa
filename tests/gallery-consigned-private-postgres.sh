@@ -5,7 +5,7 @@ source "$(dirname "$0")/gallery-postgres-fixture.sh"
 psql -f docs/gallery/proposed-consigned-private-checkout.sql >/dev/null
 psql <<'SQL'
 alter table public.artists add column stripe_account_id text, add column charges_enabled boolean, add column payouts_enabled boolean;
-grant select on public.artists to service_role;
+grant select,update on public.artists to service_role;
 grant select,insert on public.orders,public.order_items to service_role;
 insert into public.artists (id,is_approved,stripe_account_id,charges_enabled,payouts_enabled)
 values('00000000-0000-4000-8000-000000000080',true,'acct_ConsignedFixture',true,true);

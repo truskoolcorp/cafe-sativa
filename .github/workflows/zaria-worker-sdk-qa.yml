@@ -9,7 +9,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: services/zaria-voice-agent
@@ -55,3 +55,34 @@ jobs:
           done
           curl -fsS http://127.0.0.1:7880/ >/dev/null
           python local_rtc_qa.py || { docker logs zaria-local-qa; exit 1; }
+      - name: Build isolated worker; check startup guard and local VAD with network disabled
+        run: |
+          docker build --tag zaria-worker:qacheck .
+          test "$(docker inspect -f '{{.Config.User}}' zaria-worker:qacheck)" = "10001:10001"
+          guard="$(docker run --rm --network none zaria-worker:qacheck 2>&1)" && exit 1
+          test "$guard" = "Private Zaria worker unavailable"
+          docker run --rm -i --network none zaria-worker:qacheck python - <<'PY'
+          from core import Settings, Unavailable
+          from livekit.plugins import silero
+          assert silero.VAD.load() is not None
+          common={
+              "CS_ZARIA_WORKER_ENABLED":"true", "CS_ZARIA_WORKER_ENV":"private-staging",
+              "CS_ZARIA_BRIDGE_ORIGIN":"https://bridge.example.com",
+              "CS_ZARIA_APPROVED_BRIDGE_HOST":"bridge.example.com",
+              "CS_ZARIA_APPROVED_LIVEKIT_HOST":"qa.example.com",
+              "CS_ZARIA_ELEVENLABS_KEY":"fixture-tts", "CS_ZARIA_DEEPGRAM_KEY":"fixture-stt",
+              "LIVEKIT_URL":"wss://qa.example.com", "LIVEKIT_API_KEY":"fixture-public",
+              "LIVEKIT_API_SECRET":"fixture-secret"
+          }
+          mode={"CS_ZARIA_LIVEKIT_CREDENTIALS":"cloud-injected"}
+          assert Settings.read(common|mode).room_url == "wss://qa.example.com"
+          for invalid in [common, common|mode|{"CS_ZARIA_LIVEKIT_KEY":"conflict"},
+                          common|mode|{"LIVEKIT_URL":"wss://other.example.com"},
+                          common|mode|{"LIVEKIT_API_KEY":""},
+                          common|mode|{"CS_ZARIA_WORKER_ENABLED":"false"}]:
+              try:
+                  Settings.read(invalid)
+              except Unavailable:
+                  continue
+              raise AssertionError("Invalid worker environment was accepted")
+          PY

@@ -13,8 +13,10 @@ const SHA256 = 'ce1ea17c890419d4c7a8384e5f32ac5997694b6598fdfe53d32ecac3003b9eca
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }
 
 export async function GET() {
+  let phase: 'metadata' | 'asset' | 'encode' = 'metadata'
+  let signal = AbortSignal.timeout(12000)
   try {
-    const source = await liveGlyphCharacters(AbortSignal.timeout(5000))
+    const source = await liveGlyphCharacters(signal)
     const rows = source.characters.filter((row: { id: string }) => row.id === CHARACTER_ID)
     const row = rows[0]
     if (source.live !== true || rows.length !== 1 ||
@@ -22,8 +24,11 @@ export async function GET() {
         row.portrait_available !== true || row.primary_asset_id !== ASSET_ID || row.sha256 !== SHA256) {
       return NextResponse.json({ error: 'Portrait unavailable' }, { status: 404, headers })
     }
-    const portrait = await glyphPortrait(CHARACTER_ID, ASSET_ID, SHA256)
+    phase = 'asset'
+    signal = AbortSignal.timeout(10000)
+    const portrait = await glyphPortrait(CHARACTER_ID, ASSET_ID, SHA256, signal)
     if (!portrait) return NextResponse.json({ error: 'Portrait unavailable' }, { status: 404, headers })
+    phase = 'encode'
     const image = createElement('div', { style: { display: 'flex', width: '100%', height: '100%', backgroundColor: '#17120f' } },
       createElement('img', { src: `data:${portrait.mime};base64,${portrait.bytes.toString('base64')}`, width: 448, height: 560, style: { objectFit: 'contain' } }))
     // Do not stream master bytes, redirects, or upstream metadata. Materialize the derivative
@@ -31,6 +36,7 @@ export async function GET() {
     const derivative = await new ImageResponse(image, { width: 448, height: 560 }).arrayBuffer()
     return new NextResponse(derivative, { headers: { ...headers, 'Content-Type': 'image/png' } })
   } catch {
+    console.warn('gallery_zaria_portrait', phase === 'encode' ? 'encode_failed' : phase + (signal.aborted ? '_timeout' : '_invalid'))
     return NextResponse.json({ error: 'Portrait unavailable' }, { status: 503, headers })
   }
 }

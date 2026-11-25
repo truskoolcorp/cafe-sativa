@@ -132,3 +132,52 @@ test('requires dedicated scoped LiveKit config and blocks every shared-host fall
   {CS_ZARIA_PREVIEW_LIVEKIT_URL:'https://dedicated-zaria.livekit.cloud'},
  ])assert.equal(bridge.privateZariaConfig(origin,{...cfg,...broken}),null)
 })
+
+test('session endpoint signs Zaria admission only with the isolated key and chooses the existing shared host independently',async()=>{
+ const availableEnv={...cfg,CS_LIVEKIT_BRIDGE_SECRET:'synthetic unrelated voice bridge'}
+ const saved=Object.fromEntries(Object.keys(availableEnv).map(key=>[key,process.env[key]]))
+ for(const [key,value] of Object.entries(availableEnv))process.env[key]=value
+ let user={id:grant.userId,is_anonymous:false}
+ let selectedHost='zaria'
+ const signatures=[]
+ class Token{
+  constructor(key,secret,opts){this.key=key;this.secret=secret;this.opts=opts}
+  addGrant(value){this.grant=value}
+  async toJwt(){signatures.push({key:this.key,secret:this.secret,room:this.grant.room,agent:this.roomConfig.agents[0].agentName});return 'synthetic-session-token'}
+ }
+ class Config{constructor(v){Object.assign(this,v)}}
+ const session=compile('app/api/concierge/livekit/session/route.ts',{
+  '@/lib/gallery/zaria':policy,'@/lib/gallery/zaria-voice-v1':bridge,'@/lib/gallery/zaria-answer':{zariaGrounding:async()=>({links:[]})},
+  'livekit-server-sdk':{AccessToken:Token,RoomConfiguration:Config,RoomAgentDispatch:Config,TrackSource:{MICROPHONE:1}},
+  '@/lib/supabase/server':{createClient:()=>({auth:{getUser:async()=>({data:{user}})}})},
+  '@/lib/supabase/admin':{createAdminClient:()=>({from:()=>({select(){return this},eq(){return this},async maybeSingle(){return{data:{user_id:grant.userId,session_id:null,host_agent:selectedHost,ended_at:null}}}})})},
+  '@/lib/content/concierge-canon':{canonicalConciergeHost:async()=>({voiceId:policy.ZARIA_VOICE.id})},
+  '@/lib/concierge/conversation-access':compile('lib/concierge/conversation-access.ts'),
+  '@/lib/concierge/livekit-session':grants,
+  '@/lib/events/stage-host-availability':{stageHostIsPerforming:()=>false},
+ })
+ const makeRequest=()=>new Request(origin+'/api/concierge/livekit/session',{method:'POST',
+  headers:{origin,'content-type':'application/json'},body:JSON.stringify({host:selectedHost,conversation_id:grant.conversationId})})
+ try{
+  assert.equal((await session.GET(new Request(origin+'/api/concierge/livekit/session?host=zaria'))).status,200)
+  const allowed=await session.POST(makeRequest())
+  assert.equal(allowed.status,201)
+  assert.equal((await allowed.json()).server_url,cfg.CS_ZARIA_PREVIEW_LIVEKIT_URL)
+  assert.deepEqual({...signatures[0],room:'ignored'},{key:cfg.CS_ZARIA_PREVIEW_LIVEKIT_API_KEY,secret:cfg.CS_ZARIA_PREVIEW_LIVEKIT_API_SECRET,room:'ignored',agent:'cafe-sativa-zaria'})
+  user={...user,is_anonymous:true}
+  assert.equal((await session.POST(makeRequest())).status,403)
+  assert.equal((await (await session.GET(new Request(origin+'/api/concierge/livekit/session?host=zaria'))).json()).available,false)
+  user={...user,is_anonymous:false}
+  process.env.CS_ZARIA_PREVIEW_LIVEKIT_URL=cfg.LIVEKIT_URL
+  assert.equal((await session.POST(makeRequest())).status,503)
+  assert.equal(signatures.length,1)
+  selectedHost='laviche'
+  const shared=await session.POST(makeRequest())
+  assert.equal(shared.status,201)
+  assert.equal((await shared.json()).server_url,cfg.LIVEKIT_URL)
+  assert.equal(signatures[1].key,cfg.LIVEKIT_API_KEY)
+  assert.equal(signatures[1].agent,'cafe-sativa-hosts')
+ }finally{
+  for(const [key,value] of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value}
+ }
+})

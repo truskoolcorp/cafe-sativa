@@ -17,7 +17,19 @@ export function privateZariaConfig(url: string, env:NodeJS.ProcessEnv=process.en
   if(!db||!previewDb||!productionDb||db!==previewDb||previewDb===productionDb)return null
   try{if(new URL(db).protocol!=='https:'||new URL(db).origin===new URL(productionDb).origin)return null}catch{return null}
   try{if(new URL(url).origin!=='https://'+scope)return null}catch{return null}
-  return {scope,secret,members}
+  const livekitUrl=env.CS_ZARIA_PREVIEW_LIVEKIT_URL
+  const livekitHost=env.CS_ZARIA_PREVIEW_LIVEKIT_EXPECTED_HOST
+  const livekitKey=env.CS_ZARIA_PREVIEW_LIVEKIT_API_KEY
+  const livekitSecret=env.CS_ZARIA_PREVIEW_LIVEKIT_API_SECRET
+  if(!livekitUrl||!livekitHost||!livekitKey?.trim()||!livekitSecret?.trim()||
+     livekitKey===env.LIVEKIT_API_KEY||livekitSecret===env.LIVEKIT_API_SECRET)return null
+  try{
+   const target=new URL(livekitUrl), shared=env.LIVEKIT_URL?new URL(env.LIVEKIT_URL):null
+   if(target.protocol!=='wss:'||target.hostname!==livekitHost||!/^[-a-z0-9]+\.livekit\.cloud$/.test(livekitHost)||
+      target.port||target.username||target.password||target.pathname!=='/'||target.search||target.hash||
+      shared?.hostname===target.hostname)return null
+  }catch{return null}
+  return {scope,secret,members,livekit:{url:livekitUrl,key:livekitKey,secret:livekitSecret}}
 }
 function mac(payload:string,secret:string) {
  return createHmac('sha256',secret).update(VERSION+'\0'+payload).digest()

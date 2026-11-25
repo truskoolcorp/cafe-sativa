@@ -64,7 +64,7 @@ export default async function AhnikaPremierePage() {
       <Link href="/stage" className="text-primary underline">The Stage</Link>
       <header className="space-y-3">
         <h1 className="font-heading text-4xl font-bold">Ahnika Merlot — Already Gone</h1>
-        <p>An intimate prerecorded acoustic performance at Café Sativa.</p>
+        <p>An intimate acoustic premiere at Café Sativa.</p>
         <p><time dateTime={startsAt}>December 1, 2026 at 12:00 a.m. Central</time></p>
       </header>
       <div className="overflow-hidden rounded-2xl border border-border bg-card">

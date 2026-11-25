@@ -56,6 +56,9 @@ const cfg={...validVoice,VERCEL_ENV:'preview',VERCEL_URL:'unique-preview.vercel.
  CS_ZARIA_PREVIEW_BRIDGE:'true',CS_LIVEKIT_ENABLED:'true',CS_ZARIA_PREVIEW_BRIDGE_SECRET:'test-only-secret-that-has-32-characters',
  NEXT_PUBLIC_SUPABASE_URL:'https://isolated.supabase.co',CS_ZARIA_PREVIEW_SUPABASE_URL:'https://isolated.supabase.co',
  CS_ZARIA_DENY_PRODUCTION_SUPABASE_URL:'https://separate.supabase.co',
+ CS_ZARIA_PREVIEW_LIVEKIT_URL:'wss://dedicated-zaria.livekit.cloud',CS_ZARIA_PREVIEW_LIVEKIT_EXPECTED_HOST:'dedicated-zaria.livekit.cloud',
+ CS_ZARIA_PREVIEW_LIVEKIT_API_KEY:'synthetic-qa-key',CS_ZARIA_PREVIEW_LIVEKIT_API_SECRET:'synthetic-qa-secret',
+ LIVEKIT_URL:'wss://shared-hosts.livekit.cloud',LIVEKIT_API_KEY:'synthetic-shared-key',LIVEKIT_API_SECRET:'synthetic-shared-secret',
  CS_ZARIA_PREVIEW_QA_USER_IDS:'20000000-0000-0000-0000-000000000000'}
 const origin='https://'+cfg.VERCEL_URL
 const grant={version:bridge.VERSION,audience:bridge.AUDIENCE,host:'zaria',scope:cfg.VERCEL_URL,room:'cs-10000000-0000-0000-0000-000000000000',
@@ -115,4 +118,17 @@ test('admit HTTP checks ownership and room with no model or database turn mutati
  availability=false
  assert.equal((await handler.zariaBridge(req(),'admit')).status,404)
  assert.deepEqual(mockCalls,{reads:2,model:0,rpc:0})
+})
+
+test('requires dedicated scoped LiveKit config and blocks every shared-host fallback',()=>{
+ assert.deepEqual(bridge.privateZariaConfig(origin,cfg).livekit,{
+  url:cfg.CS_ZARIA_PREVIEW_LIVEKIT_URL,key:cfg.CS_ZARIA_PREVIEW_LIVEKIT_API_KEY,secret:cfg.CS_ZARIA_PREVIEW_LIVEKIT_API_SECRET,
+ })
+ for(const broken of [
+  {CS_ZARIA_PREVIEW_LIVEKIT_URL:undefined},{CS_ZARIA_PREVIEW_LIVEKIT_API_KEY:undefined},{CS_ZARIA_PREVIEW_LIVEKIT_API_SECRET:undefined},
+  {CS_ZARIA_PREVIEW_LIVEKIT_EXPECTED_HOST:undefined},{CS_ZARIA_PREVIEW_LIVEKIT_URL:'wss://wrong.livekit.cloud'},
+  {CS_ZARIA_PREVIEW_LIVEKIT_API_KEY:cfg.LIVEKIT_API_KEY},{CS_ZARIA_PREVIEW_LIVEKIT_API_SECRET:cfg.LIVEKIT_API_SECRET},
+  {LIVEKIT_URL:cfg.CS_ZARIA_PREVIEW_LIVEKIT_URL},{CS_ZARIA_PREVIEW_LIVEKIT_URL:cfg.CS_ZARIA_PREVIEW_LIVEKIT_URL+'/other'},
+  {CS_ZARIA_PREVIEW_LIVEKIT_URL:'https://dedicated-zaria.livekit.cloud'},
+ ])assert.equal(bridge.privateZariaConfig(origin,{...cfg,...broken}),null)
 })

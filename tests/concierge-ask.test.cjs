@@ -3,7 +3,7 @@ const fs = require('node:fs'), vm = require('node:vm'), ts = require('typescript
 const assert = require('node:assert/strict'), { test } = require('node:test')
 const ID = '12345678-1234-1234-1234-123456789abc'
 const CONVERSATION = 'abcdef12-1234-1234-1234-123456789abc'
-function client({ blockedStorage = false } = {}) {
+function client({ blockedStorage = false, zaria = false, work = null } = {}) {
   const hooks = [], effects = [], timers = new Map(), requests = [], items = new Map()
   let index = 0, tree, authListener, timerId = 0
   const jsx = (type, props, key) => ({ type, props: props ?? {}, key })
@@ -36,10 +36,10 @@ function client({ blockedStorage = false } = {}) {
     }),
   }
   function load(file) {
-    const scope = { ...globals, exports: {}, require(name) {
+    const scope = { ...globals, process:{env:zaria ? {NEXT_PUBLIC_CS_ZARIA_GALLERY_CHAT:'true'} : {}}, exports: {}, require(name) {
       if (name === 'react') return react
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'Fragment' }
-      if (name === 'next/navigation') return { useSearchParams: () => ({ get: () => null }) }
+      if (name === 'next/navigation') return { useSearchParams: () => ({ get: key => key === 'host' && zaria ? 'zaria' : key === 'work' ? work : null }) }
       if (name === 'next/link' || name === 'next/image') return { __esModule: true, default: name }
       if (name === 'lucide-react') return new Proxy({}, { get: (_, key) => String(key) })
       if (name.endsWith('/supabase/client')) return { createClient: () => ({ auth: {
@@ -50,6 +50,7 @@ function client({ blockedStorage = false } = {}) {
       if (name.endsWith('/utils')) return { cn: (...args) => args.filter(Boolean).join(' ') }
       if (name.endsWith('/LiveVoiceConversation')) return { __esModule: true, default: 'LiveVoiceConversation' }
       if (name === '@/lib/concierge/browser-session') return load('lib/concierge/browser-session.ts')
+      if (name === '@/lib/gallery/zaria') return load('lib/gallery/zaria.ts')
       if (name === './request') return load('lib/concierge/request.ts')
       throw Error(name)
     } }
@@ -157,4 +158,25 @@ test('origin 403 preserves conversation; only a conversation-specific 403 clears
   const fresh = h.send()
   assert.equal(JSON.parse(h.requests.at(-1).init.body).conversation_id, null)
   h.respond(); await fresh
+})
+
+test('selected Zaria work is sent with the text request; only Gallery links render and stale links clear on a host change', async () => {
+  const h = client({zaria:true,work:'qa-art'}); await h.flush()
+  h.type('Tell me about this work')
+  const send = h.send()
+  const body=JSON.parse(h.requests[0].init.body)
+  assert.equal(body.host,'zaria')
+  assert.equal(body.room_id,'qa-art')
+  h.respond(200,{message:'Synthetic Gallery reply',conversation_id:CONVERSATION,gallery_links:[
+    {label:'Check this artwork',path:'/gallery/qa-art'},
+    {label:'Not a Gallery link',path:'https://example.invalid/gallery/qa-art'}
+  ]})
+  await send; await h.flush()
+  assert.match(h.text(),/Check this artwork/)
+  assert.doesNotMatch(h.text(), /Not a Gallery link|Start voice conversation/)
+  assert.equal(h.requests.length,1)
+  h.switchHost('ginger'); await h.flush()
+  assert.doesNotMatch(h.text(),/Check this artwork/)
+  h.switchHost('zaria'); await h.flush()
+  assert.doesNotMatch(h.text(),/Check this artwork/)
 })

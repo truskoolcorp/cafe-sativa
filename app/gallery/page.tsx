@@ -1,3 +1,5 @@
+import ZariaPortrait from './ZariaPortrait'
+import {zariaChatEnabled,zariaGalleryHref,zariaPortraitEnabled} from '@/lib/gallery/zaria'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -119,11 +121,12 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
       </section>
       <section aria-labelledby="curator-heading" className="bg-card border-y border-border">
         <div className="max-w-7xl mx-auto px-6 lg:px-12 py-12 grid md:grid-cols-[1fr_2fr] gap-8 items-center">
-          <div aria-hidden="true" className="font-heading text-6xl md:text-8xl text-primary/70 border-l border-primary pl-6">ZS</div>
+          {zariaPortraitEnabled() ? <ZariaPortrait/> : <div aria-hidden="true" className="font-heading text-6xl md:text-8xl text-primary/70 border-l border-primary pl-6">ZS</div>}
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-primary">02 / Curator’s perspective</p>
             <h2 id="curator-heading" className="font-heading text-4xl mt-3">Meet Zaria Solenne.</h2>
             <p className="text-muted-foreground mt-4 max-w-xl leading-relaxed">Discover the creative practice behind the work, explore different media, and learn how collecting supports artists. Only approved pieces and confirmed exhibition details appear here.</p>
+            {zariaChatEnabled() && <Link href={zariaGalleryHref()} className="inline-flex mt-6 px-5 py-3 rounded-sm border border-primary text-primary focus-visible:outline focus-visible:outline-2">Talk to Zaria</Link>}
           </div>
         </div>
       </section>

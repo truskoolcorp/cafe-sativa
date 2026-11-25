@@ -25,7 +25,7 @@ function setup(event, options = {}) {
     checkout: { sessions: { listLineItems: async () => ({ data: options.lines ?? [], has_more: false }) } },
     paymentIntents: { retrieve: async () => options.intent ?? ({ application_fee_amount: 0 }) },
     accounts: { retrieveCurrent: async () => ({ id: options.accountId }) },
-    refunds: { list: async function* () { calls.refundLists++; if(options.refundListError)throw Error('synthetic refund list outage'); yield* (options.refunds || []) } }
+    refunds: { list: async (params, requestOptions) => { calls.refundLists++; assert.equal(params.limit,11); assert.equal(requestOptions.timeout,3000); assert.equal(requestOptions.maxNetworkRetries,0); if(options.refundListError)throw Error('synthetic refund list outage'); return options.refundPage ?? {data:options.refunds || [],has_more:false} } }
   }
   const db = {
     rpc: async (name, input) => {
@@ -171,6 +171,20 @@ test('Gallery refund rejects foreign, duplicate or invalid receipts before any l
     assert.equal((await h.post()).status,500)
     assert.equal(h.actions.length,0)
   }
+})
+test('Gallery refund evidence is bounded and never writes an incomplete page',async()=>{
+  const eleven=Array.from({length:11},(_,i)=>refundReceipt({id:'re_'+i,amount:100}))
+  for(const refundPage of [{data:[refundReceipt()],has_more:true},{data:[refundReceipt()]},{data:eleven,has_more:false}]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundPage})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.calls.refundLists,1)
+    assert.equal(h.actions.length,0)
+  }
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundPage:{data:[refundReceipt()],has_more:true}})
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.calls.refundLists,1)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders'])
+  assert.equal(h.actions[0].data.fulfillment_state,'refunded')
 })
 test('Gallery old partial refund event reads current receipts in one ledger batch',async()=>{
   const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),refundReceipt({id:'re_2',amount:1100})]})

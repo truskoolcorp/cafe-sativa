@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { privateDressMedia } from '@/lib/events/private-dress-media'
-import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut } from '@/lib/events/private-stage-rehearsal'
+import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, privateDressReportSlot } from '@/lib/events/private-stage-rehearsal'
 
 export const dynamic = 'force-dynamic'
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
@@ -14,7 +14,7 @@ async function access() {
   if (process.env.STAGE_PRIVATE_DRESS_REPORTS_ENABLED !== 'true' || !privateDressMedia(process.env.STAGE_PRIVATE_DRESS_MEDIA)) return null
   const slot = privateStagePlaybackSlot(process.env)
   const now = Date.now()
-  if (!slot?.dress || now < slot.dress.doors || now >= slot.dress.closes) return null
+  if (!slot?.dress || !privateDressReportSlot(slot.startsAt) || now < slot.dress.doors || now >= slot.dress.closes) return null
   const db = createClient()
   const { data: { user } } = await db.auth.getUser()
   if (!user || user.is_anonymous) return null

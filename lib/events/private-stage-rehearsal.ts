@@ -7,6 +7,13 @@ const productionInviteTailMs = 30 * 60_000
 const productionPlaybackWindowMs = 60 * 60_000
 export const DRESS_REHEARSAL_KICKOFF = '2026-11-24T14:00:00Z'
 const DRESS_REHEARSAL_WRAP = Date.parse('2026-11-24T15:00:00Z')
+const ENCORE_KICKOFF = '2026-11-25T23:00:00Z'
+const ENCORE_CLOSE = Date.parse('2026-11-26T00:00:00Z')
+
+// The encore verifies private playout and chat. Leave the prior date-bound report lane closed.
+export function privateDressReportSlot(startsAt: string) {
+  return startsAt === DRESS_REHEARSAL_KICKOFF
+}
 
 export function rehearsalAccessEnd(slot: { end: number; dress?: { closes: number } | null }) {
   return slot.dress?.closes ?? slot.end
@@ -17,12 +24,14 @@ export function privateStagePlaybackSlot(env: Record<string, string | undefined>
   if ((!production && env.VERCEL_ENV !== 'preview') || env.STAGE_PRIVATE_REHEARSAL_ENABLED !== 'true') return null
   const dressKickoff = env.STAGE_PRIVATE_DRESS_KICKOFF
   if (dressKickoff) {
-    if (dressKickoff !== DRESS_REHEARSAL_KICKOFF) return null
+    const encore = env.VERCEL_ENV === 'preview' && dressKickoff === ENCORE_KICKOFF
+    if (dressKickoff !== DRESS_REHEARSAL_KICKOFF && !encore) return null
+    const closes = encore ? ENCORE_CLOSE : DRESS_REHEARSAL_WRAP
     const audience = stageAudienceSchedule(dressKickoff, AHNIKA_PREMIERE_DURATION_MS)!
     // Keep the room open for troubleshooting without moving either media cue.
-    const dress = { ...audience, closes: DRESS_REHEARSAL_WRAP }
+    const dress = { ...audience, closes }
     return { startsAt: dressKickoff, start: dress.kickoff, end: dress.kickoff + AHNIKA_PREMIERE_DURATION_MS,
-      inviteUntil: DRESS_REHEARSAL_WRAP, onDemand: false, dress }
+      inviteUntil: closes, onDemand: false, dress }
   }
   // A copied Preview setting must never activate playback in production.
   const startsAt = production ? env.STAGE_PRIVATE_PROD_PLAYBACK_STARTS_AT : env.STAGE_PRIVATE_REHEARSAL_STARTS_AT

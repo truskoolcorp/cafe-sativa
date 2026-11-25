@@ -236,7 +236,16 @@ begin
  select * into strict result from gallery_order_financial_review where order_id=oid;
  if result.evidence_state<>'unobserved' or result.artist_id<>expected_artist
   or result.financial_evidence->'processing_fees_cents' is distinct from 'null'::jsonb
- then raise exception 'Unobserved fees must remain unknown'; end if;
+  or result.financial_evidence->'gross_transfer_cents' is distinct from 'null'::jsonb
+  or result.financial_evidence->'expected_original_commission_cents' is distinct from '0'::jsonb
+  or result.financial_evidence->'expected_original_artist_cents' is distinct from '0'::jsonb
+ then raise exception 'Unobserved fees must remain unknown and house expectation must remain zero'; end if;
+ -- A pre-refund observation is historical, not current reconciliation proof.
+ insert into gallery_settlement_observations(order_id,stripe_payment_intent_id,observed_at,provider_snapshot)
+ values(oid,'pi_test_house',now()-interval '1 minute','{"payment_intent_id":"pi_test_house","currency":"usd","livemode":false,"sale_kind":"house","captured_cents":1200,"refunded_cents":0,"order_comparison":{"attention":[]}}');
+ select * into strict result from gallery_order_financial_review where order_id=oid;
+ if result.evidence_state<>'attention' or result.financial_evidence->'refund_evidence_mismatch' is distinct from 'true'::jsonb
+ then raise exception 'Pre-refund snapshot incorrectly presented as current'; end if;
  insert into gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
  values(oid,'pi_test_house','{"payment_intent_id":"pi_test_house","currency":"usd","livemode":false,"sale_kind":"house","captured_cents":1200,"refunded_cents":1200,"observed_charge_refund_balance_fee_cents":65,"order_comparison":{"attention":[],"observed_platform_after_charge_refund_fees_cents":-65}}');
  select * into strict result from gallery_order_financial_review where order_id=oid;
@@ -245,12 +254,20 @@ begin
    or result.financial_evidence->'platform_after_charge_refund_fees_cents' is distinct from '-65'::jsonb
  then raise exception 'Settlement report did not preserve actual fee and loss'; end if;
  select * into strict result from gallery_refund_review_candidates where order_id=oid;
- if result.review_reason<>'provider_refund_evidence_incomplete' then raise exception 'Missing refund receipts not flagged'; end if;
+ if result.review_reason<>'provider_refund_evidence_incomplete' or result.succeeded_refund_cents is not null then raise exception 'Missing refund receipts not flagged as unknown'; end if;
  insert into gallery_refund_receipts(stripe_refund_id,order_id,stripe_payment_intent_id,amount_cents,currency,provider_status)
  values('re_fixture_house',oid,'pi_test_house',1200,'usd','succeeded');
  select * into strict result from gallery_refund_review_candidates where order_id=oid;
- if result.review_reason<>'digital_edition_manual_review' or result.review_state<>'not_reviewed' or result.stock_count<>0
+ if result.review_reason<>'digital_edition_manual_review' or result.review_state<>'not_reviewed' or result.stock_count<>0 or result.succeeded_refund_cents<>1200
  then raise exception 'Digital refund requires manual review without stock restoration'; end if;
+ select * into strict result from gallery_order_financial_review where order_id=oid;
+ if result.evidence_state<>'observed' or result.financial_evidence->'refund_evidence_mismatch' is distinct from 'false'::jsonb
+ then raise exception 'Matching refund evidence incorrectly flagged'; end if;
+ update gallery_refund_receipts set amount_cents=600 where stripe_refund_id='re_fixture_house';
+ select * into strict result from gallery_order_financial_review where order_id=oid;
+ if result.evidence_state<>'attention' or result.financial_evidence->'refund_evidence_mismatch' is distinct from 'true'::jsonb
+ then raise exception 'Refund receipt mismatch not flagged'; end if;
+ update gallery_refund_receipts set amount_cents=1200 where stripe_refund_id='re_fixture_house';
  if (select stock_count from products where id=pid)<>0 or exists(select 1 from gallery_restock_reviews where order_id=oid)
  then raise exception 'Read model changed stock or review'; end if;
  if has_table_privilege('anon','gallery_order_financial_review','SELECT') or

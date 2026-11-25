@@ -14,7 +14,7 @@ function setup(event, options = {}) {
   const actions = []
   const env = { VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_test_placeholder', STRIPE_WEBHOOK_SECRET:'whsec_placeholder', ...options.env }
   const url = options.url || 'https://www.cafe-sativa.com/api/webhooks/stripe'
-  const calls = { admin: 0, signed: 0, secret: null }
+  const calls = { admin: 0, signed: 0, secret: null, refundLists: 0, reads: [] }
   const sub = options.subscription || {
     id: 'sub_1', created:200, status: event.type==='customer.subscription.deleted'?'canceled':'active', metadata: { user_id: 'user_1', site: 'cafe-sativa', tier: 'regular' },
     customer: 'cus_1', items: { data: [{ price: { id: 'price_approved' }, current_period_end: 1800000000 }] }
@@ -24,7 +24,8 @@ function setup(event, options = {}) {
     subscriptions: { retrieve: async () => sub },
     checkout: { sessions: { listLineItems: async () => ({ data: options.lines ?? [], has_more: false }) } },
     paymentIntents: { retrieve: async () => options.intent ?? ({ application_fee_amount: 0 }) },
-    accounts: { retrieveCurrent: async () => ({ id: options.accountId }) }
+    accounts: { retrieveCurrent: async () => ({ id: options.accountId }) },
+    refunds: { list: async function* () { calls.refundLists++; if(options.refundListError)throw Error('synthetic refund list outage'); yield* (options.refunds || []) } }
   }
   const db = {
     rpc: async (name, input) => {
@@ -35,10 +36,13 @@ function setup(event, options = {}) {
       upsert: async (data) => { actions.push({op: 'upsert', table, data}); return {error:null} },
       update: data => {
         actions.push({op:'update',table,data})
-        const q={eq:()=>q,is:()=>q,select:()=>q,maybeSingle:async()=>({data:{user_id:'user_1'},error:null}),then:resolve=>Promise.resolve({error:null}).then(resolve)};return q
+        const q={eq:()=>q,is:()=>q,select:()=>q,maybeSingle:async()=>({data:{user_id:'user_1'},error:null}),then:resolve=>Promise.resolve({error:table==='orders'&&options.orderUpdateError||table==='tickets'&&options.ticketUpdateError||null}).then(resolve)};return q
       },
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({data: table==='products' ? options.product || null : table==='tickets' ? options.ticket || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:null}) })
+        eq: () => ({ maybeSingle: async () => {
+          calls.reads.push(table)
+          return {data: table==='products' ? options.product || null : table==='tickets' ? options.ticket || null : table==='orders' ? options.order || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:table==='tickets'&&options.ticketLookupError||table==='orders'&&options.orderLookupError||null}
+        } })
       })
     })
   }
@@ -121,14 +125,64 @@ test('foreign subscription never grants membership',async()=>{
   assert.equal(h.actions.length,0)
 })
 
-test('refund updates the original order and ticket records, never creates new charges',async()=>{
-  const h=setup({type:'charge.refunded',data:{object:{
-    payment_intent:'pi_1',refunded:true
-  }}},{ticket:{id:'ticket_1',state:'paid'}})
+const refundEvent = (full=true) => ({type:'charge.refunded',livemode:false,data:{object:{id:'ch_1',payment_intent:'pi_1',currency:'usd',amount_captured:1200,amount_refunded:full?1200:100,refunded:full}}})
+const galleryRefundOrder={id:'order_1',currency:'usd',total_cents:1200}
+const refundReceipt=(overrides={})=>({id:'re_1',charge:'ch_1',payment_intent:'pi_1',currency:'usd',amount:100,status:'succeeded',...overrides})
+test('ticket refund is independent of Gallery DB and provider failures',async()=>{
+  const h=setup(refundEvent(),{ticket:{id:'ticket_1',state:'paid'},env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'missing orders',orderLookupError:'missing Gallery schema',refundListError:true})
   assert.equal((await h.post()).status,200)
-  assert.equal(h.actions.filter(a=>a.op==='update').length,2)
+  assert.deepEqual(h.actions.map(a=>a.table),['tickets'])
+  assert.equal(h.actions[0].data.state,'refunded')
+  assert.deepEqual(h.calls.reads,['tickets'])
+  assert.equal(h.calls.refundLists,0)
+})
+test('ticket refund replay and partial refund never enter Gallery ledger',async()=>{
+  for(const [full,state] of [[true,'refunded'],[false,'paid']]){
+    const h=setup(refundEvent(full),{ticket:{id:'ticket_1',state},env:{GALLERY_REFUND_LEDGER:'true'},orderLookupError:'missing Gallery schema'})
+    assert.equal((await h.post()).status,200)
+    assert.equal(h.actions.length,0)
+    assert.deepEqual(h.calls.reads,['tickets'])
+    assert.equal(h.calls.refundLists,0)
+  }
+})
+test('ticket lookup or update outage stays retryable without Gallery writes',async()=>{
+  for(const opts of [{ticketLookupError:'lookup unavailable'},{ticket:{id:'ticket_1',state:'paid'},ticketUpdateError:'update unavailable'}]){
+    const h=setup(refundEvent(),opts)
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.actions.some(a=>a.table==='orders'),false)
+  }
+})
+test('Gallery full refund revokes access even when ledger provider lookup fails and remains retryable',async()=>{
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundListError:true})
+  assert.equal((await h.post()).status,500)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders'])
   assert.equal(h.actions[0].data.fulfillment_state,'refunded')
-  assert.equal(h.actions[1].data.state,'refunded')
+  assert.equal(h.calls.refundLists,1)
+})
+test('Gallery partial refund records evidence without revoking fulfillment or restocking',async()=>{
+  const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt()]})
+  assert.equal((await h.post()).status,200)
+  assert.deepEqual(h.actions.map(a=>a.table),['gallery_refund_receipts'])
+  assert.equal(h.actions[0].data[0].amount_cents,100)
+})
+test('Gallery refund rejects foreign, duplicate or invalid receipts before any ledger write',async()=>{
+  for(const invalid of [refundReceipt({id:'re_2',charge:'ch_foreign'}),refundReceipt({id:'re_2',payment_intent:'pi_foreign'}),refundReceipt({id:'re_2',amount:0.5}),refundReceipt({id:'re_2',amount:1200}),refundReceipt()]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),invalid]})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.actions.length,0)
+  }
+})
+test('Gallery old partial refund event reads current receipts in one ledger batch',async()=>{
+  const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),refundReceipt({id:'re_2',amount:1100})]})
+  assert.equal((await h.post()).status,200)
+  assert.equal(h.actions.length,1)
+  assert.equal(h.actions[0].data.length,2)
+  assert.equal(h.actions[0].data.reduce((sum,r)=>sum+r.amount_cents,0),1200)
+})
+test('Gallery full refund records evidence only after order revocation succeeds',async()=>{
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'order unavailable'})
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.calls.refundLists,0)
 })
 
 

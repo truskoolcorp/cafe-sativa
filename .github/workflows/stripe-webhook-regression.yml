@@ -46,7 +46,7 @@ jobs:
       - run: node --test tests/stripe-webhook-regression.test.cjs tests/membership-sync.test.cjs
       - run: node tests/stripe-entitlements.cjs
       - run: node tests/membership-refresh.cjs
-      - run: node --test tests/gallery-environment.test.mjs tests/gallery-checkout.cjs tests/gallery-download.test.cjs tests/gallery-settlement.test.cjs
+      - run: node --test tests/gallery-environment.test.mjs tests/gallery-checkout.cjs tests/gallery-download.test.cjs tests/gallery-settlement.test.cjs tests/gallery-financial-review.test.cjs
       - run: node tests/gallery-house-sandbox-prep.mjs --self-test
       - run: node tests/gallery-house-local-driver.mjs --self-test
       - name: Disposable Gallery PostgreSQL migration fixture

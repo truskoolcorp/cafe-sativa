@@ -3,6 +3,8 @@ import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { galleryDebutOffer, galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
+import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
  * POST /api/gallery/checkout
@@ -54,6 +56,15 @@ export async function POST(req: Request) {
     )
   }
 
+  const mode = galleryEnvironment(req.url)
+  if (mode === 'blocked') {
+    return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
+  }
+
+  if (!gallerySalesEnabled(mode)) {
+    return NextResponse.json({ error: 'Gallery purchases are temporarily unavailable.' }, { status: 503 })
+  }
+
   const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -99,6 +110,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Quantity must be a whole number from 1 to 10.' }, { status: 400 })
   }
 
+  const configuredHouse = galleryHouseConfig()
+  if (mode === 'production' && (process.env.GALLERY_HOUSE_CHECKOUT_ENABLED !== 'true' ||
+      !configuredHouse || body.product_id !== configuredHouse.productId || quantity !== 1)) {
+    return NextResponse.json({ error: 'This artwork is not available for purchase.' }, { status: 409 })
+  }
+
   const admin = createAdminClient()
 
   // Fetch product + artist in one query via the admin client (bypasses
@@ -108,7 +125,7 @@ export async function POST(req: Request) {
     .from('products')
     .select(
       `
-      id, title, description, kind, status, price_cents, currency,
+      id, slug, title, description, kind, status, price_cents, currency,
       primary_image_url, stock_count, digital_delivery_url,
       artist:artists!inner (
         id, display_name, stripe_account_id, is_approved,
@@ -126,6 +143,12 @@ export async function POST(req: Request) {
     )
   }
 
+  if (mode === 'production' && !galleryDebutOffer(product)) {
+    return NextResponse.json({ error: 'This artwork is not available for purchase.' }, { status: 409 })
+  }
+  if (!['physical', 'digital'].includes(product.kind)) {
+    return NextResponse.json({ error: 'This artwork category is not enabled for purchases.' }, { status: 409 })
+  }
   if (product.status !== 'published') {
     return NextResponse.json(
       { error: 'This product is not available for purchase.' },
@@ -133,8 +156,19 @@ export async function POST(req: Request) {
     )
   }
   if (!Number.isInteger(product.price_cents) || product.price_cents <= 0 ||
-      (product.kind !== 'physical' && !product.digital_delivery_url)) {
+      (product.kind !== 'physical' && !product.digital_delivery_url &&
+        !(product.kind === 'digital' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true'))) {
     return NextResponse.json({ error: 'This item is not ready for checkout.' }, { status: 409 })
+  }
+
+  // Private delivery preview pins the reviewed edition before payment.
+  let approvedAssetId: string | undefined
+  if (product.kind === 'digital' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true') {
+    const {data:assets,error:assetError}=await admin.from('gallery_approved_assets')
+      .select('id').eq('product_id',product.id).is('revoked_at',null)
+      .order('approved_at',{ascending:false}).order('id',{ascending:false}).limit(1)
+    if(assetError || !assets?.[0])return NextResponse.json({error:'No approved digital edition is available.'},{status:409})
+    approvedAssetId=assets[0].id
   }
 
   // The PostgREST embed returns artist as an array in some shapes and
@@ -149,7 +183,22 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!artistRow.is_approved || !artistRow.charges_enabled) {
+  if (process.env.GALLERY_HOUSE_CHECKOUT_ENABLED === 'true' && !configuredHouse) {
+    return NextResponse.json({ error: 'House checkout configuration is unavailable.' }, { status: 503 })
+  }
+  const saleKind = gallerySellerKind(product.id, artistRow.id, product.kind)
+  const house = saleKind === 'house' ? configuredHouse : null
+  if (mode === 'production' && !house) {
+    return NextResponse.json({ error: 'This artwork is not available for purchase.' }, { status: 409 })
+  }
+  if (stripeSecretKey.startsWith('rkcs_test_') && !house) {
+    return NextResponse.json({ error: 'Temporary test credentials support this house fixture only.' }, { status: 409 })
+  }
+  if (saleKind === 'blocked' || (house && process.env.GALLERY_HOUSE_CHECKOUT_ENABLED !== 'true')) {
+    return NextResponse.json({ error: 'This house artwork is not ready for checkout.' }, { status: 409 })
+  }
+
+  if (!artistRow.is_approved || (!house && (!artistRow.charges_enabled || !artistRow.payouts_enabled))) {
     return NextResponse.json(
       {
         error:
@@ -160,7 +209,7 @@ export async function POST(req: Request) {
     )
   }
 
-  if (!artistRow.stripe_account_id) {
+  if (!house && !artistRow.stripe_account_id) {
     return NextResponse.json(
       { error: 'Artist payout account is missing.' },
       { status: 500 }
@@ -183,13 +232,52 @@ export async function POST(req: Request) {
   const applicationFee = Math.floor((lineTotal * PLATFORM_FEE_BPS) / 10000)
 
   const stripe = new Stripe(stripeSecretKey)
+  if (house) {
+    if (!approvedAssetId) return NextResponse.json({ error: 'House edition is unavailable.' }, { status: 409 })
+    const { data: ready, error: readyError } = await admin.rpc('cs_gallery_house_ready', {
+      p_product: product.id, p_artist: artistRow.id, p_asset: approvedAssetId,
+    })
+    if (readyError || ready !== true) {
+      return NextResponse.json({ error: 'House checkout is not ready.' }, { status: 503 })
+    }
+    try {
+      if (!await verifiedGalleryHouseAccount(stripe, house.accountId, true)) {
+        return NextResponse.json({ error: 'House checkout account is unavailable.' }, { status: 503 })
+      }
+    } catch {
+      return NextResponse.json({ error: 'House checkout account is unavailable.' }, { status: 503 })
+    }
+  }
+  const houseMetadata: Stripe.MetadataParam = house ? { gallery_sale_kind: 'house', gallery_platform_account_id: house.accountId } : {}
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'
 
   const isPhysical = product.kind === 'physical'
+  const privateConsignment = !house && !isPhysical && !!approvedAssetId
 
+  let holdId: string | undefined
+  if(process.env.GALLERY_INVENTORY_HOLDS==='true'){
+    const {data:hold,error:holdError}=await admin.rpc('cs_hold_gallery_inventory',{p_product:product.id,p_user:authData.user.id,p_quantity:quantity})
+    if(holdError)return NextResponse.json({error:'Inventory temporarily unavailable.'},{status:503})
+    if(!hold)return NextResponse.json({error:'Artwork is currently reserved or sold out.'},{status:409})
+    holdId=hold
+  }
+  if (privateConsignment) {
+    if (!holdId) return NextResponse.json({ error: 'Private edition reservation is unavailable.' }, { status: 503 })
+    const {data: pinned, error: pinError} = await admin.rpc('cs_pin_consigned_private_gallery_hold', {
+      p_hold:holdId, p_product:product.id, p_artist:artistRow.id, p_asset:approvedAssetId,
+      p_user:authData.user.id, p_destination:artistRow.stripe_account_id,
+      p_subtotal:lineTotal, p_currency:product.currency || 'usd',
+    })
+    if (pinError || pinned !== true) return NextResponse.json({ error: 'Private edition reservation is unavailable.' }, { status: 503 })
+  }
+  const privateMetadata: Stripe.MetadataParam = privateConsignment ? {
+    gallery_private_schema:'consigned-v1', approved_asset_id:approvedAssetId!, inventory_hold_id:holdId!,
+    gallery_transfer_destination:artistRow.stripe_account_id,
+  } : {}
   try {
     const session = await stripe.checkout.sessions.create({
+      ...(holdId ? {expires_at:Math.floor(Date.now()/1000)+40*60} : {}),
       mode: 'payment',
       ui_mode: 'hosted',
       line_items: [
@@ -208,15 +296,16 @@ export async function POST(req: Request) {
           },
         },
       ],
-      // Destination charge — platform collects, then transfers net
-      // to the artist's connected account. Application fee is in
-      // cents on the base currency.
+      // Consigned artwork is a destination charge with an application fee.
+      // House artwork is a direct charge to the verified platform account.
       payment_intent_data: {
-        application_fee_amount: applicationFee,
-        transfer_data: {
-          destination: artistRow.stripe_account_id,
-        },
+        ...(!house ? {
+          application_fee_amount: applicationFee,
+          transfer_data: { destination: artistRow.stripe_account_id },
+        } : {}),
         metadata: {
+          ...houseMetadata,
+          ...privateMetadata,
           kind: 'gallery_order',
           product_id: product.id,
           artist_id: artistRow.id,
@@ -224,11 +313,16 @@ export async function POST(req: Request) {
         },
       },
       metadata: {
+        ...houseMetadata,
+          ...privateMetadata,
         kind: 'gallery_order',
         product_id: product.id,
         artist_id: artistRow.id,
         user_id: authData.user.id,
         quantity: String(quantity),
+        site: 'cafe-sativa',
+        ...(holdId ? {inventory_hold_id:holdId} : {}),
+        ...(approvedAssetId ? {approved_asset_id:approvedAssetId} : {}),
       },
       customer_email: authData.user.email ?? undefined,
       // Only collect shipping for physical goods
@@ -237,8 +331,12 @@ export async function POST(req: Request) {
         : undefined,
       phone_number_collection: isPhysical ? { enabled: true } : undefined,
       success_url: `${siteUrl}/gallery/thanks?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/gallery/${product.id}?canceled=1`,
-    })
+      cancel_url: `${siteUrl}/gallery/${product.slug}?canceled=1`,
+    },holdId ? {idempotencyKey:'gallery-hold-'+holdId} : undefined)
+    if(holdId){
+      const {data:linked,error:linkError}=await admin.from('gallery_inventory_holds').update({stripe_session_id:session.id}).eq('id',holdId).eq('state','held').select('id').maybeSingle()
+      if(linkError||!linked)throw Error('Inventory reservation requires reconciliation')
+    }
 
     return NextResponse.json({ url: session.url })
   } catch (err: any) {

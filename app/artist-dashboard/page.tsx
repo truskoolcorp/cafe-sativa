@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { artworkCreationMethodEnabled, artworkCreationMethods, isArtworkCreationMethod, type ArtworkCreationMethod } from '@/lib/gallery/artwork-creation-method'
 
 /**
  * /artist-dashboard
@@ -329,9 +330,11 @@ function FirstTimeOnboarding({ onCreated }: { onCreated: () => void }) {
             Sell your work in the Gallery.
           </h1>
           <p className="text-base text-muted-foreground font-body mt-4 leading-relaxed">
-            Original work, editions, digital pieces, or NFTs. We take 10% of
-            each sale; the rest flows straight to your connected bank account
-            via Stripe. Onboarding takes about five minutes.
+            Submit physical and digital artwork for Gallery review. For independent
+            artist sales, the expected artwork allocation is 90% to the artist
+            and 10% to the Gallery, before applicable adjustments. Stripe
+            transfers, fees, refunds and bank payouts are distinct; selling
+            requires approval and verified payment readiness.
           </p>
         </div>
 
@@ -535,7 +538,7 @@ function OnboardingStatusCard({ artist }: { artist: Artist }) {
           <p className="text-sm text-muted-foreground font-body mb-4">
             {artist.onboarding_state === 'rejected'
               ? 'Stripe needs more information before your account can accept payments.'
-              : 'Finish the Stripe flow to start selling. Your draft products are saved and will publish once you\u2019re approved.'}
+              : 'Complete Stripe onboarding for payment readiness. Draft artwork still requires Gallery review before it can be offered for sale.'}
           </p>
           <Button
             onClick={resumeOnboarding}
@@ -577,11 +580,10 @@ function NewProductForm({
   const [description, setDescription] = useState('')
   const [stock, setStock] = useState('')
   const [weight, setWeight] = useState('')
-  const [deliveryUrl, setDeliveryUrl] = useState('')
   const [blockchain, setBlockchain] = useState<'polygon' | 'ethereum' | 'base'>(
     'polygon'
   )
-  const [publishNow, setPublishNow] = useState(true)
+  const [creationMethod, setCreationMethod] = useState<ArtworkCreationMethod | ''>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -606,13 +608,13 @@ function NewProductForm({
       price_cents: Math.round(priceNum * 100),
       primary_image_url: imageUrl.trim() || undefined,
       stock_count: stock.trim() ? parseInt(stock.trim(), 10) : null,
-      status: publishNow ? 'published' : 'draft',
+      status: 'draft',
+    }
+    if (artworkCreationMethodEnabled && creationMethod) {
+      payload.artwork_creation_method = creationMethod
     }
     if (kind === 'physical' && weight.trim()) {
       payload.weight_grams = parseInt(weight.trim(), 10)
-    }
-    if (kind === 'digital' && deliveryUrl.trim()) {
-      payload.digital_delivery_url = deliveryUrl.trim()
     }
     if (kind === 'nft') {
       payload.blockchain = blockchain
@@ -639,7 +641,7 @@ function NewProductForm({
       setImageUrl('')
       setStock('')
       setWeight('')
-      setDeliveryUrl('')
+      setCreationMethod('')
       onCreated()
     } catch (err: any) {
       setError(err?.message || 'Save failed.')
@@ -667,7 +669,7 @@ function NewProductForm({
         <div className="mb-4 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
           <p className="text-sm text-foreground font-body">
             <CheckCircle2 className="w-4 h-4 inline -mt-0.5 mr-1.5 text-primary" />
-            Saved.
+            Draft saved. Gallery review is required before publication.
           </p>
         </div>
       )}
@@ -735,6 +737,31 @@ function NewProductForm({
           />
         </div>
 
+        {artworkCreationMethodEnabled && (
+          <div>
+            <label htmlFor="artworkCreationMethod" className="mb-2 block text-sm font-semibold text-foreground">
+              Artwork creation method (optional)
+            </label>
+            <select
+              id="artworkCreationMethod"
+              aria-describedby="artworkCreationMethodHelp"
+              value={creationMethod}
+              onChange={(event) => {
+                const value = event.target.value
+                setCreationMethod(isArtworkCreationMethod(value) ? value : '')
+              }}
+              disabled={submitting}
+              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="">Not declared</option>
+              {artworkCreationMethods.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <p id="artworkCreationMethodHelp" className="mt-2 text-sm text-muted-foreground">
+              If you disclose AI use, buyers will see your selection on this artwork’s listing once it is published.
+            </p>
+          </div>
+        )}
+
         {/* Price + stock */}
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -795,7 +822,7 @@ function NewProductForm({
             placeholder="https://…"
           />
           <p className="text-xs text-muted-foreground font-body mt-1.5">
-            Paste any public image URL for now. Storage uploads coming.
+            Use a public display copy only, never your full-resolution master. Gallery review verifies rights and private delivery.
           </p>
         </div>
 
@@ -823,25 +850,9 @@ function NewProductForm({
         )}
 
         {kind === 'digital' && (
-          <div>
-            <label
-              htmlFor="deliveryUrl"
-              className="block text-sm font-body font-semibold text-foreground mb-2"
-            >
-              Download URL{' '}
-              <span className="text-muted-foreground font-normal">
-                (emailed to buyer)
-              </span>
-            </label>
-            <Input
-              id="deliveryUrl"
-              type="url"
-              value={deliveryUrl}
-              onChange={(e) => setDeliveryUrl(e.target.value)}
-              disabled={submitting}
-              placeholder="https://…"
-            />
-          </div>
+          <p className="text-sm text-muted-foreground font-body">
+            Keep your master private. The Gallery will arrange approved-file delivery during review.
+          </p>
         )}
 
         {kind === 'nft' && (
@@ -867,29 +878,14 @@ function NewProductForm({
               ))}
             </div>
             <p className="text-xs text-muted-foreground font-body mt-2">
-              Token metadata + on-chain mint will be wired up in a later pass.
-              For now, NFT sales deliver a digital certificate via email.
+              NFT submissions are drafts only. Token sales and minting are not available.
             </p>
           </div>
         )}
 
-        {/* Publish toggle */}
-        <div className="flex items-center gap-3 pt-2">
-          <input
-            id="publishNow"
-            type="checkbox"
-            checked={publishNow}
-            onChange={(e) => setPublishNow(e.target.checked)}
-            disabled={submitting}
-            className="w-4 h-4 rounded border-border"
-          />
-          <label
-            htmlFor="publishNow"
-            className="text-sm font-body text-foreground cursor-pointer"
-          >
-            Publish immediately
-          </label>
-        </div>
+        <p className="text-sm text-muted-foreground font-body">
+          Saving creates a private draft, not a public listing. Publication requires separate Gallery review of this work, its rights, price and fulfillment.
+        </p>
 
         <Button type="submit" size="lg" disabled={submitting} className="w-full">
           {submitting ? (
@@ -898,7 +894,7 @@ function NewProductForm({
               Saving…
             </>
           ) : (
-            'Save product'
+            'Save draft'
           )}
         </Button>
       </form>

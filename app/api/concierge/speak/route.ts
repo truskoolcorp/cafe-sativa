@@ -9,7 +9,7 @@ import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-h
  * half of voice on /ask — it does NOT generate text (that's
  * /api/concierge); it only turns an existing reply into audio.
  *
- * Body: { host: 'laviche' | 'ginger' | 'ahnika', text: string }
+ * Body: { host: 'laviche' | 'ginger' | 'ahnika' | 'zaria', text: string }
  * Returns: audio/mpeg bytes (the spoken reply) on success.
  *
  * The ElevenLabs API key stays server-side — the browser never sees
@@ -27,13 +27,14 @@ export const maxDuration = 60
 
 type Body = { host?: string; text?: string }
 
-type Host = 'laviche' | 'ginger' | 'ahnika'
+type Host = 'laviche' | 'ginger' | 'ahnika' | 'zaria'
 
 // host -> ElevenLabs voice ID. Env override: ELEVENLABS_VOICE_<HOST>.
 function voiceIdFor(host: Host): string {
   const fromEnv = process.env[`ELEVENLABS_VOICE_${host.toUpperCase()}`]
   if (fromEnv) return fromEnv
   const defaults: Record<Host, string> = {
+    zaria: '', // No fallback: requires explicit canonical voice configuration.
     ginger: 'hROPTUoViDvDwonZteKF',
     ahnika: 'v0r5L5uDA6ocN9hjTPYK',
     laviche: 'oNYzGfXKQJfjG1yEuJe9',
@@ -50,7 +51,7 @@ const MAX_TTS_CHARS = 2000
 
 export async function GET(req:Request) {
   const host=new URL(req.url).searchParams.get('host')
-  if(!host || !['laviche','ginger','ahnika'].includes(host))return jsonWithCors({error:'Unknown host'},{status:400,request:req})
+  if(!host || !['laviche','ginger','ahnika','zaria'].includes(host))return jsonWithCors({error:'Unknown host'},{status:400,request:req})
   try {
     const canonical=await canonicalConciergeHost(host)
     return Response.json({configured:Boolean(process.env.ELEVENLABS_API_KEY),canonicalMatches:Boolean(canonical && canonical.voiceId===voiceIdFor(host as Host))},{headers:{'Cache-Control':'no-store'}})
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Body | null
 
   const host = body?.host
-  if (host !== 'laviche' && host !== 'ginger' && host !== 'ahnika') {
+  if (host !== 'laviche' && host !== 'ginger' && host !== 'ahnika' && host !== 'zaria') {
     return jsonWithCors({ error: 'Unknown host.' }, { status: 400, request: req })
   }
   const performing = () => jsonWithCors({ error: STAGE_HOST_ON_STAGE, code: 'host_performing' }, { status: 409, request: req, noStore: true })
@@ -91,7 +92,7 @@ export async function POST(req: Request) {
   const voiceId = voiceIdFor(host)
   let canonical
   try{canonical=await canonicalConciergeHost(host)}catch{}
-  if(!canonical || canonical.voiceId!==voiceId)return jsonWithCors({error:'The configured voice does not match a verified current host master. Review canonical voice settings; no alternate voice was used.'},{status:409,request:req})
+  if(!voiceId || !canonical || canonical.voiceId!==voiceId)return jsonWithCors({error:'The configured voice does not match a verified current host master. Review canonical voice settings; no alternate voice was used.'},{status:409,request:req})
   if (stageHostIsPerforming(host)) return performing()
 
   try {

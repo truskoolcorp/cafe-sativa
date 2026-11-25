@@ -42,6 +42,7 @@ function harness({ env = {}, userId = null, authError = null } = {}) {
       messages = { create: async () => { calls.provider++; return { content: [{ type: 'text', text: 'Synthetic general reply' }] } } }
     } },
     '@/lib/content/concierge-canon': { canonicalConciergeHost: async () => { calls.canonical++; return { context: 'Approved synthetic context' } } },
+    '@/lib/gallery/curator-catalog': { loadCuratorCatalog: async () => { throw Error('Non-Gallery regression must not call curator catalog') } },
     '@/lib/content/site': { getSiteContent: async () => { calls.content++; return [] } },
     '@/lib/events': { getUpcomingEvents: async () => { calls.events++; return [] } },
     '@/lib/supabase/server': { createClient: () => { calls.authFactory++; return { auth: { getUser: async () => {

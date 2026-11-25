@@ -60,7 +60,7 @@ import LiveVoiceConversation from '@/components/LiveVoiceConversation'
  *     style consistent with the rest of the site
  */
 
-type HostId = 'laviche' | 'ginger' | 'ahnika'
+type HostId = 'laviche' | 'ginger' | 'ahnika' | 'zaria'
 
 type HostMeta = {
   id: HostId
@@ -76,6 +76,15 @@ type HostMeta = {
 }
 
 const HOSTS: HostMeta[] = [
+  {
+    id: 'zaria',
+    displayName: 'Zaria',
+    role: 'Gallery curator',
+    tagline: 'Discover artwork, artists and digital collectibles.',
+    icon: Sparkles,
+    avatar: '/api/hosts/portrait?host=zaria',
+    suggestions: ['What artwork is available?', 'How can I exhibit my work?', 'What is a digital collectible?'],
+  },
   {
     id: 'laviche',
     displayName: 'Laviche',
@@ -581,7 +590,7 @@ function AskInner() {
         </div>
 
         {/* Host selector — three cards, icon + name + role + tagline */}
-        <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {HOSTS.map((h) => {
             const active = h.id === activeHost
             const HostIcon = h.icon

@@ -1,5 +1,5 @@
 import { liveGlyphCharacters,glyphPortrait } from '@/lib/content/glyph-live'
-export const PUBLIC_HOST_CHARACTERS={laviche:'laviche-fea',ginger:'ginger',ahnika:'ahnika-merlot'} as const
+export const PUBLIC_HOST_CHARACTERS={laviche:'laviche-fea',ginger:'ginger',ahnika:'ahnika-merlot',zaria:'zaria-solenne'} as const
 export async function approvedHostPortrait(host:string) {
   if(!Object.prototype.hasOwnProperty.call(PUBLIC_HOST_CHARACTERS,host))return null
   const id=PUBLIC_HOST_CHARACTERS[host as keyof typeof PUBLIC_HOST_CHARACTERS]

@@ -5,8 +5,12 @@ import { ArrowLeft } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
+import { BuyButton } from './BuyButton'
+import { galleryDebutOffer } from '@/lib/gallery/house-checkout'
+import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
+import { artworkCreationMethodEnabled, declaredAiArtworkLabel } from '@/lib/gallery/artwork-creation-method'
 
-/** Read-only detail for published, approved physical and digital artwork. */
+/** Published physical/digital artwork. New checkout is default-off and never available on unisolated previews. */
 
 export const dynamic = 'force-dynamic'
 
@@ -72,6 +76,9 @@ export default async function ProductDetailPage({ params }: Params) {
     currency: (product.currency || 'usd').toUpperCase(),
   })
 
+  const mode = galleryEnvironment(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com')
+  const salesEnabled = gallerySalesEnabled(mode) && (mode !== 'production' || galleryDebutOffer(product))
+  const methodLabel = artworkCreationMethodEnabled ? declaredAiArtworkLabel(product.declared_ai_creation_method) : null
   const soldOut = product.stock_count !== null && product.stock_count <= 0
   const kindLabel =
     product.kind === 'digital' ? 'Digital art' : 'Physical'
@@ -136,6 +143,7 @@ export default async function ProductDetailPage({ params }: Params) {
               </p>
             </div>
 
+            {methodLabel && <p className="text-sm text-muted-foreground">Artist-declared creation method: {methodLabel}</p>}
 
             {/* Price card */}
             <div className="rounded-xl border border-primary/40 bg-card p-5">
@@ -156,7 +164,7 @@ export default async function ProductDetailPage({ params }: Params) {
                 )}
 
               <div className="mt-4">
-                <p role="status" className="text-sm text-muted-foreground">Available to browse. Purchases are not open yet.</p>
+                {salesEnabled ? <BuyButton productId={product.id} soldOut={soldOut} /> : <p role="status" className="text-sm text-muted-foreground">Available to browse. Purchases are not open yet.</p>}
               </div>
             </div>
 

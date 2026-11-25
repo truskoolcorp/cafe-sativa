@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { artworkCreationMethodEnabled, isArtworkCreationMethod } from '@/lib/gallery/artwork-creation-method'
 
 /**
  * POST /api/products
@@ -24,9 +25,9 @@ import { cookies } from 'next/headers'
  * don't need to do a second lookup to verify "is this artist's
  * product". The policy does it.
  *
- * One thing we DO check manually: published products require an
- * approved artist. We verify before letting status flip to
- * 'published'.
+ * Artists may save drafts or archive unpublished submissions. A separate,
+ * privileged Gallery review is required to publish or change a published work.
+ * The proposed DB guard also protects direct authenticated PostgREST writes.
  */
 
 type ProductKind = 'physical' | 'digital' | 'nft'
@@ -45,6 +46,7 @@ type Body = {
   digital_delivery_url?: string
   blockchain?: 'polygon' | 'ethereum' | 'base'
   status?: ProductStatus
+  artwork_creation_method?: unknown
 }
 
 function slugify(input: string): string {
@@ -80,6 +82,25 @@ export async function POST(req: Request) {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 })
+  }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Invalid product submission.' }, { status: 400 })
+  }
+  const status = body.status ?? 'draft'
+  if (status !== 'draft' && status !== 'archived') {
+    return NextResponse.json({ error: 'Artwork requires Gallery review before publication.', code: 'gallery_review_required' }, { status: 403 })
+  }
+  if (body.digital_delivery_url != null && body.digital_delivery_url !== '') {
+    return NextResponse.json({ error: 'Do not submit a download or master-file URL. Private delivery is arranged during Gallery review.' }, { status: 400 })
+  }
+
+  const creationMethod = body.artwork_creation_method
+  if (creationMethod !== undefined && !artworkCreationMethodEnabled) {
+    return NextResponse.json({ error: 'Artwork creation method is not available.' }, { status: 400 })
+  }
+  if (creationMethod !== undefined && creationMethod !== null && !isArtworkCreationMethod(creationMethod)) {
+    return NextResponse.json({ error: 'Invalid artwork creation method.' }, { status: 400 })
   }
 
   // Validate required fields
@@ -119,19 +140,7 @@ export async function POST(req: Request) {
     )
   }
 
-  const status = body.status ?? 'draft'
-
-  if (status === 'published' && !artist.is_approved) {
-    return NextResponse.json(
-      {
-        error:
-          'Finish Stripe onboarding before publishing. Save as draft for now.',
-        code: 'not_approved',
-      },
-      { status: 403 }
-    )
-  }
-
+  // Stripe onboarding is payment readiness, not artwork approval.
   // Build the payload
   const payload: Record<string, any> = {
     artist_id: artist.id,
@@ -144,22 +153,28 @@ export async function POST(req: Request) {
     primary_image_url: body.primary_image_url?.trim() || null,
     stock_count: body.stock_count ?? null,
     weight_grams: body.kind === 'physical' ? body.weight_grams ?? null : null,
-    digital_delivery_url:
-      body.kind === 'digital' ? body.digital_delivery_url?.trim() || null : null,
+    digital_delivery_url: null,
     blockchain: body.kind === 'nft' ? body.blockchain ?? null : null,
     on_chain_status: body.kind === 'nft' ? 'not_minted' : null,
   }
 
+  if (creationMethod !== undefined) payload.artwork_creation_method = creationMethod
+
   if (body.id) {
-    // Update path. RLS will block this if the row isn't owned by the
-    // artist — no extra check needed.
+    // Published editions must not be changed during an outstanding checkout.
+    // RLS plus the explicit artist and state filters constrain the update.
     const { data: updated, error } = await supabase
       .from('products')
       .update(payload)
       .eq('id', body.id)
+      .eq('artist_id', artist.id)
+      .in('status', ['draft', 'archived'])
       .select()
-      .single()
+      .maybeSingle()
 
+    if (!error && !updated) {
+      return NextResponse.json({ error: 'Draft unavailable or already published. Contact Gallery review for changes.' }, { status: 409 })
+    }
     if (error) {
       console.error('[products] update failed', error)
       return NextResponse.json({ error: error.message }, { status: 500 })

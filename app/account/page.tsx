@@ -344,6 +344,7 @@ export default function AccountPage() {
             </div>
 
             <MemberExperience />
+            <Link href="/account/artwork" className="block rounded-xl border border-border bg-card p-6 hover:border-primary">My artwork — purchases and digital downloads</Link>
 
             {/* Quick-links row */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

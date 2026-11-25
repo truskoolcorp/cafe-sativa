@@ -7,6 +7,7 @@ const cue = '2026-12-01T00:00:00Z'
 const caption = 'Approved Stage notice'
 const checksum = createHash('sha256').update(caption).digest('hex')
 const fb = { postId: '12345', postUuid: '8404822223355862333', network: 'facebook',
+  expectedFacebookPageId: '123',
   captionSha256: checksum, scheduledAt: cue, mediaUrl: 'https://static.metricool.com/planner/202611/7605217-file-123.jpeg' }
 const ig = { ...fb, postId: '12346', postUuid: '-940482222335586233', network: 'instagram' }
 const exportFor = (...data) => ({ brandId: '7605217', data })
@@ -56,4 +57,23 @@ test('rejects a generic page, lookalike host, credentialed URL, and missing prov
     const p = postFor(fb, { status: 'PUBLISHED', id, publicUrl })
     assert.equal(readStageReceipts([fb], exportFor(p), at(0))[0].state, 'provider_unconfirmed')
   }
+})
+
+test('a different Facebook page in a valid receipt cannot pass the destination check', () => {
+  const publicUrl = 'https://facebook.com/456/posts/789'
+  const [receipt] = readStageReceipts([fb], exportFor(postFor(fb, { status: 'PUBLISHED', id: '789', publicUrl })), at(0))
+  assert.deepEqual(receipt, { postId: fb.postId, network: 'facebook', scheduledAt: cue, state: 'destination_mismatch',
+    expectedFacebookPageId: '123', permalinkPageId: '456', providerId: '789', publicUrl, publiclyVerified: false })
+})
+
+test('an opaque Facebook permalink or a repeated page parameter does not prove page identity', () => {
+  for (const publicUrl of ['https://facebook.com/reel/789', 'https://facebook.com/name/posts/789',
+    'https://facebook.com/permalink.php?story_fbid=789&id=123&id=456']) {
+    const [receipt] = readStageReceipts([fb], exportFor(postFor(fb, { status: 'PUBLISHED', id: '789', publicUrl })), at(0))
+    assert.equal(receipt.state, 'destination_unconfirmed')
+  }
+  const matching = 'https://facebook.com/permalink.php?story_fbid=789&id=123'
+  assert.equal(readStageReceipts([fb], exportFor(postFor(fb, { status: 'PUBLISHED', id: '789', publicUrl: matching })), at(0))[0].state,
+    'provider_reported_published')
+  assert.throws(() => readStageReceipts([{ ...fb, expectedFacebookPageId: undefined }], exportFor(), at(0)))
 })

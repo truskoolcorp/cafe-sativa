@@ -116,7 +116,7 @@ function settlementPersistenceFixture(platform, actualAccount='acct_platform', l
   '@/lib/gallery/environment':{galleryEnvironment:()=> live?'production':'isolated-test'},
   '@/lib/gallery/observe-stripe-settlement':{observeGallerySettlement:async(stripe,id,providerLive,kind,binding)=>{calls.observe++;assert.equal(providerLive,live);assert.equal(kind,'consigned');assert.equal(binding.destination,'acct_artist');return {currency:'usd'}},compareGalleryOrderSettlement:()=>({attention:[]})}
  }
- vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/persist-test-settlement.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:out,require:id=>{if(!mocks[id])throw Error('Unexpected dependency');return mocks[id]},process:{env}})
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/persist-test-settlement.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:out,require:id=>{if(!mocks[id])throw Error('Unexpected dependency');return mocks[id]},process:{env},URL})
  return {run:()=>out.persistGalleryTestSettlement('http://127.0.0.1:4116','order'),production:(url='https://www.cafe-sativa.com/api/gallery/worker')=>out.persistGalleryProductionSettlement(url,'order'),calls}
 }
 test('consigned persistence rejects missing, same-destination or wrong platform before payment reads and writes',async()=>{

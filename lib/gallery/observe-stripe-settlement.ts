@@ -12,7 +12,15 @@ type OrderBinding = {productId:string,artistId:string,buyerId:string,destination
 /** When persisted, bind the provider payment to the immutable purchased line,
  * not today's artist payout settings or merely a matching amount/currency. */
 export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean,expectedSaleKind:'consigned'|'house'='consigned',binding?:OrderBinding){
- const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:['latest_charge']})
+ // One observation has a bounded provider-read budget. Never accept a truncated
+ // refund list as financial evidence. No automatic SDK retries in this path.
+ const deadline=Date.now()+20_000
+ const requestOptions=():Stripe.RequestOptions=>{
+  const remaining=deadline-Date.now()
+  if(remaining<=0)throw Error('Gallery settlement observation deadline exceeded')
+  return {timeout:Math.min(3000,remaining),maxNetworkRetries:0}
+ }
+ const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:['latest_charge']},requestOptions())
  const charge=intent.latest_charge
  if(intent.id!==paymentIntentId||intent.livemode!==expectedLive||intent.status!=='succeeded'||
    !charge||typeof charge==='string'||charge.livemode!==expectedLive||!charge.paid||
@@ -34,8 +42,8 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
    throw Error('House charge has invalid settlement classification')
  }else if(!destination||intent.metadata?.gallery_sale_kind)throw Error('Gallery destination unavailable')
  const [transfer,fee]=await Promise.all([
-  transferId?stripe.transfers.retrieve(transferId):Promise.resolve(null),
-  feeId?stripe.applicationFees.retrieve(feeId):Promise.resolve(null)
+  transferId?stripe.transfers.retrieve(transferId,{},requestOptions()):Promise.resolve(null),
+  feeId?stripe.applicationFees.retrieve(feeId,{},requestOptions()):Promise.resolve(null)
  ])
  if(transfer&&(transfer.id!==transferId||transfer.livemode!==expectedLive||
    transfer.currency!==charge.currency||idOf(transfer.destination)!==destination||
@@ -48,7 +56,7 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
  const readBalance=async (value:string|Stripe.BalanceTransaction|null,source:string)=>{
   const id=idOf(value)
   if(!id)return null
-  const b=await stripe.balanceTransactions.retrieve(id)
+  const b=await stripe.balanceTransactions.retrieve(id,{},requestOptions())
   if(b.id!==id||idOf(b.source)!==source||b.currency!==charge.currency||
    b.amount-b.fee!==b.net)throw Error('Balance transaction mismatch')
   return {id:b.id,amount_cents:b.amount,fee_cents:b.fee,net_cents:b.net,status:b.status}
@@ -56,13 +64,21 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
  const chargeBalance=await readBalance(charge.balance_transaction,charge.id)
  if(chargeBalance&&chargeBalance.amount_cents!==charge.amount_captured)throw Error('Captured amount mismatch')
  const refunds=[]
- for await(const refund of stripe.refunds.list({charge:charge.id,limit:100})){
+ const maxRefunds=10
+ const page=await stripe.refunds.list({charge:charge.id,limit:maxRefunds+1},requestOptions())
+ if(!Array.isArray(page.data)||page.has_more!==false||page.data.length>maxRefunds)
+  throw Error('Gallery settlement refund read budget exceeded')
+ const seenRefunds=new Set<string>()
+ for(const refund of page.data){
+  if(!refund.id||seenRefunds.has(refund.id))throw Error('Duplicate Gallery refund evidence')
+  seenRefunds.add(refund.id)
   if(idOf(refund.charge)!==charge.id||refund.currency!==charge.currency||
     !Number.isSafeInteger(refund.amount)||refund.amount<=0)throw Error('Refund mismatch')
   const balance=refund.status==='succeeded'?await readBalance(refund.balance_transaction,refund.id):null
   if(balance&&balance.amount_cents!==-refund.amount)throw Error('Refund balance mismatch')
   refunds.push({id:refund.id,amount_cents:refund.amount,status:refund.status??'unknown',balance})
  }
+ if(Date.now()>=deadline)throw Error('Gallery settlement observation deadline exceeded')
  const succeeded=refunds.filter(r=>r.status==='succeeded')
  const succeededTotal=succeeded.reduce((n,r)=>n+r.amount_cents,0)
  const netFee=fee?fee.amount-fee.amount_refunded:null

@@ -10,7 +10,7 @@ function mock({refund=0,reversed=refund,feeRefund=refund/10,missing=false,live=f
   transfers:{retrieve:async()=>({id:'tr_fixture',livemode:live,destination:'acct_fixture',source_transaction:charge.id,destination_payment:'py_destination',currency:crossCurrency?'eur':'usd',amount:10000,amount_reversed:reversed})},
   applicationFees:{retrieve:async()=>({id:'fee_fixture',livemode:live,account:'acct_fixture',charge:'py_destination',originating_transaction:charge.id,currency:'usd',amount:1000,amount_refunded:feeRefund})},
   balanceTransactions:{retrieve:async id=>id==='txn_charge'?{id,source:charge.id,currency:'usd',amount:10000,fee:320,net:9680,status:'available'}:{id,source:'re_fixture',currency:'usd',amount:-refund,fee:0,net:-refund,status:'available'}},
-  refunds:{list:async function*(){if(refund)yield {id:'re_fixture',charge:charge.id,currency:'usd',amount:refund,status:pending?'pending':'succeeded',balance_transaction:pending?null:'txn_refund'}}}
+  refunds:{list:async()=>({has_more:false,data:refund?[{id:'re_fixture',charge:charge.id,currency:'usd',amount:refund,status:pending?'pending':'succeeded',balance_transaction:pending?null:'txn_refund'}]:[]})}
  }
 }
 test('destination charge: gross transfer less fee is artist allocation, not bank payout',async()=>{
@@ -147,4 +147,20 @@ test('draft production persistence verifies platform before any provider payment
  const correct=settlementPersistenceFixture('acct_platform','acct_platform',true)
  await correct.production()
  assert.equal(correct.calls.account,1);assert.equal(correct.calls.observe,1);assert.equal(correct.calls.insert,1)
+})
+
+test('settlement reads one bounded refund page, disables provider retries, and refuses truncated evidence',async()=>{
+ for(const page of [{has_more:true,data:[]},{has_more:false,data:Array(11).fill({id:'re_fixture'})},{data:[]}]){
+  const stripe=mock()
+  let lists=0,balances=0
+  const readBalance=stripe.balanceTransactions.retrieve
+  stripe.balanceTransactions.retrieve=async(id,params,options)=>{balances++;assert.equal(options.maxNetworkRetries,0);assert.ok(options.timeout>0&&options.timeout<=3000);return readBalance(id)}
+  stripe.refunds.list=async(params,options)=>{lists++;assert.equal(params.limit,11);assert.equal(options.maxNetworkRetries,0);assert.ok(options.timeout>0&&options.timeout<=3000);return page}
+  await assert.rejects(observe(stripe,'pi_fixture',false),/refund read budget exceeded/)
+  assert.equal(lists,1);assert.equal(balances,1)
+ }
+ const stripe=mock({refund:2000})
+ const page=await stripe.refunds.list()
+ stripe.refunds.list=async()=>({has_more:false,data:[page.data[0],page.data[0]]})
+ await assert.rejects(observe(stripe,'pi_fixture',false),/Duplicate Gallery refund evidence/)
 })

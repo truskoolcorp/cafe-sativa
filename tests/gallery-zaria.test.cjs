@@ -71,6 +71,20 @@ test('voice bridge gate rejects production, alternate host, shared secret and no
  {CS_ZARIA_LIVEKIT_VERIFIED_VOICE_MODEL:'wrong'},{CS_LIVEKIT_BRIDGE_SECRET:cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET},
  {NEXT_PUBLIC_SUPABASE_URL:'https://separate.supabase.co'}])assert.equal(bridge.privateZariaConfig(origin,{...cfg,...broken}),null)
 })
+test('stable preview branch alias survives redeploy only within the pinned project and Git ref',()=>{
+ const expectedHost='isolated-zaria-git-private-qa.vercel.app'
+ const stable={...cfg,CS_ZARIA_PREVIEW_EXPECTED_HOST:expectedHost,VERCEL_BRANCH_URL:expectedHost,
+  CS_ZARIA_PREVIEW_EXPECTED_PROJECT_ID:'prj_zaria123',VERCEL_PROJECT_ID:'prj_zaria123',
+  CS_ZARIA_PREVIEW_EXPECTED_GIT_REF:'feat/zaria-private-qa',VERCEL_GIT_COMMIT_REF:'feat/zaria-private-qa'}
+ const request='https://'+expectedHost
+ for(const VERCEL_URL of ['generated-old.vercel.app','generated-new.vercel.app',undefined])
+  assert.equal(bridge.privateZariaConfig(request,{...stable,VERCEL_URL}).scope,expectedHost)
+ for(const denied of [{VERCEL_ENV:'production'},{VERCEL_PROJECT_ID:'prj_other'},{VERCEL_GIT_COMMIT_REF:'main'},
+  {VERCEL_BRANCH_URL:undefined},{VERCEL_BRANCH_URL:'other.vercel.app'},{CS_ZARIA_PREVIEW_EXPECTED_GIT_REF:undefined},
+  {CS_ZARIA_PREVIEW_EXPECTED_PROJECT_ID:undefined}])
+  assert.equal(bridge.privateZariaConfig(request,{...stable,...denied}),null)
+ assert.equal(bridge.privateZariaConfig(origin,stable),null)
+})
 test('voice grant rejects wrong audience, identity, room, deployment, duration, expiry or signature',()=>{
  const secret=cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET
  const token=bridge.signZariaGrant(grant,secret)

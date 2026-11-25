@@ -7,7 +7,14 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 export const ROOM = /^cs-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export type Grant = {audience:typeof AUDIENCE;version:typeof VERSION;host:'zaria';room:string;participantIdentity:string;userId:string;conversationId:string;nonce:string;scope:string;iat:number;exp:number;galleryWork:string|null}
 export function privateZariaConfig(url: string, env:NodeJS.ProcessEnv=process.env) {
-  const scope=env.VERCEL_URL
+  // Use the exact Git branch alias only when Vercel confirms the isolated project
+  // and branch. Unlike VERCEL_URL, that alias survives an env-config rebuild.
+  const pinnedProject=env.CS_ZARIA_PREVIEW_EXPECTED_PROJECT_ID
+  const pinnedBranch=env.CS_ZARIA_PREVIEW_EXPECTED_GIT_REF
+  const branchPinRequested=pinnedProject!==undefined||pinnedBranch!==undefined
+  if(branchPinRequested&&(!pinnedProject||!/^prj_[a-zA-Z0-9]+$/.test(pinnedProject)||
+      pinnedProject!==env.VERCEL_PROJECT_ID||!pinnedBranch||pinnedBranch!==env.VERCEL_GIT_COMMIT_REF))return null
+  const scope=branchPinRequested?env.VERCEL_BRANCH_URL:env.VERCEL_URL
   const secret=env.CS_ZARIA_PREVIEW_BRIDGE_SECRET
   const members=env.CS_ZARIA_PREVIEW_QA_USER_IDS?.split(',').map(v=>v.trim()).filter(v=>UUID.test(v))??[]
   if(env.VERCEL_ENV!=='preview'||env.CS_ZARIA_PREVIEW_BRIDGE!=='true'||env.CS_LIVEKIT_ENABLED!=='true'||!zariaVoiceAgent(env)||

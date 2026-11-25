@@ -44,6 +44,8 @@ test('misconfigured previews fail closed', () => {
     { GALLERY_TEST_SUPABASE_URL: 'https://someotherpreview.supabase.co' },
     { NEXT_PUBLIC_SUPABASE_URL: 'https://nwfxvhqbjtfvoopcadff.supabase.co',
       GALLERY_TEST_SUPABASE_URL: 'https://nwfxvhqbjtfvoopcadff.supabase.co' },
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://anrprovgdpwqcalkolsz.supabase.co',
+      GALLERY_TEST_SUPABASE_URL: 'https://anrprovgdpwqcalkolsz.supabase.co' },
     { NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
       GALLERY_TEST_SUPABASE_URL: 'http://127.0.0.1:54321' },
   ]

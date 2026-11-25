@@ -1,6 +1,10 @@
 // Server-side only: preview deployments inherit project-wide credentials.
 // A non-production Gallery route is never allowed to assume that inheritance is safe.
-const PRODUCTION_DATABASE_HOST = 'nwfxvhqbjtfvoopcadff.supabase.co'
+// The existing replica is not a disposable Gallery sandbox either.
+const EXCLUDED_TEST_DATABASE_HOSTS = new Set([
+  'nwfxvhqbjtfvoopcadff.supabase.co',
+  'anrprovgdpwqcalkolsz.supabase.co',
+])
 
 type Env = Record<string, string | undefined>
 
@@ -46,7 +50,7 @@ export function galleryEnvironment(requestUrl: string, env: Env = process.env): 
     const hosted = database.protocol === 'https:' && /^[a-z0-9]+\.supabase\.co$/.test(database.hostname)
     const local = env.VERCEL_ENV !== 'preview' && loopback(database.hostname) && loopback(site.hostname)
     if (!(hosted || local) || database.href !== expected.href ||
-        database.hostname === PRODUCTION_DATABASE_HOST || site.origin !== request.origin ||
+        EXCLUDED_TEST_DATABASE_HOSTS.has(database.hostname) || site.origin !== request.origin ||
         (!local && site.protocol !== 'https:') || database.username || database.password ||
         database.search || database.hash || database.pathname !== '/') return 'blocked'
     return 'isolated-test'

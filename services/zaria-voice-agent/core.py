@@ -1,4 +1,5 @@
 """Zaria-only admission and private bridge; no provider or SDK dependencies."""
+import asyncio
 from dataclasses import dataclass, field
 from ipaddress import ip_address
 import json
@@ -10,6 +11,8 @@ MODEL = "eleven_v4"
 HOST = "zaria"
 AGENT = "cafe-sativa-zaria"
 PROTOCOL = "zaria-gallery-turn-v1"
+ADMIT_TIMEOUT_SEC = 5
+TURN_TIMEOUT_SEC = 18  # allows the web bridge's 12s model timeout plus bounded overhead
 BRIDGE_PREFIX = "/api/concierge/zaria/voice-v1"
 DNS = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+")
 ROOM = re.compile(r"^[\w-]{1,120}$", re.ASCII)
@@ -93,6 +96,14 @@ class Bridge:
         self.headers = {"Authorization": "Bearer " + grant}
 
     async def _call(self, action, extra):
+        limit = ADMIT_TIMEOUT_SEC if action == "admit" else TURN_TIMEOUT_SEC
+        try:
+            async with asyncio.timeout(limit):
+                return await self._request(action, extra)
+        except TimeoutError:
+            raise Unavailable("Private Gallery bridge deadline exceeded") from None
+
+    async def _request(self, action, extra):
         payload = {"version": PROTOCOL, "room": self.room, **extra}
         async with self.http.post(self.url + "/" + action, json=payload,
                                   headers=self.headers, allow_redirects=False) as resp:
@@ -144,3 +155,4 @@ class Bridge:
                 links.append({"path": path, "label": label})
                 seen.add(path)
         return reply, links
+

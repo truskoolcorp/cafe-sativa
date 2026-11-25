@@ -4,7 +4,7 @@ from contextlib import aclosing, asynccontextmanager
 import json
 import os
 
-from core import AGENT, Bridge, Settings, Unavailable, parse_job
+from core import AGENT, TURN_TIMEOUT_SEC, Bridge, Settings, Unavailable, parse_job
 from dialogue import pcm_frames, SAMPLE_RATE
 from turns import Turns
 
@@ -23,7 +23,7 @@ async def entrypoint(ctx):
     trace = aiohttp.TraceConfig()
     trace.on_request_redirect.append(reject_redirect)
     stopped = asyncio.Event()
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5),
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=TURN_TIMEOUT_SEC + 1),
                                      trace_configs=[trace], trust_env=False) as http:
         bridge = Bridge(http, cfg.bridge_origin, grant, ctx.room.name)
         # Signed grants and live access are validated by the separate private app.
@@ -134,3 +134,4 @@ def startup():
 
 if __name__ == "__main__":
     startup()
+

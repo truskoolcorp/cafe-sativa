@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import unittest
+from unittest.mock import patch
 from contextlib import aclosing, asynccontextmanager
 
 from core import Settings, parse_job, Bridge, MODEL, PROTOCOL, VOICE, Unavailable
@@ -100,6 +101,35 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(Unavailable):
             await bridge.admit()
 
+    async def test_bridge_has_distinct_bounded_admit_and_turn_deadlines(self):
+        class HeaderOrBody(FakeHTTP):
+            delay = .025
+            stall = False
+
+            @asynccontextmanager
+            async def post(self, url, **kwargs):
+                self.calls.append(url)
+                if not self.stall:
+                    await asyncio.sleep(self.delay)
+                yield self
+
+            async def iter_chunked(self, size):
+                if self.stall:
+                    await asyncio.sleep(60)
+                async for chunk in super().iter_chunked(size):
+                    yield chunk
+
+        http = HeaderOrBody()
+        bridge = Bridge(http, "https://test-gallery.example", "test-bearer", "room-1")
+        with patch("core.ADMIT_TIMEOUT_SEC", .01), patch("core.TURN_TIMEOUT_SEC", .12):
+            with self.assertRaisesRegex(Unavailable, "deadline exceeded"):
+                await bridge.admit()
+            self.assertEqual(await bridge.answer("Where?", "event-1"), BRIDGE["speech"])
+            http.stall = True
+            with self.assertRaisesRegex(Unavailable, "deadline exceeded"):
+                await bridge.answer("Where next?", "event-2")
+        self.assertEqual(len(http.calls), 3)  # no hidden duplicate inference attempt
+
     async def test_no_dial_for_bad_input_and_no_voice_fallback(self):
         ws = Socket({"type":"error"})
         for key, text in [("", "ok"), ("mock", " "), ("mock", "x"*601)]:
@@ -189,3 +219,4 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

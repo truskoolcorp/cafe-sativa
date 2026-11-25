@@ -69,6 +69,7 @@ function fixturePage(file, rows) {
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
     '@/components/ui/badge': { Badge },
     './debut-work': { debutWork }, '../debut-work': { debutWork },
+    './ZariaPortrait': { ZariaPortrait: () => React.createElement('span', {'data-fixture-zaria-portrait': 'offline'}) },
   }
   const mod = { exports: {} }
   const code = ts.transpileModule(fs.readFileSync(path.join(source, file), 'utf8'), {
@@ -105,6 +106,7 @@ async function main() {
   const detail = renderToStaticMarkup(await fixturePage(detailFile, rows)({ params: { slug: product.slug } }))
   const portraitDetail = renderToStaticMarkup(await fixturePage(detailFile, [portrait])({ params: { slug: portrait.slug } }))
   assert.match(gallery, /Digital art/)
+  assert.match(gallery, /data-fixture-zaria-portrait="offline"/)
   assert.match(detail, /Digital art/)
   assert.match(gallery, /Some works in the Gallery are created wholly or partly with AI\./)
   assert.doesNotMatch(gallery + detail, /Synthetic NFT hidden|AI-generated|AI-assisted|Ask Zaria|\/ask\?|Buy now|Connect wallet/)

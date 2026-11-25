@@ -27,10 +27,14 @@ function parsePublicUrl(input, network) {
       const path = /^\/(?:reel\/\d+|[^/]+\/posts\/[\w-]+)\/?$/.test(url.pathname)
       const permalink = ['/permalink.php', '/story.php'].includes(url.pathname) &&
         /^\w+$/.test(url.searchParams.get('story_fbid') ?? '') && decimal.test(url.searchParams.get('id') ?? '')
-      if (path || permalink) return url.href
+      if (path || permalink) {
+        const page = /^\/(\d+)\/posts\//.exec(url.pathname)?.[1]
+        const permalinkPages = permalink ? url.searchParams.getAll('id') : []
+        return { href: url.href, pageId: page ?? (permalinkPages.length === 1 ? permalinkPages[0] : null) }
+      }
     }
     if (network === 'instagram' && ['instagram.com', 'www.instagram.com'].includes(url.hostname) &&
-        /^\/(?:p|reel)\/[\w-]+\/?$/.test(url.pathname)) return url.href
+        /^\/(?:p|reel)\/[\w-]+\/?$/.test(url.pathname)) return { href: url.href }
   } catch { /* An unfamiliar link is not evidence. */ }
   return null
 }
@@ -42,11 +46,12 @@ function readStageReceipts(bindings, observations, now = Date.now()) {
       observations.brandId !== '7605217' || !Number.isFinite(now)) throw new Error('Café Sativa bindings and export required')
   const seen = new Set()
   return bindings.map(binding => {
-    const { postId, postUuid, network, captionSha256, scheduledAt, mediaUrl } = binding
+    const { postId, postUuid, network, captionSha256, scheduledAt, mediaUrl, expectedFacebookPageId } = binding
     const scheduled = typeof scheduledAt === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(scheduledAt)
       ? Date.parse(scheduledAt) : NaN
     if (typeof postId !== 'string' || !decimal.test(postId) || typeof postUuid !== 'string' || !uuid.test(postUuid) ||
         !networks.has(network) || !/^[a-f\d]{64}$/.test(captionSha256) || !Number.isFinite(scheduled) ||
+        (network === 'facebook' && (typeof expectedFacebookPageId !== 'string' || !decimal.test(expectedFacebookPageId))) ||
         typeof mediaUrl !== 'string' || !/^https:\/\/static\.metricool\.com\/planner\/\d{6}\/7605217-file-[\w.-]+$/.test(mediaUrl) ||
         seen.has(postId) || seen.has(postUuid)) throw new Error('Invalid or duplicate approved Stage post binding')
     seen.add(postId)
@@ -66,9 +71,14 @@ function readStageReceipts(bindings, observations, now = Date.now()) {
     const [provider] = post.providers
     if (provider.status === 'PENDING') return result(expired ? 'overdue_unconfirmed' : 'scheduled')
     if (provider.status !== 'PUBLISHED') return result('provider_unconfirmed')
-    const publicUrl = parsePublicUrl(provider.publicUrl, network)
-    if (now < scheduled || typeof provider.id !== 'string' || !provider.id.trim() || !publicUrl) return result('provider_unconfirmed')
-    return { ...result('provider_reported_published'), providerId: provider.id, publicUrl, publiclyVerified: false }
+    const link = parsePublicUrl(provider.publicUrl, network)
+    if (now < scheduled || typeof provider.id !== 'string' || !provider.id.trim() || !link) return result('provider_unconfirmed')
+    const evidence = { providerId: provider.id, publicUrl: link.href, publiclyVerified: false }
+    if (network === 'facebook' && link.pageId !== expectedFacebookPageId) {
+      return { ...result(link.pageId ? 'destination_mismatch' : 'destination_unconfirmed'), ...evidence,
+        expectedFacebookPageId, permalinkPageId: link.pageId }
+    }
+    return { ...result('provider_reported_published'), ...evidence }
   })
 }
 

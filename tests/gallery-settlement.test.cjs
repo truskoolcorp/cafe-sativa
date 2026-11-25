@@ -97,9 +97,9 @@ test('house payment must be bound to its configured account metadata as well as 
  await assert.rejects(observe(stripe,'pi_fixture',false,'house',{...expected,houseAccountId:'acct_wrong'}),/order payment binding mismatch/)
 })
 
-function settlementPersistenceFixture(platform, actualAccount='acct_platform'){
+function settlementPersistenceFixture(platform, actualAccount='acct_platform', live=false, overrides={}){
  const calls={account:0,observe:0,insert:0}
- const env={STRIPE_SECRET_KEY:'sk_test_synthetic',GALLERY_SETTLEMENT_OBSERVATIONS:'true',GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID:platform}
+ const env={STRIPE_SECRET_KEY:live?'sk_live_synthetic':'sk_test_synthetic',GALLERY_SETTLEMENT_OBSERVATIONS:'true',GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID:platform,GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:platform,NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',...overrides}
  const order={id:'order',paid_at:'2026-01-01',stripe_payment_intent_id:'pi_fixture',user_id:'buyer',currency:'usd',subtotal_cents:10000,total_cents:10000,shipping_cents:0,tax_cents:0}
  const item={gallery_sale_kind:null,product_id:'product',artist_id:'artist',quantity:1,price_cents:10000,line_total_cents:10000,application_fee_cents:1000,transfer_destination:'acct_artist'}
  const db={from(table){
@@ -113,11 +113,11 @@ function settlementPersistenceFixture(platform, actualAccount='acct_platform'){
   stripe:{default:class{constructor(){this.accounts={retrieveCurrent:async()=>({id:actualAccount})}}}},
   '@/lib/supabase/admin':{createAdminClient:()=>db},
   '@/lib/gallery/house-checkout':{galleryHouseConfig:()=>null,verifiedGalleryHouseAccount:async(stripe,id,newSale)=>{calls.account++;assert.equal(newSale,false);return (await stripe.accounts.retrieveCurrent()).id===id}},
-  '@/lib/gallery/environment':{galleryEnvironment:()=> 'isolated-test'},
-  '@/lib/gallery/observe-stripe-settlement':{observeGallerySettlement:async(stripe,id,live,kind,binding)=>{calls.observe++;assert.equal(live,false);assert.equal(kind,'consigned');assert.equal(binding.destination,'acct_artist');return {currency:'usd'}},compareGalleryOrderSettlement:()=>({attention:[]})}
+  '@/lib/gallery/environment':{galleryEnvironment:()=> live?'production':'isolated-test'},
+  '@/lib/gallery/observe-stripe-settlement':{observeGallerySettlement:async(stripe,id,providerLive,kind,binding)=>{calls.observe++;assert.equal(providerLive,live);assert.equal(kind,'consigned');assert.equal(binding.destination,'acct_artist');return {currency:'usd'}},compareGalleryOrderSettlement:()=>({attention:[]})}
  }
  vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/persist-test-settlement.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:out,require:id=>{if(!mocks[id])throw Error('Unexpected dependency');return mocks[id]},process:{env}})
- return {run:()=>out.persistGalleryTestSettlement('http://127.0.0.1:4116','order'),calls}
+ return {run:()=>out.persistGalleryTestSettlement('http://127.0.0.1:4116','order'),production:(url='https://www.cafe-sativa.com/api/gallery/worker')=>out.persistGalleryProductionSettlement(url,'order'),calls}
 }
 test('consigned persistence rejects missing, same-destination or wrong platform before payment reads and writes',async()=>{
  for(const [platform,actual] of [[undefined,'acct_platform'],['invalid','acct_platform'],['acct_artist','acct_artist'],['acct_platform','acct_other']]){
@@ -130,4 +130,21 @@ test('consigned persistence binds the verified test platform before observing an
  const h=settlementPersistenceFixture('acct_platform')
  await h.run()
  assert.equal(h.calls.account,1);assert.equal(h.calls.observe,1);assert.equal(h.calls.insert,1)
+})
+
+
+test('draft production persistence defaults closed and rejects test mode, wrong origin and database',async()=>{
+ for(const [live,overrides,url] of [[false,{},undefined],[true,{GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:undefined},undefined],[true,{STRIPE_SECRET_KEY:'sk_test_synthetic'},undefined],[true,{GALLERY_ISOLATED_TEST:'true'},undefined],[true,{GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:undefined},undefined],[true,{NEXT_PUBLIC_SUPABASE_URL:'https://other.supabase.co'},undefined],[true,{},'https://preview.example.com/api/gallery/worker']]){
+  const h=settlementPersistenceFixture('acct_platform','acct_platform',live,overrides)
+  await assert.rejects(h.production(url),/Production Gallery settlement/)
+  assert.equal(h.calls.account,0);assert.equal(h.calls.observe,0);assert.equal(h.calls.insert,0)
+ }
+})
+test('draft production persistence verifies platform before any provider payment read or persistence',async()=>{
+ const wrong=settlementPersistenceFixture('acct_platform','acct_other',true)
+ await assert.rejects(wrong.production(),/Consigned settlement platform mismatch/)
+ assert.equal(wrong.calls.observe,0);assert.equal(wrong.calls.insert,0)
+ const correct=settlementPersistenceFixture('acct_platform','acct_platform',true)
+ await correct.production()
+ assert.equal(correct.calls.account,1);assert.equal(correct.calls.observe,1);assert.equal(correct.calls.insert,1)
 })

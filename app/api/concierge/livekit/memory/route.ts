@@ -13,6 +13,7 @@ export async function GET(req:Request) {
  const token=req.headers.get('authorization')?.replace(/^Bearer /,'')||''
  const grant=verifyVoiceSession(token,process.env.CS_LIVEKIT_BRIDGE_SECRET||'')
  if(!grant)return response({error:'Unauthorized'},401)
+ if(grant.host==='zaria')return response({error:'Unavailable'},503)
  if(stageHostIsPerforming(grant.host,Date.now(),VOICE_PERFORMANCE_BUFFER_MS))return response({error:STAGE_HOST_ON_STAGE,code:'host_performing'},409)
  try {
   const db=createAdminClient()
@@ -28,7 +29,8 @@ export async function GET(req:Request) {
   if(messages.error)throw messages.error
   // The voice worker compares this context periodically. No minute/second
   // timestamp or per-request nonce belongs in the stable instruction string.
-  return response({host:grant.host,canonical:{...canonical,context:`${canonical.context}\n\n${voiceProgrammingContext(events)}`},messages:(messages.data||[]).reverse()})
+  const venueContext=voiceProgrammingContext(events)
+  return response({host:grant.host,canonical:{...canonical,context:`${canonical.context}\n\n${venueContext}`},messages:(messages.data||[]).reverse()})
  }catch{return response({error:'Memory temporarily unavailable'},503)}
 }
 
@@ -39,6 +41,7 @@ export async function POST(req:Request) {
  const token=req.headers.get('authorization')?.replace(/^Bearer /,'')||''
  const grant=verifyVoiceSession(token,process.env.CS_LIVEKIT_BRIDGE_SECRET||'')
  if(!grant)return response({error:'Unauthorized'},401)
+ if(grant.host==='zaria')return response({error:'Unavailable'},503)
  try {
   const body=await req.json().catch(()=>null)
   if(!body || typeof body.event_id!=='string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.event_id) ||

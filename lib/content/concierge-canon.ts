@@ -1,10 +1,13 @@
 import { liveGlyphCharacters } from '@/lib/content/glyph-live'
 import { PUBLIC_HOST_CHARACTERS } from '@/lib/content/host-portraits'
+import { ZARIA_VOICE,zariaChatEnabled } from '@/lib/gallery/zaria'
 export async function canonicalConciergeHost(host:string, signal?: AbortSignal) {
   if(!Object.prototype.hasOwnProperty.call(PUBLIC_HOST_CHARACTERS,host))return null
+ if(host==='zaria'&&!zariaChatEnabled())return null
  const source=await liveGlyphCharacters(signal)
   const id=PUBLIC_HOST_CHARACTERS[host as keyof typeof PUBLIC_HOST_CHARACTERS]
   const row=source.characters.find((c:any)=>c.id===id)
   if(source.live!==true || row?.production_ready!==true || row.rights_status!=='approved' || !row.canonical_context || row.voice_status!=='canonical' || !row.voice_id)return null
+  if(host==='zaria'&&row.voice_id!==ZARIA_VOICE.id)return null
   return {id:row.id,context:row.canonical_context,voiceId:row.voice_id}
 }

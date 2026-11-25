@@ -1,0 +1,118 @@
+const test=require('node:test')
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const ts=require('typescript')
+function compile(path, deps={}) {
+  const module={exports:{}}
+  const code=ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+  new Function('require','exports','module',code)(id=>{
+    if(Object.hasOwn(deps,id))return deps[id]
+    if(id==='node:crypto')return require(id)
+    throw Error('Unexpected dependency: '+id)
+  },module.exports,module)
+  return module.exports
+}
+const policy=compile('lib/gallery/zaria.ts')
+const d=compile('lib/gallery/zaria-catalog.ts',{'./zaria':policy,'@supabase/supabase-js':{createClient(){throw Error('No network')}}})
+const grants=compile('lib/concierge/livekit-session.ts',{'@/lib/gallery/zaria':policy})
+const validVoice={NEXT_PUBLIC_CS_ZARIA_GALLERY_CHAT:'true',CS_ZARIA_GALLERY_LIVE_VOICE:'true',CS_ZARIA_LIVEKIT_VERIFIED_VOICE_ID:policy.ZARIA_VOICE.id,CS_ZARIA_LIVEKIT_VERIFIED_VOICE_MODEL:policy.ZARIA_VOICE.model,CS_ZARIA_LIVEKIT_AGENT_NAME:'cafe-sativa-zaria',CS_LIVEKIT_AGENT_NAME:'cafe-sativa-hosts'}
+test('isolates Zaria rollout and refuses default, shared, and incompatible voice setup',()=>{
+  assert.equal(policy.zariaVoiceAgent({}),null)
+  assert.equal(policy.zariaVoiceAgent(validVoice),'cafe-sativa-zaria')
+  for(const broken of [{CS_ZARIA_LIVEKIT_AGENT_NAME:'cafe-sativa-hosts'},{CS_ZARIA_LIVEKIT_VERIFIED_VOICE_MODEL:'eleven_turbo_v2_5'},{CS_ZARIA_LIVEKIT_VERIFIED_VOICE_ID:'different'},{NEXT_PUBLIC_CS_ZARIA_GALLERY_CHAT:'false'}])assert.equal(policy.zariaVoiceAgent({...validVoice,...broken}),null)
+})
+test('only the exact canonical primary approved portrait can display',()=>{
+  const row={id:'zaria-solenne',production_ready:true,rights_status:'approved',primary_asset_id:policy.ZARIA_PORTRAIT.id,sha256:policy.ZARIA_PORTRAIT.sha256}
+  assert.equal(policy.approvedZariaPortrait(row),true)
+  for(const broken of [{sha256:'mismatch'},{rights_status:'pending'},{production_ready:false},{id:'ginger'}])assert.equal(policy.approvedZariaPortrait({...row,...broken}),false)
+})
+test('serves current work and real alternate links without leaking private or NFT candidates',()=>{
+  const items=[{slug:'alternate',title:'Alternate',kind:'physical'},{slug:'current',title:'Current piece',kind:'digital'},{slug:'nft',title:'NFT',kind:'nft'},{slug:'../../admin',title:'Private',kind:'digital'}]
+  const data=d.publicGallerySelection(items,'current')
+  assert.equal(JSON.parse(data.context).current.title,'Current piece')
+  assert.deepEqual(data.links.map(v=>v.path),['/gallery/current','/gallery/alternate','/gallery'])
+  assert.equal(d.publicGallerySelection(items,'private').links.some(v=>v.path==='/gallery/private'),false)
+  assert.equal(policy.zariaGalleryHref('/malicious'),' /ask?host=zaria'.trim())
+})
+test('empty and unverified catalog statuses are different and both offer a real Gallery link',()=>{
+  for(const [rows,unavailable,status] of [[[],false,'no_public_listings'],[[{slug:'ignored',title:'Ignored',kind:'digital'}],true,'unavailable']]){
+    const data=d.publicGallerySelection(rows,'ignored',unavailable)
+    assert.equal(JSON.parse(data.context).status,status)
+    assert.equal(JSON.parse(data.context).current,null)
+    assert.deepEqual(data.links,[{label:'Explore the Gallery',path:'/gallery'}])
+  }
+})
+test('selected work is signed for Zaria only; cross-host/invalid selections are not accepted',()=>{
+  const base={conversationId:'10000000-0000-0000-0000-000000000000',userId:'20000000-0000-0000-0000-000000000000',expires:1800001}
+  const encode=(host,galleryWork)=>grants.verifyVoiceSession(grants.signVoiceSession({...base,host,galleryWork},'fake'),'fake',100)
+  assert.equal(encode('zaria','current').galleryWork,'current')
+  assert.equal(encode('zaria','//outside'),null)
+  assert.equal(encode('laviche','current'),null)
+  assert.equal(encode('laviche',undefined).host,'laviche')
+})
+
+const bridge=compile('lib/gallery/zaria-voice-v1.ts',{'./zaria':policy})
+const cfg={...validVoice,VERCEL_ENV:'preview',VERCEL_URL:'unique-preview.vercel.app',CS_ZARIA_PREVIEW_EXPECTED_HOST:'unique-preview.vercel.app',
+ CS_ZARIA_PREVIEW_BRIDGE:'true',CS_LIVEKIT_ENABLED:'true',CS_ZARIA_PREVIEW_BRIDGE_SECRET:'test-only-secret-that-has-32-characters',
+ NEXT_PUBLIC_SUPABASE_URL:'https://isolated.supabase.co',CS_ZARIA_PREVIEW_SUPABASE_URL:'https://isolated.supabase.co',
+ CS_ZARIA_DENY_PRODUCTION_SUPABASE_URL:'https://separate.supabase.co',
+ CS_ZARIA_PREVIEW_QA_USER_IDS:'20000000-0000-0000-0000-000000000000'}
+const origin='https://'+cfg.VERCEL_URL
+const grant={version:bridge.VERSION,audience:bridge.AUDIENCE,host:'zaria',scope:cfg.VERCEL_URL,room:'cs-10000000-0000-0000-0000-000000000000',
+ participantIdentity:'10000000-0000-0000-0000-000000000001',userId:cfg.CS_ZARIA_PREVIEW_QA_USER_IDS,
+ conversationId:'10000000-0000-0000-0000-000000000002',nonce:'10000000-0000-0000-0000-000000000003',galleryWork:'current',iat:500,exp:300500}
+test('voice bridge gate rejects production, alternate host, shared secret and nonisolated database',()=>{
+ assert.ok(bridge.privateZariaConfig(origin,cfg))
+ assert.equal(bridge.privateZariaConfig('https://other.vercel.app',cfg),null)
+ for(const broken of [{VERCEL_ENV:'production'},{CS_ZARIA_PREVIEW_BRIDGE:'false'},{CS_ZARIA_PREVIEW_QA_USER_IDS:''},
+ {CS_ZARIA_LIVEKIT_VERIFIED_VOICE_MODEL:'wrong'},{CS_LIVEKIT_BRIDGE_SECRET:cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET},
+ {NEXT_PUBLIC_SUPABASE_URL:'https://separate.supabase.co'}])assert.equal(bridge.privateZariaConfig(origin,{...cfg,...broken}),null)
+})
+test('voice grant rejects wrong audience, identity, room, deployment, duration, expiry or signature',()=>{
+ const secret=cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET
+ const token=bridge.signZariaGrant(grant,secret)
+ assert.deepEqual(bridge.verifyZariaGrant(token,secret,cfg.VERCEL_URL,600),grant)
+ assert.equal(bridge.verifyZariaGrant(token,secret,'other.vercel.app',600),null)
+ assert.equal(bridge.verifyZariaGrant(token+'.extra',secret,cfg.VERCEL_URL,600),null)
+ assert.equal(bridge.verifyZariaGrant(token,secret,cfg.VERCEL_URL,300500),null)
+ for(const broken of [{audience:'public'},{host:'laviche'},{room:'another-room'},{participantIdentity:'not-signed-in'},
+ {exp:300501},{galleryWork:'//private'}])assert.equal(bridge.verifyZariaGrant(bridge.signZariaGrant({...grant,...broken},secret),secret,cfg.VERCEL_URL,600),null)
+})
+test('worker wire body has no override fields, v1 speech is plain and bounded',()=>{
+ const req={version:bridge.VERSION,room:grant.room}
+ assert.ok(bridge.parseZariaBridgeBody(req,'admit'))
+ assert.equal(bridge.parseZariaBridgeBody({...req,user_id:grant.userId},'admit'),null)
+ const turn={...req,utterance:'What is this piece? ',event_id:grant.nonce}
+ assert.equal(bridge.parseZariaBridgeBody(turn,'turn').utterance,'What is this piece?')
+ assert.equal(bridge.parseZariaBridgeBody({...turn,selection:'internal'},'turn'),null)
+ assert.equal(bridge.parseZariaBridgeBody({...turn,utterance:'a'.repeat(1601)},'turn'),null)
+ assert.equal(bridge.zariaSpeech('See [Artwork](/gallery/current) **now**.'),'See Artwork now.')
+ assert.ok(bridge.zariaSpeech('word '.repeat(350)).length<=600)
+})
+test('admit HTTP checks ownership and room with no model or database turn mutation',async()=>{
+ const now=Date.now(), mockCalls={reads:0,model:0,rpc:0}
+ let owned=true, availability=true
+ const ownedRow={user_id:grant.userId,session_id:null,host_agent:'zaria',ended_at:null}
+ const handler=compile('lib/gallery/zaria-voice-v1-handler.ts',{
+  '@anthropic-ai/sdk':{default:class{constructor(){mockCalls.model++;throw Error('No provider allowed')}}},
+  '@/lib/supabase/admin':{createAdminClient(){return{from(){return{select(){return this},eq(){return this},async maybeSingle(){mockCalls.reads++;return{data:owned?ownedRow:null}}}},rpc(){mockCalls.rpc++;throw Error('Not allowed on admission')}}}},
+  '@/lib/concierge/conversation-access':compile('lib/concierge/conversation-access.ts'),
+  '@/lib/content/concierge-canon':{canonicalConciergeHost:async()=>({voiceId:policy.ZARIA_VOICE.id})},
+  '@/lib/concierge/history':{},'@/lib/concierge/personas':{},'@/lib/concierge/response-engine':{},
+  '@/lib/events/stage-host-availability':{stageHostIsPerforming:()=>false},
+  './zaria-answer':{},'./zaria':policy,'./zaria-voice-v1':{...bridge,privateZariaConfig:url=>availability?bridge.privateZariaConfig(url,cfg):null},
+ })
+ const token=bridge.signZariaGrant({...grant,iat:now,exp:now+180000},cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET)
+ const req=(body={},headers={})=>new Request(origin+'/api/concierge/zaria/voice-v1/admit',{method:'POST',
+  headers:{authorization:'Bearer '+token,'content-type':'application/json',...headers},
+  body:JSON.stringify({version:bridge.VERSION,room:grant.room,...body})})
+ assert.equal((await handler.zariaBridge(req({},{origin}),'admit')).status,403)
+ assert.equal((await handler.zariaBridge(req({room:'cs-10000000-0000-0000-0000-000000000009'}),'admit')).status,403)
+ assert.equal(mockCalls.reads,0)
+ assert.equal((await (await handler.zariaBridge(req(),'admit')).json()).participant_identity,grant.participantIdentity)
+ owned=false
+ assert.equal((await handler.zariaBridge(req(),'admit')).status,403)
+ availability=false
+ assert.equal((await handler.zariaBridge(req(),'admit')).status,404)
+ assert.deepEqual(mockCalls,{reads:2,model:0,rpc:0})
+})

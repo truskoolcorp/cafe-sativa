@@ -24,6 +24,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { createChatStorage } from '@/lib/concierge/browser-session'
+import {galleryWorkSlug,zariaChatEnabled} from '@/lib/gallery/zaria'
 import LiveVoiceConversation from '@/components/LiveVoiceConversation'
 
 /**
@@ -60,7 +61,7 @@ import LiveVoiceConversation from '@/components/LiveVoiceConversation'
  *     style consistent with the rest of the site
  */
 
-type HostId = 'laviche' | 'ginger' | 'ahnika'
+type HostId = 'laviche' | 'ginger' | 'ahnika' | 'zaria'
 
 type HostMeta = {
   id: HostId
@@ -115,6 +116,12 @@ const HOSTS: HostMeta[] = [
       'Any tips to feel grounded before an event?',
     ],
   },
+  ...(zariaChatEnabled() ? [{
+    id: 'zaria' as const, displayName: 'Zaria', role: 'Gallery curator',
+    tagline: 'Discover the work and the artists behind it.',
+    icon: Sparkles, avatar: '/api/hosts/portrait?host=zaria',
+    suggestions: ['What can I see in the Gallery?', 'Where should I go next?', 'Tell me about the work on display.'],
+  }] : []),
 ]
 
 type Message = {
@@ -160,12 +167,15 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
 function AskInner() {
   const searchParams = useSearchParams()
   const hostParam = searchParams.get('host') as HostId | null
+  const galleryWork = hostParam==='zaria' ? galleryWorkSlug(searchParams.get('work')) : null
+  const zariaUnavailable=hostParam==='zaria'&&!zariaChatEnabled()
   const initialHost: HostId = HOSTS.some((h) => h.id === hostParam)
     ? (hostParam as HostId)
     : 'laviche'
 
   const [activeHost, setActiveHost] = useState<HostId>(initialHost)
   const [messages, setMessages] = useState<Message[]>([])
+  const [galleryLinks,setGalleryLinks]=useState<{label:string,path:string}[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [liveActive, setLiveActive] = useState(false)
@@ -303,6 +313,7 @@ function AskInner() {
           session_id: sessionIdRef.current,
           conversation_id: conversationIdRef.current,
           surface: 'web-chat',
+          ...(activeHost==='zaria'&&galleryWork?{room_id:galleryWork}:{}),
         }),
       })
 
@@ -343,6 +354,8 @@ function AskInner() {
         chatStorage.saveConversation(activeHost, requester, data.conversation_id)
       }
 
+      if(activeHost==='zaria')setGalleryLinks(Array.isArray(data.gallery_links) ? data.gallery_links.filter((row: any)=>
+        typeof row?.label==='string'&&typeof row.path==='string'&&/^\/gallery(?:\/[a-z0-9][a-z0-9-]{0,79})?$/.test(row.path)).slice(0,4):[])
       const replyMsg: Message = {
         role: 'assistant',
         content: data.message,
@@ -531,6 +544,7 @@ function AskInner() {
     }
   }
 
+  if(zariaUnavailable)return <main className="max-w-3xl mx-auto p-8 pt-24"><h1 className="text-3xl font-heading">Zaria is not available yet.</h1><a className="underline text-primary" href="/gallery">Return to the Gallery</a></main>
   const activeHostMeta = HOSTS.find((h) => h.id === activeHost)!
   const ActiveHostIcon = activeHostMeta.icon
 
@@ -574,7 +588,7 @@ function AskInner() {
             Talk to one of the hosts.
           </h1>
           <p className="text-base md:text-lg text-muted-foreground font-body mt-4 max-w-2xl leading-relaxed">
-            Ask about events, membership, travel, merch. Our three hosts each
+            Ask about events, membership, travel, merch. Our hosts each
             cover a different part of the house — pick whoever fits your
             question.
           </p>
@@ -707,7 +721,7 @@ function AskInner() {
                         <p className="text-xs tracking-widest uppercase text-primary font-body font-semibold">
                           {activeHostMeta.displayName}
                         </p>
-                        {voiceSupported && (
+                        {voiceSupported && activeHost!=='zaria' && (
                           <button
                             type="button"
                             disabled={liveActive}
@@ -784,6 +798,7 @@ function AskInner() {
             </div>
           )}
 
+          {activeHost==='zaria'&&galleryLinks.length>0&&<nav aria-label="Gallery suggestions" className="flex flex-wrap gap-3 px-6 py-2 text-sm">{galleryLinks.map(link=><a key={link.path} className="text-primary underline underline-offset-4" href={link.path}>{link.label}</a>)}</nav>}
           {/* Error banner */}
           {error && (
             <div className="mx-6 mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
@@ -795,7 +810,7 @@ function AskInner() {
           )}
 
           <div className="px-4 lg:px-6">
-            <LiveVoiceConversation key={activeHost} host={activeHost} conversationId={conversationIdRef.current}
+            <LiveVoiceConversation key={activeHost+':'+(activeHost==='zaria'?galleryWork??'':'')} host={activeHost} galleryWork={activeHost==='zaria'?galleryWork:null} conversationId={conversationIdRef.current}
               signedIn={Boolean(isSignedIn)} onActive={setLiveActive}
               onStart={() => { voiceModeRef.current = false; setVoiceMode(false); stopListening(); stopAudio() }} />
           </div>
@@ -803,7 +818,7 @@ function AskInner() {
           {/* Composer */}
           <div className="border-t border-border p-4 lg:p-6">
             <div className="flex items-end gap-3">
-              {sttSupported && (
+              {sttSupported && activeHost!=='zaria' && (
                 <button
                   type="button"
                   onClick={toggleMic}
@@ -862,7 +877,7 @@ function AskInner() {
                   ? `Signed in as ${userEmail}. ${activeHostMeta.displayName} remembers returning guests.`
                   : 'Anonymous chat. Sign in for a larger message allowance and personalized continuity.'}
               </p>
-              {voiceSupported && (
+              {voiceSupported && activeHost!=='zaria' && (
                 <button
                   type="button"
                   onClick={toggleVoiceMode}

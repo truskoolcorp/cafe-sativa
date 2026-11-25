@@ -1,7 +1,7 @@
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type ConciergeRequest = {
-  host: 'laviche' | 'ginger' | 'ahnika'
+  host: 'laviche' | 'ginger' | 'ahnika' | 'zaria'
   message: string
   session_id: string | null
   conversation_id: string | null
@@ -15,7 +15,7 @@ export function validateConciergeRequest(value: unknown):
   const body = value as Record<string, unknown>
   if (typeof body.message !== 'string' || !body.message.trim()) return { valid: false, error: 'Message is required.' }
   if (body.message.length > 2000) return { valid: false, error: 'Message is too long. Keep it under 2000 characters.' }
-  if (typeof body.host !== 'string' || !['laviche', 'ginger', 'ahnika'].includes(body.host)) return { valid: false, error: 'Unknown host. Expected one of: laviche, ginger, ahnika.' }
+  if (typeof body.host !== 'string' || !['laviche', 'ginger', 'ahnika', 'zaria'].includes(body.host)) return { valid: false, error: 'Unknown host. Expected one of: laviche, ginger, ahnika, zaria.' }
   if (typeof body.surface !== 'string' || !['web-chat', 'mall-3d', 'email'].includes(body.surface)) return { valid: false, error: 'surface must be one of: web-chat, mall-3d, email.' }
   // The persisted session_id is text. External callers are not all proven
   // to use UUIDs, so preserve bounded opaque legacy identifiers and trimming.

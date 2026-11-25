@@ -6,18 +6,13 @@ import { Package } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
+import { debutWork } from './debut-work'
 
 /**
  * /gallery
  *
- * Server component. Lists every published product from every approved
- * artist. SSRs the full HTML so the gallery grid is in the initial
- * page load (good for SEO + share previews).
- *
- * Empty state matters here: for the first week or two post-launch
- * there will be zero products. The empty state leans into "coming
- * soon" energy with the artist CTA, rather than showing a sad empty
- * box.
+ * The approved editorial debut is always display-only. Published physical
+ * and digital works from approved artists can appear beside it.
  *
  * Data source: gallery_v, the denormalized view that joins products
  * with their artist and only returns status='published' on approved
@@ -86,7 +81,9 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
   const [products, covers] = await Promise.all([loadGallery(), approvedVenueCovers()])
 
   const kind = ['physical', 'digital'].includes(searchParams.kind || '') ? searchParams.kind : undefined
-  const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
+  // Keep this exact editorial work browse-only even if a matching inventory row appears.
+  const collection = [debutWork, ...products.filter(p => p.slug !== debutWork.slug)]
+  const visibleProducts = kind ? collection.filter(p => p.kind === kind) : collection
   return (
     <div className="pb-16 bg-background min-h-screen">
       <section aria-labelledby="gallery-title" className="relative isolate overflow-hidden bg-[#171310] text-[#f9efe1]">
@@ -136,9 +133,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
             <Link key={label} href={value ? '/gallery?kind='+value : '/gallery'} aria-current={(kind || '') === value ? 'page' : undefined} className={'rounded-full border px-4 py-2 text-sm '+((kind || '') === value ? 'border-primary text-primary' : 'border-border text-muted-foreground')}>{label}</Link>
           ))}
         </nav>
-        {products.length === 0 ? (
-          <EmptyGallery />
-        ) : visibleProducts.length === 0 ? (
+        {visibleProducts.length === 0 ? (
           <p role="status" className="text-muted-foreground py-8">No published work in this category yet. <Link href="/gallery" className="underline">Browse all work.</Link></p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -160,14 +155,14 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
   )
 }
 
-function GalleryCard({ row }: { row: GalleryRow }) {
-  const priceUsd = (row.price_cents / 100).toLocaleString('en-US', {
+function GalleryCard({ row }: { row: GalleryRow | typeof debutWork }) {
+  const priceUsd = 'price_cents' in row ? (row.price_cents / 100).toLocaleString('en-US', {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
-  })
+  }) : null
   const kindLabel = row.kind === 'digital' ? 'Digital art' : 'Physical'
 
-  const soldOut = row.stock_count !== null && row.stock_count <= 0
+  const soldOut = 'stock_count' in row && row.stock_count !== null && row.stock_count <= 0
 
   return (
     <Link
@@ -181,7 +176,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
           <img
             src={row.primary_image_url}
             alt={row.title}
-            className="w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"
+            className={priceUsd === null ? "w-full h-full object-contain" : "w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"}
             loading="lazy"
           />
         ) : (
@@ -212,7 +207,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
 
         <div className="flex items-baseline justify-between">
           <span className="font-heading text-xl text-primary font-bold">
-            {priceUsd}
+            {priceUsd || <span className="text-sm font-normal text-muted-foreground">On display</span>}
           </span>
           <span className="text-[10px] tracking-widest uppercase text-muted-foreground font-body font-semibold">
             {kindLabel}
@@ -221,11 +216,4 @@ function GalleryCard({ row }: { row: GalleryRow }) {
       </div>
     </Link>
   )
-}
-
-function EmptyGallery() {
-  return <div className="grid md:grid-cols-2 gap-6 border-t border-border pt-8">
-    <article className="bg-card p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Curator’s note</p><h3 className="font-heading text-3xl mt-3">The first collection is taking shape.</h3><p className="mt-4 text-muted-foreground leading-relaxed">No approved artwork is on display just yet. Take a look around and meet the Gallery’s curator.</p><a href="#curator-heading" className="inline-block mt-6 underline text-primary">Meet the curator</a></article>
-    <article className="border border-border p-6 md:p-8"><p className="text-xs uppercase tracking-widest text-primary">Collector’s guide</p><h3 className="font-heading text-3xl mt-3">Find your medium.</h3><p className="mt-4 text-muted-foreground leading-relaxed">Physical works and digital editions have different ownership and delivery terms. Explore the work without a sales commitment.</p><Link href="/events" className="inline-block mt-6 underline text-primary">Browse venue programming</Link></article>
-  </div>
 }

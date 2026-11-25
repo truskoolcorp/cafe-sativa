@@ -6,6 +6,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
 import { BuyButton } from './BuyButton'
+import { galleryDebutOffer } from '@/lib/gallery/house-checkout'
 import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 import { artworkCreationMethodEnabled, declaredAiArtworkLabel } from '@/lib/gallery/artwork-creation-method'
 
@@ -75,7 +76,8 @@ export default async function ProductDetailPage({ params }: Params) {
     currency: (product.currency || 'usd').toUpperCase(),
   })
 
-  const salesEnabled = gallerySalesEnabled(galleryEnvironment(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'))
+  const mode = galleryEnvironment(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com')
+  const salesEnabled = gallerySalesEnabled(mode) && (mode !== 'production' || galleryDebutOffer(product))
   const methodLabel = artworkCreationMethodEnabled ? declaredAiArtworkLabel(product.declared_ai_creation_method) : null
   const soldOut = product.stock_count !== null && product.stock_count <= 0
   const kindLabel =

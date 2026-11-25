@@ -13,6 +13,16 @@ export function galleryHouseConfig(env = process.env) {
   return {productId, artistId, accountId}
 }
 
+/** Public launch policy: only this exact studio offer, never arbitrary approved inventory. */
+export function galleryDebutOffer(product: {
+  id: string; slug: string; kind: string; price_cents: number; currency: string
+}, env = process.env) {
+  const house = galleryHouseConfig(env)
+  return env.GALLERY_HOUSE_CHECKOUT_ENABLED === 'true' && !!house &&
+    product.id === house.productId && product.slug === 'where-the-brass-meets-the-tide' &&
+    product.kind === 'digital' && product.price_cents === 1200 && product.currency === 'usd'
+}
+
 export function gallerySellerKind(productId: string, artistId: string, kind: string, env = process.env) {
   if (productId !== env.GALLERY_HOUSE_PRODUCT_ID && artistId !== env.GALLERY_HOUSE_ARTIST_ID) return 'consigned'
   const house = galleryHouseConfig(env)

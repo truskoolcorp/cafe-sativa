@@ -3,7 +3,7 @@ import Stripe from 'stripe'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
+import { galleryDebutOffer, galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
 import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
 
 /**
@@ -56,11 +56,12 @@ export async function POST(req: Request) {
     )
   }
 
-  if (galleryEnvironment(req.url) === 'blocked') {
+  const mode = galleryEnvironment(req.url)
+  if (mode === 'blocked') {
     return NextResponse.json({ error: 'Gallery test checkout is not isolated.' }, { status: 503 })
   }
 
-  if (!gallerySalesEnabled(galleryEnvironment(req.url))) {
+  if (!gallerySalesEnabled(mode)) {
     return NextResponse.json({ error: 'Gallery purchases are temporarily unavailable.' }, { status: 503 })
   }
 
@@ -109,6 +110,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Quantity must be a whole number from 1 to 10.' }, { status: 400 })
   }
 
+  const configuredHouse = galleryHouseConfig()
+  if (mode === 'production' && (process.env.GALLERY_HOUSE_CHECKOUT_ENABLED !== 'true' ||
+      !configuredHouse || body.product_id !== configuredHouse.productId || quantity !== 1)) {
+    return NextResponse.json({ error: 'This artwork is not available for purchase.' }, { status: 409 })
+  }
+
   const admin = createAdminClient()
 
   // Fetch product + artist in one query via the admin client (bypasses
@@ -136,6 +143,9 @@ export async function POST(req: Request) {
     )
   }
 
+  if (mode === 'production' && !galleryDebutOffer(product)) {
+    return NextResponse.json({ error: 'This artwork is not available for purchase.' }, { status: 409 })
+  }
   if (!['physical', 'digital'].includes(product.kind)) {
     return NextResponse.json({ error: 'This artwork category is not enabled for purchases.' }, { status: 409 })
   }
@@ -173,12 +183,14 @@ export async function POST(req: Request) {
     )
   }
 
-  const configuredHouse = galleryHouseConfig()
   if (process.env.GALLERY_HOUSE_CHECKOUT_ENABLED === 'true' && !configuredHouse) {
     return NextResponse.json({ error: 'House checkout configuration is unavailable.' }, { status: 503 })
   }
   const saleKind = gallerySellerKind(product.id, artistRow.id, product.kind)
   const house = saleKind === 'house' ? configuredHouse : null
+  if (mode === 'production' && !house) {
+    return NextResponse.json({ error: 'This artwork is not available for purchase.' }, { status: 409 })
+  }
   if (stripeSecretKey.startsWith('rkcs_test_') && !house) {
     return NextResponse.json({ error: 'Temporary test credentials support this house fixture only.' }, { status: 409 })
   }

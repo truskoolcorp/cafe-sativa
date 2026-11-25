@@ -36,7 +36,11 @@ const Image = ({ fill, priority, alt, className, ...props }) =>
 const Badge = ({ variant, ...props }) => React.createElement('span', props)
 const Icon = props => React.createElement('svg', { width: 24, height: 24, 'aria-hidden': true, ...props })
 
-function fixturePage(file, rows, { sales = false, method = false } = {}) {
+function fixturePage(file, rows, { sales = false, method = false, production = false, offerEnv = {} } = {}) {
+  const houseModule = { exports: {} }
+  const houseSource = fs.readFileSync(path.join(source,'lib/gallery/house-checkout.ts'),'utf8')
+  const houseCode = ts.transpileModule(houseSource,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText
+  new Function('exports','process',houseCode)(houseModule.exports,{env: offerEnv})
   const modules = {
     'react/jsx-runtime': require('react/jsx-runtime'),
     'next/link': Link, 'next/image': Image,
@@ -62,7 +66,8 @@ function fixturePage(file, rows, { sales = false, method = false } = {}) {
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
     '@/components/ui/badge': { Badge },
     './BuyButton': { BuyButton: ({productId, soldOut}) => React.createElement('button', {'data-fixture-product': productId, disabled: soldOut}, 'Synthetic checkout enabled') },
-    '@/lib/gallery/environment': { galleryEnvironment: () => sales ? 'isolated-test' : 'blocked', gallerySalesEnabled: mode => mode === 'isolated-test' && sales },
+    '@/lib/gallery/environment': { galleryEnvironment: () => production ? 'production' : sales ? 'isolated-test' : 'blocked', gallerySalesEnabled: () => sales },
+    '@/lib/gallery/house-checkout': houseModule.exports,
     '@/lib/gallery/artwork-creation-method': {
       artworkCreationMethodEnabled: method,
       declaredAiArtworkLabel: v => v === 'ai_assisted' ? 'AI-assisted' : null,
@@ -111,6 +116,20 @@ async function main() {
   const enabled = renderToStaticMarkup(await fixturePage(detailFile, rows, {sales: true})({params:{slug:product.slug}}))
   assert.match(enabled, /<button data-fixture-product="fixture-1">Synthetic checkout enabled<\/button>/)
   assert.doesNotMatch(enabled, /Purchases are not open yet/)
+  const offerEnv = {
+    GALLERY_HOUSE_CHECKOUT_ENABLED:'true',
+    GALLERY_HOUSE_PRODUCT_ID:'11111111-1111-4111-8111-111111111111',
+    GALLERY_HOUSE_ARTIST_ID:'22222222-2222-4222-8222-222222222222',
+    GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_fixture',
+  }
+  const offer = {...product,id:offerEnv.GALLERY_HOUSE_PRODUCT_ID}
+  const prodDetail = async(row,env=offerEnv,sales=true) => renderToStaticMarkup(await fixturePage(detailFile,[row],{sales,production:true,offerEnv:env})({params:{slug:row.slug}}))
+  assert.match(await prodDetail(offer), /Synthetic checkout enabled/)
+  for (const altered of [{id:'other'},{slug:'other'},{price_cents:1201},{currency:'eur'},{kind:'physical'}]) {
+    assert.doesNotMatch(await prodDetail({...offer,...altered}), /Synthetic checkout enabled/)
+  }
+  assert.doesNotMatch(await prodDetail(offer,{},true), /Synthetic checkout enabled/)
+  assert.doesNotMatch(await prodDetail(offer,offerEnv,false), /Synthetic checkout enabled/)
   const ways = [{...product, declared_ai_creation_method:'ai_assisted'}]
   const optionalOff = renderToStaticMarkup(await fixturePage(detailFile, ways)({params:{slug:product.slug}}))
   const optionalOn = renderToStaticMarkup(await fixturePage(detailFile, ways, {method:true})({params:{slug:product.slug}}))
@@ -201,3 +220,4 @@ async function main() {
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1 })
+

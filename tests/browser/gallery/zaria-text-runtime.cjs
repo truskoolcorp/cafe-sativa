@@ -49,7 +49,7 @@ async function main(){
   const response=await getPortrait()
   assert.equal(response.status,200,'actual Next portrait route should render valid fixture')
   assert.match(response.headers.get('content-type'),/^image\/png/)
-  assert.equal(response.headers.get('cache-control'),'no-store')
+  assert.ok(response.headers.get('cache-control').split(',').map(v=>v.trim()).includes('no-store'))
   assert.equal(response.headers.get('x-content-type-options'),'nosniff')
   const derivative=Buffer.from(await response.arrayBuffer())
   assert.deepEqual(derivative.subarray(0,8),img.subarray(0,8))

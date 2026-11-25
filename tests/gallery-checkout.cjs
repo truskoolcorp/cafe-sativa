@@ -34,7 +34,7 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  const env=context.process.env;
  Object.assign(env,{VERCEL_ENV:'production',STRIPE_SECRET_KEY:'sk_live_mock',NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com'});
  Object.assign(env,{GALLERY_HOUSE_PRODUCT_ID:product.id,GALLERY_HOUSE_ARTIST_ID:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house'});
- product={...product,kind:'digital',slug:'where-the-brass-meets-the-tide',currency:'usd',stock_count:1,artist:{id:env.GALLERY_HOUSE_ARTIST_ID,is_approved:true}};
+ product={...product,artist_id:env.GALLERY_HOUSE_ARTIST_ID,kind:'digital',slug:'where-the-brass-meets-the-tide',currency:'usd',stock_count:1,artist:{id:env.GALLERY_HOUSE_ARTIST_ID,is_approved:true}};
  assets=[{id:'approved_edition'}];
  const post=()=>send({product_id:product.id,gallery_sale_kind:'house',payout_destination:'acct_client_override'});
  assert.equal((await post()).status,409);assert.equal(accountCheck,0);assert.equal(calls,1);
@@ -44,7 +44,7 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  assert.equal((await send({product_id:product.id,quantity:2})).status,409);
  assert.equal(dbCalls,dbBeforeOffer);
  authenticated=false;assert.equal((await post()).status,401);authenticated=true;
- for (const altered of [{slug:'other'},{price_cents:1201},{currency:'eur'},{kind:'physical'}]) {
+ for (const altered of [{slug:'other'},{price_cents:1201},{currency:'eur'},{kind:'physical'},{artist_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},{artist_id:null},{artist_id:undefined}]) {
    const prior=product;product={...product,...altered};
    assert.equal((await post()).status,409);product=prior;
  }

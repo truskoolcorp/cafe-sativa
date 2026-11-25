@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     .from('products')
     .select(
       `
-      id, slug, title, description, kind, status, price_cents, currency,
+      id, artist_id, slug, title, description, kind, status, price_cents, currency,
       primary_image_url, stock_count, digital_delivery_url,
       artist:artists!inner (
         id, display_name, stripe_account_id, is_approved,

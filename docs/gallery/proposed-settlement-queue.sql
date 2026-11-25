@@ -1,5 +1,5 @@
 -- Draft only. No cron, trigger, automatic historical sweep, or provider calls.
--- Apply after private delivery, house checkout and settlement observations.
+-- Apply after private delivery, house checkout, refund ledger and settlement observations.
 begin;
 create table public.gallery_settlement_queue (
  order_id uuid primary key references public.orders(id) on delete restrict,
@@ -8,6 +8,7 @@ create table public.gallery_settlement_queue (
  sale_kind text not null check(sale_kind in ('house','consigned')),
  currency text not null check(currency ~ '^[a-z]{3}$'),
  captured_cents bigint not null check(captured_cents>0),
+ refund_floor_cents bigint not null check(refund_floor_cents between 0 and captured_cents),
  generation bigint not null default 1 check(generation>0),
  attempts integer not null default 0 check(attempts between 0 and 5),
  state text not null default 'queued' check(state in ('queued','leased','observed','review')),
@@ -40,7 +41,11 @@ begin
     or p_event is null or p_event !~ '^evt_[A-Za-z0-9_]{1,120}$' then
   raise exception 'Invalid Gallery settlement event';
  end if;
- select x.id,x.stripe_payment_intent_id,x.currency,x.total_cents into strict o
+ select x.id,x.stripe_payment_intent_id,x.currency,x.total_cents,
+  case when x.fulfillment_state::text='refunded' then x.total_cents else
+   coalesce((select sum(f.amount_cents) from public.gallery_refund_receipts f
+     where f.order_id=x.id and f.stripe_payment_intent_id=x.stripe_payment_intent_id
+       and f.currency=x.currency and f.provider_status='succeeded'),0) end as refund_floor_cents into strict o
  from public.orders x join public.order_items i on i.order_id=x.id
  join public.gallery_private_deliveries d on d.order_id=x.id and d.product_id=i.product_id
  where x.id=p_order and x.paid_at is not null and x.user_id is not null
@@ -65,10 +70,11 @@ begin
     where q.order_id=p_order and q.livemode=p_live and q.sale_kind=p_kind;
   return g;
  end if;
- insert into public.gallery_settlement_queue as q(order_id,stripe_payment_intent_id,livemode,sale_kind,currency,captured_cents)
- values(p_order,o.stripe_payment_intent_id,p_live,p_kind,o.currency,o.total_cents)
+ insert into public.gallery_settlement_queue as q(order_id,stripe_payment_intent_id,livemode,sale_kind,currency,captured_cents,refund_floor_cents)
+ values(p_order,o.stripe_payment_intent_id,p_live,p_kind,o.currency,o.total_cents,o.refund_floor_cents)
  on conflict(order_id) do update set generation=q.generation+1,attempts=0,state='queued',due_at=clock_timestamp(),
-   lease_token=null,lease_expires_at=null,reason=null
+   lease_token=null,lease_expires_at=null,reason=null,
+   refund_floor_cents=greatest(q.refund_floor_cents,excluded.refund_floor_cents)
  where q.stripe_payment_intent_id=excluded.stripe_payment_intent_id and q.livemode=excluded.livemode
    and q.sale_kind=excluded.sale_kind and q.currency=excluded.currency and q.captured_cents=excluded.captured_cents
  returning q.generation into g;
@@ -124,7 +130,7 @@ begin
     or jsonb_typeof(p_snapshot#>'{order_comparison,attention}') is distinct from 'array' then
   raise exception 'Gallery settlement observation identity mismatch';
  end if;
- if (p_snapshot->>'refunded_cents')::numeric not between 0 and q.captured_cents
+ if (p_snapshot->>'refunded_cents')::numeric not between q.refund_floor_cents and q.captured_cents
     or (p_snapshot->>'refunded_cents')::numeric<>trunc((p_snapshot->>'refunded_cents')::numeric) then
   raise exception 'Invalid Gallery settlement refund total';
  end if;

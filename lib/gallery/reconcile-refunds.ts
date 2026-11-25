@@ -36,6 +36,10 @@ export async function recordGalleryRefunds(stripe:Stripe,charge:Stripe.Charge){
    reconciliation_state:'attention',observed_at:new Date().toISOString()
   })
  }
+ // A complete list can still lag the signed event. Preserve its minimum
+ // succeeded amount on this attempt; never treat stale or pending-only
+ // receipts as a completed reconciliation. Older events may see newer totals.
+ if(succeeded<charge.amount_refunded)throw Error('Gallery refund evidence below signed event floor')
  if(rows.length){
   const {error:writeError}=await db.from('gallery_refund_receipts').upsert(rows,{onConflict:'stripe_refund_id'})
   if(writeError)throw Error('Refund receipt write failed')

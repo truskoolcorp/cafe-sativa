@@ -186,6 +186,25 @@ test('Gallery refund evidence is bounded and never writes an incomplete page',as
   assert.deepEqual(h.actions.map(a=>a.table),['orders'])
   assert.equal(h.actions[0].data.fulfillment_state,'refunded')
 })
+test('Gallery refund evidence below the signed amount remains retryable without ledger writes',async()=>{
+  for(const refunds of [[],[refundReceipt({amount:99})],[refundReceipt({status:'pending'})]]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.calls.refundLists,1)
+    assert.equal(h.actions.length,0)
+  }
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt()]})
+  assert.equal((await h.post()).status,500)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders'])
+  assert.equal(h.actions[0].data.fulfillment_state,'refunded')
+})
+test('Gallery full refund with matching successful evidence revokes access before recording receipts',async()=>{
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt({amount:1200})]})
+  assert.equal((await h.post()).status,200)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders','gallery_refund_receipts'])
+  assert.equal(h.actions[0].data.fulfillment_state,'refunded')
+  assert.equal(h.actions[1].data[0].amount_cents,1200)
+})
 test('Gallery old partial refund event reads current receipts in one ledger batch',async()=>{
   const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),refundReceipt({id:'re_2',amount:1100})]})
   assert.equal((await h.post()).status,200)

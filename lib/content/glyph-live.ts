@@ -14,9 +14,9 @@ export async function liveGlyphCharacters(signal?: AbortSignal) {
  if(b.live!==true||!Array.isArray(b.characters)||b.characters.length>allowed.size)throw Error('Invalid canonical source response')
  return {...b,characters:b.characters.filter((c:{id:string})=>allowed.has(c.id)).map((c:{id:string;primary_asset_id:string|null;portrait_available:boolean})=>({...c,portrait_url:c.portrait_available&&c.primary_asset_id?`/api/content/glyph/portrait?characterId=${encodeURIComponent(c.id)}&assetId=${encodeURIComponent(c.primary_asset_id)}`:null}))}
 }
-export async function glyphPortrait(id:string,assetId:string,expectedSha?:string) {
+export async function glyphPortrait(id:string,assetId:string,expectedSha?:string,signal?: AbortSignal) {
  if(!allowed.has(id)||! /^[a-f0-9-]{36}$/.test(assetId))return null
- const r=await readGlyph(`?characterId=${encodeURIComponent(id)}&assetId=${encodeURIComponent(assetId)}`)
+ const r=await readGlyph(`?characterId=${encodeURIComponent(id)}&assetId=${encodeURIComponent(assetId)}`, signal)
  if(!r.ok)return null
  const mime=r.headers.get('content-type')?.split(';')[0],sha=r.headers.get('x-canonical-sha256')
  if(!mime||!['image/png','image/jpeg','image/webp'].includes(mime)||!sha||!r.body)throw Error('Invalid canonical portrait')

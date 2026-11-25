@@ -285,3 +285,46 @@ test('temporary sandbox webhook processes only the exact house flow and refunds'
   if(kind==='charge.refunded'){assert.equal(h.actions[0].table,'orders');assert.equal(h.actions[0].data.fulfillment_state,'refunded')}
  }
 })
+
+function consignedPrivateEvent() {
+ const ids={kind:'gallery_order',site:'cafe-sativa',user_id:'user_1',
+   product_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',artist_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+   gallery_private_schema:'consigned-v1',gallery_transfer_destination:'acct_FixtureArtist',
+   inventory_hold_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',approved_asset_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'}
+ const session={id:'cs_private',mode:'payment',currency:'usd',payment_status:'paid',amount_total:1249,
+   livemode:true,payment_intent:'pi_private',metadata:{...ids,quantity:'1'}}
+ return [{type:'checkout.session.completed',livemode:true,data:{object:session}},{
+   product:{id:ids.product_id,kind:'digital',digital_delivery_url:null},
+   lines:[{quantity:1,amount_subtotal:1249,currency:'usd'}],
+   intent:{id:'pi_private',status:'succeeded',currency:'usd',livemode:true,amount:1249,amount_received:1249,
+     metadata:{...ids},application_fee_amount:124,transfer_data:{destination:'acct_FixtureArtist'},on_behalf_of:null},
+   rpcResult:{id:'order_private',created:false}
+ }]
+}
+test('private consigned paid receipt goes directly to atomic order and edition without legacy URL',async()=>{
+ const h=setup(...consignedPrivateEvent())
+ assert.equal((await h.post()).status,200)
+ assert.equal(h.actions.length,1)
+ const a=h.actions[0]
+ assert.equal(a.name,'cs_record_consigned_private_gallery_payment')
+ assert.equal(a.input.receipt.application_fee_cents,124)
+ assert.equal(a.input.receipt.transfer_destination,'acct_FixtureArtist')
+ assert.equal(a.input.p_asset,'dddddddd-dddd-4ddd-8ddd-dddddddddddd')
+})
+test('private consigned marker, account, asset, fee and amount mismatches do not write',async()=>{
+ for(const modify of [
+  (e,o)=>delete e.data.object.metadata.gallery_private_schema,
+  (e,o)=>delete o.intent.metadata.gallery_private_schema,
+  (e,o)=>o.intent.transfer_data.destination='acct_Wrong',
+  (e,o)=>o.intent.metadata.approved_asset_id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  (e,o)=>o.intent.application_fee_amount=125,
+  (e,o)=>o.intent.amount_received=1000,
+  (e,o)=>o.intent.livemode=false,
+  (e,o)=>o.product.kind='physical'
+ ]){
+  const [e,o]=consignedPrivateEvent();modify(e,o)
+  const h=setup(e,o)
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.actions.length,0)
+ }
+})

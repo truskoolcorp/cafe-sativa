@@ -49,5 +49,5 @@ jobs:
       - run: node --test tests/gallery-environment.test.mjs tests/gallery-checkout.cjs tests/gallery-download.test.cjs tests/gallery-settlement.test.cjs tests/gallery-financial-review.test.cjs
       - run: node tests/gallery-house-sandbox-prep.mjs --self-test
       - run: node tests/gallery-house-local-driver.mjs --self-test
-      - name: Disposable Gallery PostgreSQL migration fixture
-        run: bash tests/gallery-postgres-fixture.sh
+      - name: Disposable Gallery PostgreSQL migration and private consignment fixture
+        run: bash tests/gallery-consigned-private-postgres.sh

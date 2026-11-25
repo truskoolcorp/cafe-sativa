@@ -79,9 +79,12 @@ begin
  select * into strict q from public.cs_claim_gallery_settlement(false,3);
  evidence:=jsonb_build_object('payment_intent_id',intent,'livemode',false,'sale_kind','consigned','currency','usd',
  'captured_cents',1249,'refunded_cents',200,'order_comparison',jsonb_build_object('attention','[]'::jsonb));
- if not public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence) or
-    public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence) or
-    (select count(*) from public.gallery_settlement_observations s where s.order_id=q.order_id and s.provider_snapshot->'queue_generation'='2'::jsonb)<>1 then
+ if not public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence) then
+  raise exception 'Current lease did not complete'; end if;
+ if public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence) then
+  raise exception 'Completed lease was accepted again'; end if;
+ if (select count(*) from public.gallery_settlement_observations s
+     where s.order_id=q.order_id and s.provider_snapshot->'queue_generation'='2'::jsonb)<>1 then
   raise exception 'Current evidence not recorded exactly once'; end if;
 end $success$;
 reset role;

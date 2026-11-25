@@ -16,6 +16,13 @@ const svg = (caption, art, width = 1000, height = 620) => 'data:image/svg+xml;ba
   '<text x="500" y="581" fill="#f1e5d1" font-size="24" text-anchor="middle" font-family="sans-serif">' + caption + '</text></svg>',
 ).toString('base64')
 const still = svg('SYNTHETIC STILL / NOT THE APPROVED ROOM ASSET', false)
+const debutMod = { exports: {} }
+const debutJs = ts.transpileModule(fs.readFileSync(path.join(source, 'app/gallery/debut-work.ts'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText
+new Function('exports', 'module', debutJs)(debutMod.exports, debutMod)
+const debutWork = { ...debutMod.exports.debutWork, primary_image_url: svg('SYNTHETIC DEBUT WORK', true, 960, 540) }
+
 const product = {
   id: 'fixture-1', slug: 'where-the-brass-meets-the-tide',
   title: 'Where the Brass Meets the Tide', artist_name: 'Café Sativa Studio',
@@ -61,6 +68,7 @@ function fixturePage(file, rows) {
     'lucide-react': { Package: Icon, ArrowLeft: Icon },
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
     '@/components/ui/badge': { Badge },
+    './debut-work': { debutWork }, '../debut-work': { debutWork },
   }
   const mod = { exports: {} }
   const code = ts.transpileModule(fs.readFileSync(path.join(source, file), 'utf8'), {
@@ -101,7 +109,9 @@ async function main() {
   assert.match(gallery, /Some works in the Gallery are created wholly or partly with AI\./)
   assert.doesNotMatch(gallery + detail, /Synthetic NFT hidden|AI-generated|AI-assisted|Ask Zaria|\/ask\?|Buy now|Connect wallet/)
   assert.match(detail, /Available to browse\. Purchases are not open yet\./)
-  assert.match(empty, /first collection is taking shape/)
+  assert.match(empty, /Where the Brass Meets the Tide/)
+  assert.equal((gallery.match(/href="\/gallery\/where-the-brass-meets-the-tide"/g) || []).length, 1)
+  assert.doesNotMatch(detail, /Synthetic catalogue fixture|\$12\.00|Download/)
   assert.match(filtered, /No published work in this category/)
   assert.match(gallery, /Sold out/)
   if (process.argv.includes('--static')) {
@@ -171,7 +181,7 @@ async function main() {
       await page.screenshot({ path: path.join(Out, 'portrait-' + name + '.png'), fullPage: true })
       await render(empty)
       await fits()
-      assert.ok(await page.getByText('The first collection is taking shape.').isVisible())
+      assert.ok(await page.getByRole('link', { name: /where the brass meets the tide/i }).isVisible())
       await render(filtered)
       await fits()
       assert.equal(await page.getByRole('link', { name: 'Physical' }).getAttribute('aria-current'), 'page')

@@ -100,8 +100,8 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
         bridge = Bridge(http, cfg.bridge_origin, "test-bearer", "room-1", cfg.vercel_bypass, cfg.audience)
         self.assertEqual(await bridge.admit(), "guest-1")
         self.assertNotIn("x-vercel-protection-bypass", http.calls[0][2])
-        with self.assertRaises(Unavailable):
-            Settings.read(env | {"CS_ZARIA_VERCEL_BYPASS_SECRET": "x" * 32})
+        retained = Settings.read(env | {"CS_ZARIA_VERCEL_BYPASS_SECRET": "x" * 32})
+        self.assertEqual(retained.vercel_bypass, "")
 
     async def test_bridge_refreshes_grant_and_rejects_wrong_attestation(self):
         http = FakeHTTP()

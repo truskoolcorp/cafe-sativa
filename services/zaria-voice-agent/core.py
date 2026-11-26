@@ -108,8 +108,11 @@ class Settings:
         bypass = env.get("CS_ZARIA_VERCEL_BYPASS_SECRET", "")
         if worker_env == "private-staging" and (len(bypass) < 32 or bypass != bypass.strip() or any(c.isspace() for c in bypass)):
             raise Unavailable("Private bridge bypass unavailable")
-        if worker_env == "approved-production" and bypass:
-            raise Unavailable("Production bridge bypass forbidden")
+        # LiveKit cannot delete one stored secret without replacing the complete
+        # set. A revoked canary value may remain stored, but production drops it
+        # here and never places it on an HTTP request.
+        if worker_env == "approved-production":
+            bypass = ""
         audience = PREVIEW_AUDIENCE if worker_env == "private-staging" else PRODUCTION_AUDIENCE
         return cls(bridge, room, *keys, bypass, audience)
 

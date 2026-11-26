@@ -1,0 +1,88 @@
+name: Zaria worker SDK QA
+on:
+  pull_request:
+    paths:
+      - 'services/zaria-voice-agent/**'
+      - '.github/workflows/zaria-worker-sdk-qa.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: services/zaria-voice-agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Verify real SDK wiring and synthetic turn lifecycle
+        run: |
+          python -m unittest -v test_pilot
+          python - <<'PY'
+          import inspect
+          import aiohttp
+          from livekit import rtc
+          from livekit.agents import Agent, AgentSession, StopResponse, WorkerOptions, room_io
+          from livekit.plugins import deepgram, silero
+          import agent
+          assert callable(agent.entrypoint)
+          assert issubclass(StopResponse, Exception)
+          inspect.signature(Agent.on_user_turn_completed).bind(None, None, None)
+          inspect.signature(AgentSession).bind(stt=None, vad=None, preemptive_generation=False)
+          inspect.signature(AgentSession.start).bind(None, room=None, agent=None, room_options=None)
+          inspect.signature(AgentSession.say).bind(None, "Synthetic", audio=None, allow_interruptions=True, add_to_chat_ctx=False)
+          inspect.signature(deepgram.STT).bind(api_key="not-a-key", model="nova-3", language="en")
+          assert callable(silero.VAD.load)
+          assert aiohttp.ClientWSTimeout(ws_close=1.0).ws_close == 1.0
+          room_io.RoomOptions(participant_identity="test-buyer", audio_input=True, text_input=False, video_input=False, text_output=False)
+          WorkerOptions(entrypoint_fnc=agent.entrypoint, agent_name="test-only", ws_url="wss://example.invalid", api_key="test", api_secret="test", drain_timeout=5, shutdown_process_timeout=8, max_retry=1)
+          frame = rtc.AudioFrame(data=bytes(960), sample_rate=24000, num_channels=1, samples_per_channel=480)
+          assert frame.samples_per_channel == 480
+          PY
+      - name: Verify audio and scoped data over real disposable WebRTC
+        run: |
+          docker run --rm -d --network host --name zaria-local-qa livekit/livekit-server:v1.9.0 --dev --bind 127.0.0.1
+          trap 'docker rm -f zaria-local-qa >/dev/null 2>&1 || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:7880/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:7880/ >/dev/null
+          python local_rtc_qa.py || { docker logs zaria-local-qa; exit 1; }
+      - name: Build isolated worker; check startup guard and local VAD with network disabled
+        run: |
+          docker build --tag zaria-worker:qacheck .
+          test "$(docker inspect -f '{{.Config.User}}' zaria-worker:qacheck)" = "10001:10001"
+          guard="$(docker run --rm --network none zaria-worker:qacheck 2>&1)" && exit 1
+          test "$guard" = "Private Zaria worker unavailable"
+          docker run --rm -i --network none zaria-worker:qacheck python - <<'PY'
+          from core import Settings, Unavailable
+          from livekit.plugins import silero
+          assert silero.VAD.load() is not None
+          common={
+              "CS_ZARIA_WORKER_ENABLED":"true", "CS_ZARIA_WORKER_ENV":"private-staging",
+              "CS_ZARIA_BRIDGE_ORIGIN":"https://bridge.example.com",
+              "CS_ZARIA_APPROVED_BRIDGE_HOST":"bridge.example.com",
+              "CS_ZARIA_APPROVED_LIVEKIT_HOST":"qa.example.com",
+              "CS_ZARIA_ELEVENLABS_KEY":"fixture-tts", "CS_ZARIA_DEEPGRAM_KEY":"fixture-stt",
+              "LIVEKIT_URL":"wss://qa.example.com", "LIVEKIT_API_KEY":"fixture-public",
+              "LIVEKIT_API_SECRET":"fixture-secret"
+          }
+          mode={"CS_ZARIA_LIVEKIT_CREDENTIALS":"cloud-injected"}
+          assert Settings.read(common|mode).room_url == "wss://qa.example.com"
+          for invalid in [common, common|mode|{"CS_ZARIA_LIVEKIT_KEY":"conflict"},
+                          common|mode|{"LIVEKIT_URL":"wss://other.example.com"},
+                          common|mode|{"LIVEKIT_API_KEY":""},
+                          common|mode|{"CS_ZARIA_WORKER_ENABLED":"false"}]:
+              try:
+                  Settings.read(invalid)
+              except Unavailable:
+                  continue
+              raise AssertionError("Invalid worker environment was accepted")
+          PY

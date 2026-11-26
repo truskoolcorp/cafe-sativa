@@ -8,7 +8,7 @@ import { getHost } from '@/lib/concierge/personas'
 import { generateConciergeResponse } from '@/lib/concierge/response-engine'
 import { zariaGrounding } from './zaria-answer'
 import { ZARIA_VOICE } from './zaria'
-import { AUDIENCE,VERSION,parseZariaBridgeBody,privateZariaConfig,verifyZariaGrant,zariaSpeech } from './zaria-voice-v1'
+import { VERSION,parseZariaBridgeBody,privateZariaConfig,verifyZariaGrant,zariaSpeech } from './zaria-voice-v1'
 
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
 const fail=(status:number)=>json({authorized:false},status)
@@ -18,7 +18,7 @@ export async function zariaBridge(req:Request,operation:'admit'|'turn') {
  if(!config)return fail(404)
  if(req.headers.has('origin')||req.headers.has('cookie'))return fail(403)
  const auth=/^Bearer ([\w.-]+)$/.exec(req.headers.get('authorization')??'')
- const grant=auth&&verifyZariaGrant(auth[1],config.secret,config.scope)
+ const grant=auth&&verifyZariaGrant(auth[1],config.secret,config.scope,config.audience)
  if(!grant||!config.members.includes(grant.userId))return fail(401)
  if(!/^application\/json(?:\s*;.*)?$/i.test(req.headers.get('content-type')??''))return fail(415)
  try{
@@ -45,11 +45,14 @@ export async function zariaBridge(req:Request,operation:'admit'|'turn') {
   if(stageHostIsPerforming('zaria'))return fail(409)
   const canonical=await canonicalConciergeHost('zaria')
   if(!canonical||canonical.voiceId!==ZARIA_VOICE.id)return fail(503)
-  const base={version:VERSION,audience:AUDIENCE,authorized:true,room:grant.room,host:'zaria',voice_id:ZARIA_VOICE.id,model_id:ZARIA_VOICE.model}
+  const base={version:VERSION,audience:config.audience,authorized:true,room:grant.room,host:'zaria',voice_id:ZARIA_VOICE.id,model_id:ZARIA_VOICE.model}
   if(operation==='admit')return Date.now()<grant.exp?json({...base,participant_identity:grant.participantIdentity}):fail(403)
   const key=process.env.ANTHROPIC_API_KEY
-  if(process.env.CS_ZARIA_PREVIEW_INFERENCE!=='true'||!key)return fail(503)
-  const reservation=await db.rpc('reserve_zaria_preview_voice_turn',{p_nonce:grant.nonce,p_event:body.eventId,p_user:grant.userId,p_conversation:grant.conversationId,p_utterance:body.utterance})
+  const inference=config.environment==='production'?process.env.CS_ZARIA_PRODUCTION_INFERENCE:process.env.CS_ZARIA_PREVIEW_INFERENCE
+  if(inference!=='true'||!key)return fail(503)
+  const production=config.environment==='production'
+  const turnTable=production?'zaria_voice_turns':'zaria_preview_voice_turns'
+  const reservation=await db.rpc(production?'reserve_zaria_voice_turn':'reserve_zaria_preview_voice_turn',{p_nonce:grant.nonce,p_event:body.eventId,p_user:grant.userId,p_conversation:grant.conversationId,p_utterance:body.utterance})
   if(reservation.error)return fail(503)
   if(reservation.data?.status==='forbidden')return fail(403)
   if(reservation.data?.status==='limited')return fail(429)
@@ -59,7 +62,7 @@ export async function zariaBridge(req:Request,operation:'admit'|'turn') {
   const [gallery,recent,voice]=await Promise.all([
    zariaGrounding(grant.galleryWork),
    db.from('host_messages').select('role,content,created_at').eq('conversation_id',grant.conversationId).in('role',['user','assistant']).order('created_at',{ascending:false}).limit(20),
-   db.from('zaria_preview_voice_turns').select('utterance,speech,created_at').eq('grant_nonce',grant.nonce).eq('user_id',grant.userId).not('speech','is',null).order('created_at',{ascending:false}).limit(7),
+   db.from(turnTable).select('utterance,speech,created_at').eq('grant_nonce',grant.nonce).eq('user_id',grant.userId).not('speech','is',null).order('created_at',{ascending:false}).limit(7),
   ])
   if(recent.error||voice.error||!await isOwned()||Date.now()>=grant.exp)return fail(503)
   const chronology=[...chronologicalMessages(recent.data??[]).map(m=>({role:m.role as 'user'|'assistant',content:m.content,created_at:m.created_at})),
@@ -74,7 +77,7 @@ export async function zariaBridge(req:Request,operation:'admit'|'turn') {
   },request=>anthropic.messages.create(request))
   const speech=zariaSpeech(reply)
   if(!speech||stageHostIsPerforming('zaria')||!await isOwned()||Date.now()>=grant.exp)return fail(503)
-  const save=await db.from('zaria_preview_voice_turns').update({speech}).eq('grant_nonce',grant.nonce).eq('event_id',body.eventId).eq('user_id',grant.userId).eq('conversation_id',grant.conversationId).is('speech',null).select('event_id').single()
+  const save=await db.from(turnTable).update({speech}).eq('grant_nonce',grant.nonce).eq('event_id',body.eventId).eq('user_id',grant.userId).eq('conversation_id',grant.conversationId).is('speech',null).select('event_id').single()
   if(save.error||!save.data||Date.now()>=grant.exp)return fail(503)
   return json({...base,speech,gallery_links:gallery.links})
  }catch{return fail(503)}

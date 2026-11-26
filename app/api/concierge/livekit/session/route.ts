@@ -1,5 +1,5 @@
 import {galleryWorkSlug,ZARIA_VOICE,zariaVoiceAgent} from '@/lib/gallery/zaria'
-import {AUDIENCE,VERSION,TTL_MS,privateZariaConfig,signZariaGrant} from '@/lib/gallery/zaria-voice-v1'
+import {VERSION,TTL_MS,privateZariaConfig,signZariaGrant} from '@/lib/gallery/zaria-voice-v1'
 import {zariaGrounding} from '@/lib/gallery/zaria-answer'
 import {randomUUID} from 'node:crypto'
 import {AccessToken,RoomConfiguration,RoomAgentDispatch,TrackSource} from 'livekit-server-sdk'
@@ -57,7 +57,7 @@ export async function POST(req:Request) {
   if(preview&&canonical.voiceId!==ZARIA_VOICE.id)return response({error:'Approved voice is not available.'},503)
   const selection=preview&&galleryWork?await zariaGrounding(galleryWork):null
   const verifiedWork=selection?.links.some(link=>link.path==='/gallery/'+galleryWork)?galleryWork:null
-  const grant=preview?signZariaGrant({version:VERSION,audience:AUDIENCE,host:'zaria',scope:preview.scope,room,participantIdentity:identity,conversationId:body.conversation_id,userId:auth.user.id,iat:issued,exp:issued+TTL_MS,nonce:randomUUID(),galleryWork:verifiedWork},preview.secret):signVoiceSession({conversationId:body.conversation_id,host:body.host,userId:auth.user.id,expires:issued+1800000},bridge!)
+  const grant=preview?signZariaGrant({version:VERSION,audience:preview.audience,host:'zaria',scope:preview.scope,room,participantIdentity:identity,conversationId:body.conversation_id,userId:auth.user.id,iat:issued,exp:issued+TTL_MS,nonce:randomUUID(),galleryWork:verifiedWork},preview.secret):signVoiceSession({conversationId:body.conversation_id,host:body.host,userId:auth.user.id,expires:issued+1800000},bridge!)
   const token=new AccessToken(key,secret,{identity,ttl:300})
   token.addGrant({roomJoin:true,room,canPublish:true,canSubscribe:true,canPublishData:false,canPublishSources:[TrackSource.MICROPHONE]})
   token.roomConfig=new RoomConfiguration({agents:[new RoomAgentDispatch({agentName:dispatchAgent,metadata:JSON.stringify({site:'cafe-sativa',host:body.host,voiceId:canonical.voiceId,...(body.host==='zaria'?{voiceModel:ZARIA_VOICE.model}:{}),memoryGrant:grant})})]})

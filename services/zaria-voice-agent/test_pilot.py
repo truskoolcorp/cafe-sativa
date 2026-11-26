@@ -13,10 +13,11 @@ ENV = {
     "CS_ZARIA_WORKER_ENABLED": "true", "CS_ZARIA_WORKER_ENV": "private-staging",
     "CS_ZARIA_BRIDGE_ORIGIN": "https://test-gallery.example",
     "CS_ZARIA_APPROVED_BRIDGE_HOST": "test-gallery.example",
-    "CS_ZARIA_LIVEKIT_URL": "wss://test-rtc.example",
-    "CS_ZARIA_APPROVED_LIVEKIT_HOST": "test-rtc.example",
+    "CS_ZARIA_LIVEKIT_URL": "wss://cafe-sativa-zaria-qa-fxp9gysz.livekit.cloud",
+    "CS_ZARIA_APPROVED_LIVEKIT_HOST": "cafe-sativa-zaria-qa-fxp9gysz.livekit.cloud",
     "CS_ZARIA_LIVEKIT_KEY": "fake-key", "CS_ZARIA_LIVEKIT_SECRET": "fake-secret",
     "CS_ZARIA_ELEVENLABS_KEY": "fake-voice-key", "CS_ZARIA_DEEPGRAM_KEY": "fake-stt-key",
+    "CS_ZARIA_VERCEL_BYPASS_SECRET": "synthetic-bypass-secret-at-least-32-chars",
 }
 JOB = dict(site="cafe-sativa", host="zaria", voiceId=VOICE, voiceModel=MODEL, memoryGrant="x"*40)
 BRIDGE = dict(version=PROTOCOL, audience="zaria-private-staging", authorized=True,
@@ -67,6 +68,7 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
         for edits in [
             {"CS_ZARIA_WORKER_ENABLED":"false"}, {"CS_ZARIA_WORKER_ENV":"production"},
             {"CS_ZARIA_ELEVENLABS_KEY":""}, {"CS_ZARIA_APPROVED_BRIDGE_HOST":"other.example"},
+            {"CS_ZARIA_VERCEL_BYPASS_SECRET":""},
             {"CS_ZARIA_APPROVED_LIVEKIT_HOST":"other.example"},
             {"CS_ZARIA_BRIDGE_ORIGIN":"https://www.cafe-sativa.com",
              "CS_ZARIA_APPROVED_BRIDGE_HOST":"www.cafe-sativa.com"},
@@ -83,15 +85,34 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(edits=edits), self.assertRaises(Unavailable):
                 parse_job(json.dumps(JOB | edits), "room-1")
 
+    async def test_approved_production_uses_exact_public_bridge_without_bypass(self):
+        env = ENV | {
+            "CS_ZARIA_WORKER_ENV": "approved-production",
+            "CS_ZARIA_BRIDGE_ORIGIN": "https://virtual-cafe-sativa-glyph-protocol.vercel.app",
+            "CS_ZARIA_APPROVED_BRIDGE_HOST": "virtual-cafe-sativa-glyph-protocol.vercel.app",
+        }
+        env.pop("CS_ZARIA_VERCEL_BYPASS_SECRET")
+        cfg = Settings.read(env)
+        self.assertEqual(cfg.audience, "zaria-approved-production")
+        self.assertEqual(cfg.vercel_bypass, "")
+        http = FakeHTTP()
+        http.body = BRIDGE | {"audience": "zaria-approved-production"}
+        bridge = Bridge(http, cfg.bridge_origin, "test-bearer", "room-1", cfg.vercel_bypass, cfg.audience)
+        self.assertEqual(await bridge.admit(), "guest-1")
+        self.assertNotIn("x-vercel-protection-bypass", http.calls[0][2])
+        with self.assertRaises(Unavailable):
+            Settings.read(env | {"CS_ZARIA_VERCEL_BYPASS_SECRET": "x" * 32})
+
     async def test_bridge_refreshes_grant_and_rejects_wrong_attestation(self):
         http = FakeHTTP()
-        bridge = Bridge(http, "https://test-gallery.example", "test-bearer", "room-1")
+        bridge = Bridge(http, "https://test-gallery.example", "test-bearer", "room-1", "test-vercel-bypass")
         self.assertEqual(await bridge.admit(), "guest-1")
         self.assertEqual(await bridge.answer("Where should I go?", "event-1"), BRIDGE["speech"])
         for url, body, headers, redirects in http.calls:
             self.assertTrue(url.startswith("https://test-gallery.example/api/concierge/zaria/voice-v1/"))
             self.assertEqual(body["room"], "room-1")
-            self.assertEqual(headers, {"Authorization":"Bearer test-bearer"})
+            self.assertEqual(headers, {"Authorization":"Bearer test-bearer",
+                                       "x-vercel-protection-bypass":"test-vercel-bypass"})
             self.assertFalse(redirects)
         for key in ("authorized", "room", "voice_id", "model_id", "audience", "version"):
             http.body = BRIDGE | {key: "wrong"}
@@ -120,7 +141,7 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
                     yield chunk
 
         http = HeaderOrBody()
-        bridge = Bridge(http, "https://test-gallery.example", "test-bearer", "room-1")
+        bridge = Bridge(http, "https://test-gallery.example", "test-bearer", "room-1", "test-vercel-bypass")
         with patch("core.ADMIT_TIMEOUT_SEC", .01), patch("core.TURN_TIMEOUT_SEC", .12):
             with self.assertRaisesRegex(Unavailable, "deadline exceeded"):
                 await bridge.admit()

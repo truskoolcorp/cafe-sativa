@@ -91,12 +91,33 @@ test('stable preview branch alias survives redeploy only within the pinned proje
 test('voice grant rejects wrong audience, identity, room, deployment, duration, expiry or signature',()=>{
  const secret=cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET
  const token=bridge.signZariaGrant(grant,secret)
- assert.deepEqual(bridge.verifyZariaGrant(token,secret,cfg.VERCEL_URL,600),grant)
- assert.equal(bridge.verifyZariaGrant(token,secret,'other.vercel.app',600),null)
- assert.equal(bridge.verifyZariaGrant(token+'.extra',secret,cfg.VERCEL_URL,600),null)
- assert.equal(bridge.verifyZariaGrant(token,secret,cfg.VERCEL_URL,300500),null)
+ assert.deepEqual(bridge.verifyZariaGrant(token,secret,cfg.VERCEL_URL,bridge.PREVIEW_AUDIENCE,600),grant)
+ assert.equal(bridge.verifyZariaGrant(token,secret,'other.vercel.app',bridge.PREVIEW_AUDIENCE,600),null)
+ assert.equal(bridge.verifyZariaGrant(token+'.extra',secret,cfg.VERCEL_URL,bridge.PREVIEW_AUDIENCE,600),null)
+ assert.equal(bridge.verifyZariaGrant(token,secret,cfg.VERCEL_URL,bridge.PREVIEW_AUDIENCE,300500),null)
  for(const broken of [{audience:'public'},{host:'laviche'},{room:'another-room'},{participantIdentity:'not-signed-in'},
- {exp:300501},{galleryWork:'//private'}])assert.equal(bridge.verifyZariaGrant(bridge.signZariaGrant({...grant,...broken},secret),secret,cfg.VERCEL_URL,600),null)
+ {exp:300501},{galleryWork:'//private'}])assert.equal(bridge.verifyZariaGrant(bridge.signZariaGrant({...grant,...broken},secret),secret,cfg.VERCEL_URL,bridge.PREVIEW_AUDIENCE,600),null)
+})
+test('production voice opens only for the exact production host, database and approved user allowlist',()=>{
+ const host='virtual-cafe-sativa-glyph-protocol.vercel.app'
+ const production={...validVoice,VERCEL_ENV:'production',VERCEL_PROJECT_PRODUCTION_URL:host,
+  CS_ZARIA_PRODUCTION_EXPECTED_HOST:host,CS_ZARIA_PRODUCTION_BRIDGE:'true',CS_LIVEKIT_ENABLED:'true',
+  CS_ZARIA_PRODUCTION_BRIDGE_SECRET:'production-fixture-secret-at-least-32-chars',
+  CS_ZARIA_PRODUCTION_USER_IDS:'20000000-0000-0000-0000-000000000000',
+  NEXT_PUBLIC_SUPABASE_URL:'https://production.supabase.co',CS_ZARIA_PRODUCTION_SUPABASE_URL:'https://production.supabase.co',
+  CS_ZARIA_DENY_PREVIEW_SUPABASE_URL:'https://isolated.supabase.co',
+  CS_ZARIA_PRODUCTION_LIVEKIT_URL:'wss://dedicated-zaria.livekit.cloud',CS_ZARIA_PRODUCTION_LIVEKIT_EXPECTED_HOST:'dedicated-zaria.livekit.cloud',
+  CS_ZARIA_PRODUCTION_LIVEKIT_API_KEY:'synthetic-prod-key',CS_ZARIA_PRODUCTION_LIVEKIT_API_SECRET:'synthetic-prod-secret',
+  LIVEKIT_URL:'wss://shared-hosts.livekit.cloud',LIVEKIT_API_KEY:'synthetic-shared-key',LIVEKIT_API_SECRET:'synthetic-shared-secret'}
+ const url='https://'+host, selected=bridge.privateZariaConfig(url,production)
+ assert.equal(selected?.environment,'production')
+ assert.equal(selected?.audience,bridge.PRODUCTION_AUDIENCE)
+ assert.ok(bridge.privateZariaMember(url,production.CS_ZARIA_PRODUCTION_USER_IDS,production))
+ assert.equal(bridge.privateZariaMember(url,'30000000-0000-0000-0000-000000000000',production),null)
+ for(const broken of [{VERCEL_ENV:'preview'},{VERCEL_PROJECT_PRODUCTION_URL:'other.vercel.app'},
+  {CS_ZARIA_PRODUCTION_USER_IDS:''},{NEXT_PUBLIC_SUPABASE_URL:'https://isolated.supabase.co'},
+  {CS_ZARIA_PRODUCTION_LIVEKIT_URL:'wss://shared-hosts.livekit.cloud'}])
+  assert.equal(bridge.privateZariaConfig(url,{...production,...broken}),null)
 })
 test('worker wire body has no override fields, v1 speech is plain and bounded',()=>{
  const req={version:bridge.VERSION,room:grant.room}

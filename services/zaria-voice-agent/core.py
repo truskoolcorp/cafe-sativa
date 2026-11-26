@@ -11,6 +11,8 @@ MODEL = "eleven_v4"
 HOST = "zaria"
 AGENT = "cafe-sativa-zaria"
 PROTOCOL = "zaria-gallery-turn-v1"
+PREVIEW_AUDIENCE = "zaria-private-staging"
+PRODUCTION_AUDIENCE = "zaria-approved-production"
 ADMIT_TIMEOUT_SEC = 5
 TURN_TIMEOUT_SEC = 18  # allows the web bridge's 12s model timeout plus bounded overhead
 BRIDGE_PREFIX = "/api/concierge/zaria/voice-v1"
@@ -47,15 +49,36 @@ class Settings:
     room_secret: str = field(repr=False)
     tts_key: str = field(repr=False)
     stt_key: str = field(repr=False)
+    vercel_bypass: str = field(repr=False)
+    audience: str
 
     @classmethod
     def read(cls, env):
+        worker_env = env.get("CS_ZARIA_WORKER_ENV")
         if (env.get("CS_ZARIA_WORKER_ENABLED") != "true"
-            or env.get("CS_ZARIA_WORKER_ENV") != "private-staging"):
+            or worker_env not in ("private-staging", "approved-production")):
             raise Unavailable("Private pilot disabled")
-        bridge = origin(env.get("CS_ZARIA_BRIDGE_ORIGIN", ""), "https")
-        if bridge != "https://" + env.get("CS_ZARIA_APPROVED_BRIDGE_HOST", ""):
-            raise Unavailable("Private bridge not allowlisted")
+        raw_bridge = env.get("CS_ZARIA_BRIDGE_ORIGIN", "")
+        approved_bridge = env.get("CS_ZARIA_APPROVED_BRIDGE_HOST", "")
+        if not raw_bridge or not approved_bridge:
+            raise Unavailable("Private bridge setting missing")
+        if raw_bridge != "https://" + approved_bridge:
+            raise Unavailable("Private bridge settings disagree")
+        try:
+            parsed_bridge = urlsplit(raw_bridge)
+            if (parsed_bridge.scheme != "https" or parsed_bridge.hostname != approved_bridge
+                or not approved_bridge.endswith((".vercel.app", ".example")) or parsed_bridge.username
+                or parsed_bridge.password or parsed_bridge.port is not None
+                or parsed_bridge.path not in ("", "/") or parsed_bridge.query
+                or parsed_bridge.fragment or (worker_env == "private-staging" and approved_bridge in (
+                    "virtual-cafe-sativa-glyph-protocol.vercel.app",
+                    "virtual-cafe-sativa.vercel.app",
+                )) or (worker_env == "approved-production" and
+                    approved_bridge != "virtual-cafe-sativa-glyph-protocol.vercel.app")):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise Unavailable("Private bridge not allowlisted") from None
+        bridge = raw_bridge
         mode = env.get("CS_ZARIA_LIVEKIT_CREDENTIALS", "isolated-explicit")
         explicit = ("CS_ZARIA_LIVEKIT_URL", "CS_ZARIA_LIVEKIT_KEY", "CS_ZARIA_LIVEKIT_SECRET")
         if mode == "cloud-injected":
@@ -66,13 +89,29 @@ class Settings:
             names = explicit
         else:
             raise Unavailable("Private project credential source unavailable")
-        room = origin(env.get(names[0], ""), "wss")
-        if room != "wss://" + env.get("CS_ZARIA_APPROVED_LIVEKIT_HOST", ""):
-            raise Unavailable("Private LiveKit project not allowlisted")
+        approved_room = env.get("CS_ZARIA_APPROVED_LIVEKIT_HOST", "")
+        try:
+            parsed_room = urlsplit(env.get(names[0], ""))
+            if (parsed_room.scheme not in ("wss", "https")
+                or parsed_room.hostname != approved_room
+                or not approved_room.endswith(".livekit.cloud")
+                or parsed_room.username or parsed_room.password
+                or parsed_room.port is not None or parsed_room.path not in ("", "/")
+                or parsed_room.query or parsed_room.fragment):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise Unavailable("Private LiveKit project not allowlisted") from None
+        room = "wss://" + approved_room
         keys = [env.get(k, "") for k in (*names[1:], "CS_ZARIA_ELEVENLABS_KEY", "CS_ZARIA_DEEPGRAM_KEY")]
         if any(not k or k != k.strip() for k in keys):
             raise Unavailable("Private credentials unavailable")
-        return cls(bridge, room, *keys)
+        bypass = env.get("CS_ZARIA_VERCEL_BYPASS_SECRET", "")
+        if worker_env == "private-staging" and (len(bypass) < 32 or bypass != bypass.strip() or any(c.isspace() for c in bypass)):
+            raise Unavailable("Private bridge bypass unavailable")
+        if worker_env == "approved-production" and bypass:
+            raise Unavailable("Production bridge bypass forbidden")
+        audience = PREVIEW_AUDIENCE if worker_env == "private-staging" else PRODUCTION_AUDIENCE
+        return cls(bridge, room, *keys, bypass, audience)
 
 def parse_job(raw, room):
     try:
@@ -91,9 +130,12 @@ def parse_job(raw, room):
 
 class Bridge:
     """Versioned proposal, not compatible with the shared memory-only endpoint."""
-    def __init__(self, http, origin_, grant, room):
+    def __init__(self, http, origin_, grant, room, vercel_bypass, audience=PREVIEW_AUDIENCE):
         self.http, self.url, self.room = http, origin_ + BRIDGE_PREFIX, room
+        self.audience = audience
         self.headers = {"Authorization": "Bearer " + grant}
+        if vercel_bypass:
+            self.headers["x-vercel-protection-bypass"] = vercel_bypass
 
     async def _call(self, action, extra):
         limit = ADMIT_TIMEOUT_SEC if action == "admit" else TURN_TIMEOUT_SEC
@@ -119,7 +161,7 @@ class Bridge:
             except ValueError:
                 raise Unavailable("Invalid private Gallery response") from None
         if (not isinstance(data, dict) or data.get("version") != PROTOCOL
-            or data.get("authorized") is not True or data.get("audience") != "zaria-private-staging"
+            or data.get("authorized") is not True or data.get("audience") != self.audience
             or data.get("room") != self.room or data.get("host") != HOST
             or data.get("voice_id") != VOICE or data.get("model_id") != MODEL):
             raise Unavailable("Private Gallery identity not attested")

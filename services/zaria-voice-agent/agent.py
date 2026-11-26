@@ -25,7 +25,7 @@ async def entrypoint(ctx):
     stopped = asyncio.Event()
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=TURN_TIMEOUT_SEC + 1),
                                      trace_configs=[trace], trust_env=False) as http:
-        bridge = Bridge(http, cfg.bridge_origin, grant, ctx.room.name)
+        bridge = Bridge(http, cfg.bridge_origin, grant, ctx.room.name, cfg.vercel_bypass, cfg.audience)
         # Signed grants and live access are validated by the separate private app.
         guest = await bridge.admit()
 
@@ -125,8 +125,10 @@ async def entrypoint(ctx):
 def startup():
     try:
         cfg = Settings.read(os.environ)
-    except Unavailable:
-        raise SystemExit("Private Zaria worker unavailable") from None
+    except Unavailable as error:
+        # Canary-only startup diagnostic: the message identifies a failed gate
+        # but never includes a credential, URL, grant, or provider payload.
+        raise SystemExit(str(error)) from None
     from livekit.agents import WorkerOptions, cli
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=AGENT, ws_url=cfg.room_url,
                               api_key=cfg.room_key, api_secret=cfg.room_secret,

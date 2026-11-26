@@ -100,6 +100,32 @@ export async function checkRateLimit(params: {
   }
 }
 
+/**
+ * The private Zaria canary intentionally carries only the minimum chat tables
+ * and no production membership schema or PostgREST relationship metadata.
+ * Count its signed-in user's Zaria messages in two explicit reads so the
+ * preview still fails closed without depending on production joins.
+ */
+export async function checkPrivateZariaRateLimit(userId:string):Promise<RateCheckResult> {
+  const limit=RATE_LIMITS.explorer
+  const admin=createAdminClient()
+  const conversations=await admin.from('host_conversations').select('id')
+    .eq('user_id',userId).eq('host_agent','zaria')
+  if(conversations.error||!Array.isArray(conversations.data))return unavailable()
+  const ids=conversations.data.map((row:any)=>row?.id).filter((id:unknown):id is string=>typeof id==='string')
+  if(!ids.length)return {allowed:true,remaining:limit.max-1,resetsInSeconds:limit.windowSeconds}
+  const since=new Date(Date.now()-limit.windowSeconds*1000).toISOString()
+  const usage=await admin.from('host_messages').select('id',{count:'exact',head:true})
+    .in('conversation_id',ids).eq('role','user').gte('created_at',since)
+  if(usage.error||!Number.isSafeInteger(usage.count)||usage.count===null||usage.count<0)return unavailable()
+  if(usage.count>=limit.max)return {allowed:false,message:tierLimitCopy('explorer'),resetsInSeconds:limit.windowSeconds}
+  return {allowed:true,remaining:Math.max(0,limit.max-usage.count-1),resetsInSeconds:limit.windowSeconds}
+}
+
+function unavailable():RateCheckResult {
+  return {allowed:false,unavailable:true,message:'Chat availability could not be checked. Please try again shortly.',resetsInSeconds:30}
+}
+
 function tierLimitCopy(tier: Tier): string {
   switch (tier) {
     case 'anonymous':

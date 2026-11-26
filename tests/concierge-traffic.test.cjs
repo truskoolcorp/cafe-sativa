@@ -19,6 +19,16 @@ function database(result) {
   for (const method of ['select', 'eq', 'gte', 'is', 'in', 'order', 'limit', 'neq']) q[method] = (...args) => { calls.push([method, ...args]); return q }
   return { calls, from: () => q }
 }
+function privateDatabase({ conversations = [{ id: ID }], count = 0, conversationError = null, usageError = null } = {}) {
+  const calls = []
+  return { calls, from(table) {
+    const q = { then(resolve) { return Promise.resolve(resolve(table === 'host_conversations'
+      ? { data: conversations, error: conversationError }
+      : { count, error: usageError })) } }
+    for (const method of ['select', 'eq', 'gte', 'in']) q[method] = (...args) => { calls.push([table, method, ...args]); return q }
+    return q
+  } }
+}
 test('all exact tier caps deny at the limit and report remaining after the accepted turn', async () => {
   for (const [tier, cap, seconds] of [['anonymous', 10, 3600], ['explorer', 50, 86400], ['regular', 200, 86400], ['vip', 1000, 86400]]) {
     const params = { userId: tier === 'anonymous' ? null : ID, sessionId: ID, tier }
@@ -39,6 +49,24 @@ test('unknown, failed and invalid usage counts fail closed; anonymous counts exc
     assert.equal(outcome.unavailable, true)
     assert.ok(db.calls.some(c => c[0] === 'is' && c[1] === 'host_conversations.user_id' && c[2] === null))
   }
+})
+test('private Zaria QA counts usage without production relationship metadata and fails closed', async () => {
+  let db=privateDatabase({count:49})
+  let result=await load('lib/concierge/rate-limit.ts',db).checkPrivateZariaRateLimit(ID)
+  assert.equal(result.allowed,true)
+  assert.equal(result.remaining,0)
+  assert.ok(db.calls.some(c=>c[0]==='host_conversations'&&c[1]==='eq'&&c[2]==='host_agent'&&c[3]==='zaria'))
+  assert.ok(db.calls.some(c=>c[0]==='host_messages'&&c[1]==='in'&&c[2]==='conversation_id'))
+  db=privateDatabase({count:50})
+  assert.equal((await load('lib/concierge/rate-limit.ts',db).checkPrivateZariaRateLimit(ID)).allowed,false)
+  for(const broken of [{conversationError:{}},{usageError:{}},{count:null}]){
+    const outcome=await load('lib/concierge/rate-limit.ts',privateDatabase(broken)).checkPrivateZariaRateLimit(ID)
+    assert.equal(outcome.allowed,false)
+    assert.equal(outcome.unavailable,true)
+  }
+  result=await load('lib/concierge/rate-limit.ts',privateDatabase({conversations:[]})).checkPrivateZariaRateLimit(ID)
+  assert.equal(result.allowed,true)
+  assert.equal(result.remaining,49)
 })
 test('paid memory excludes current conversation and keeps stable user-before-assistant order', async () => {
   const db = database({ data: [{ role: 'assistant', content: 'Answer', created_at: 'same' }, { role: 'user', content: 'Question', created_at: 'same' }] })

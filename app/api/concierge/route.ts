@@ -8,7 +8,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getHost } from '@/lib/concierge/personas'
-import { checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
+import { checkPrivateZariaRateLimit, checkRateLimit, type Tier } from '@/lib/concierge/rate-limit'
 import { getMemoryContext } from '@/lib/concierge/memory'
 import { chronologicalMessages } from '@/lib/concierge/history'
 import { validateConciergeRequest } from '@/lib/concierge/request'
@@ -133,7 +133,9 @@ async function handlePost(req: Request) {
   }
 
   // Rate limit
-  const rate = await checkRateLimit({ userId, sessionId, tier })
+  const rate = privateZariaQa
+    ? await checkPrivateZariaRateLimit(userId!)
+    : await checkRateLimit({ userId, sessionId, tier })
   if (!rate.allowed) {
     return jsonWithCors(
       {

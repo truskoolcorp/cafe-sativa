@@ -1,3 +1,4 @@
+import { debutWork } from './debut-work'
 import ZariaPortrait from './ZariaPortrait'
 import {zariaChatEnabled,zariaGalleryHref,zariaPortraitEnabled} from '@/lib/gallery/zaria'
 import { approvedVenueCovers } from '@/lib/content/venue-covers'
@@ -88,7 +89,8 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
   const [products, covers] = await Promise.all([loadGallery(), approvedVenueCovers()])
 
   const kind = ['physical', 'digital'].includes(searchParams.kind || '') ? searchParams.kind : undefined
-  const visibleProducts = kind ? products.filter(p => p.kind === kind) : products
+  const collection = [debutWork, ...products.filter(p => p.slug !== debutWork.slug)]
+  const visibleProducts = kind ? collection.filter(p => p.kind === kind) : collection
   return (
     <div className="pb-16 bg-background min-h-screen">
       <section aria-labelledby="gallery-title" className="relative isolate overflow-hidden bg-[#171310] text-[#f9efe1]">
@@ -139,7 +141,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
             <Link key={label} href={value ? '/gallery?kind='+value : '/gallery'} aria-current={(kind || '') === value ? 'page' : undefined} className={'rounded-full border px-4 py-2 text-sm '+((kind || '') === value ? 'border-primary text-primary' : 'border-border text-muted-foreground')}>{label}</Link>
           ))}
         </nav>
-        {products.length === 0 ? (
+        {collection.length === 0 ? (
           <EmptyGallery />
         ) : visibleProducts.length === 0 ? (
           <p role="status" className="text-muted-foreground py-8">No published work in this category yet. <Link href="/gallery" className="underline">Browse all work.</Link></p>
@@ -163,14 +165,14 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
   )
 }
 
-function GalleryCard({ row }: { row: GalleryRow }) {
-  const priceUsd = (row.price_cents / 100).toLocaleString('en-US', {
+function GalleryCard({ row }: { row: GalleryRow | typeof debutWork }) {
+  const priceUsd = 'price_cents' in row ? (row.price_cents / 100).toLocaleString('en-US', {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
-  })
+  }) : null
   const kindLabel = row.kind === 'digital' ? 'Digital art' : 'Physical'
 
-  const soldOut = row.stock_count !== null && row.stock_count <= 0
+  const soldOut = 'stock_count' in row && row.stock_count !== null && row.stock_count <= 0
 
   return (
     <Link
@@ -184,7 +186,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
           <img
             src={row.primary_image_url}
             alt={row.title}
-            className="w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"
+            className={priceUsd === null ? "w-full h-full object-contain" : "w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"}
             loading="lazy"
           />
         ) : (
@@ -215,7 +217,7 @@ function GalleryCard({ row }: { row: GalleryRow }) {
 
         <div className="flex items-baseline justify-between">
           <span className="font-heading text-xl text-primary font-bold">
-            {priceUsd}
+            {priceUsd || <span className="text-sm font-normal text-muted-foreground">On display</span>}
           </span>
           <span className="text-[10px] tracking-widest uppercase text-muted-foreground font-body font-semibold">
             {kindLabel}

@@ -1,3 +1,4 @@
+import { debutWork } from '@/app/gallery/debut-work'
 import {galleryWorkSlug} from './zaria'
 
 type PublicWork = {slug:unknown; title?:unknown; description?:unknown; kind?:unknown; artist_name?:unknown}
@@ -28,7 +29,7 @@ export async function loadZariaGallery(value: unknown) {
     const base=()=>db.from('gallery_v').select(columns).in('kind',['digital','physical']).abortSignal(AbortSignal.timeout(3500))
     const [latest,selected]=await Promise.all([base().order('created_at',{ascending:false}).limit(8),slug?base().eq('slug',slug).maybeSingle():null])
     if(latest.error||selected?.error)return publicGallerySelection([],slug,true)
-    const rows=latest.data??[]
+    const rows=[debutWork, ...(latest.data??[]).filter(row=>row.slug!==debutWork.slug)]
     if(selected?.data&&!rows.some(row=>row.slug===slug))rows.unshift(selected.data)
     return publicGallerySelection(rows,slug)
   } catch {return publicGallerySelection([],slug,true)}

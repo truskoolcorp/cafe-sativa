@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
+import { debutWork } from '../debut-work'
 
 /** Read-only detail for published, approved physical and digital artwork. */
 
@@ -13,7 +14,20 @@ export const dynamic = 'force-dynamic'
 
 type Params = { params: { slug: string } }
 
-async function loadProduct(slug: string) {
+type DisplayProduct = {
+  slug: string
+  title: string
+  artist_name: string
+  description: string | null
+  kind: 'physical' | 'digital'
+  primary_image_url: string | null
+  price_cents?: number
+  currency?: string
+  stock_count?: number | null
+}
+
+async function loadProduct(slug: string): Promise<DisplayProduct | null> {
+  if (slug === debutWork.slug) return debutWork
   const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -68,12 +82,12 @@ export default async function ProductDetailPage({ params }: Params) {
     notFound()
   }
 
-  const priceDisplay = (product.price_cents / 100).toLocaleString('en-US', {
+  const priceDisplay = product.price_cents !== undefined ? (product.price_cents / 100).toLocaleString('en-US', {
     style: 'currency',
     currency: (product.currency || 'usd').toUpperCase(),
-  })
+  }) : null
 
-  const soldOut = product.stock_count !== null && product.stock_count <= 0
+  const soldOut = typeof product.stock_count === 'number' && product.stock_count <= 0
   const kindLabel =
     product.kind === 'digital' ? 'Digital art' : 'Physical'
 
@@ -142,23 +156,25 @@ export default async function ProductDetailPage({ params }: Params) {
 
             {/* Price card */}
             <div className="rounded-xl border border-primary/40 bg-card p-5">
-              <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold mb-1">
-                Price
-              </p>
-              <p className="font-heading text-4xl font-bold text-primary">
-                {priceDisplay}
-              </p>
+              {priceDisplay !== null && <>
+                <p className="text-xs tracking-widest uppercase text-muted-foreground font-body font-semibold mb-1">
+                  Price
+                </p>
+                <p className="font-heading text-4xl font-bold text-primary">
+                  {priceDisplay}
+                </p>
 
-              {product.stock_count !== null &&
-                product.stock_count !== undefined && (
-                  <p className="text-xs text-muted-foreground font-body mt-2">
-                    {product.stock_count > 0
-                      ? `${product.stock_count} left`
-                      : 'Sold out'}
-                  </p>
-                )}
+                {product.stock_count !== null &&
+                  product.stock_count !== undefined && (
+                    <p className="text-xs text-muted-foreground font-body mt-2">
+                      {product.stock_count > 0
+                        ? `${product.stock_count} left`
+                        : 'Sold out'}
+                    </p>
+                  )}
 
-              <div className="mt-4">
+              </>}
+              <div className={priceDisplay !== null ? "mt-4" : undefined}>
                 <p role="status" className="text-sm text-muted-foreground">Available to browse. Purchases are not open yet.</p>
               </div>
             </div>

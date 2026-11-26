@@ -106,14 +106,14 @@ const HOSTS: HostMeta[] = [
   {
     id: 'ahnika',
     displayName: 'Ahnika',
-    role: 'Alignment + wellness',
-    tagline: 'Alignment, movement, and feeling good in your body.',
+    role: 'The Stage host',
+    tagline: 'Music, premieres, and what’s next on The Stage. Alignment and movement are part of her style.',
     icon: Sparkles,
     avatar: '/api/hosts/portrait?host=ahnika',
     suggestions: [
-      'How do I get back in alignment?',
-      'Tell me about Faithfully Faded.',
-      'Any tips to feel grounded before an event?',
+      'What’s coming up on The Stage?',
+      'Tell me about your music.',
+      'Any tips to feel grounded before a show?',
     ],
   },
   ...(zariaChatEnabled() ? [{

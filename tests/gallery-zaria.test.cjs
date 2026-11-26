@@ -13,7 +13,8 @@ function compile(path, deps={}) {
   return module.exports
 }
 const policy=compile('lib/gallery/zaria.ts')
-const d=compile('lib/gallery/zaria-catalog.ts',{'./zaria':policy,'@supabase/supabase-js':{createClient(){throw Error('No network')}}})
+const debut=compile('app/gallery/debut-work.ts')
+const d=compile('lib/gallery/zaria-catalog.ts',{'./zaria':policy,'@/app/gallery/debut-work':debut,'@supabase/supabase-js':{createClient(){throw Error('No network')}}})
 const grants=compile('lib/concierge/livekit-session.ts',{'@/lib/gallery/zaria':policy})
 const validVoice={NEXT_PUBLIC_CS_ZARIA_GALLERY_CHAT:'true',CS_ZARIA_GALLERY_LIVE_VOICE:'true',CS_ZARIA_LIVEKIT_VERIFIED_VOICE_ID:policy.ZARIA_VOICE.id,CS_ZARIA_LIVEKIT_VERIFIED_VOICE_MODEL:policy.ZARIA_VOICE.model,CS_ZARIA_LIVEKIT_AGENT_NAME:'cafe-sativa-zaria',CS_LIVEKIT_AGENT_NAME:'cafe-sativa-hosts'}
 test('isolates Zaria rollout and refuses default, shared, and incompatible voice setup',()=>{

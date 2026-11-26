@@ -1,5 +1,6 @@
 import {zariaGrounding} from '@/lib/gallery/zaria-answer'
 import {zariaChatEnabled} from '@/lib/gallery/zaria'
+import {privateZariaMember} from '@/lib/gallery/zaria-voice-v1'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getSiteContent } from '@/lib/content/site'
 import { getUpcomingEvents, type EventRow } from '@/lib/events'
@@ -105,6 +106,7 @@ async function handlePost(req: Request) {
     return jsonWithCors({ error: 'Chat identity is temporarily unavailable.', code: 'auth_unavailable' }, { status: 503, request: req, noStore: true })
   }
   const userId = userData?.user?.id ?? null
+  const privateZariaQa=body.host==='zaria'?privateZariaMember(req.url,userId):null
 
   const sessionId = body.session_id
   if (!conciergeRequesterMatches(req, userId, sessionId)) {
@@ -120,7 +122,7 @@ async function handlePost(req: Request) {
   // Resolve tier
   const admin = createAdminClient()
   let tier: Tier = userId ? 'explorer' : 'anonymous'
-  if (userId) {
+  if (userId&&!privateZariaQa) {
     const { data: memRow, error: membershipError } = await admin
       .from('memberships')
       .select('tier, status, current_period_end')

@@ -38,6 +38,11 @@ export function privateZariaConfig(url: string, env:NodeJS.ProcessEnv=process.en
   }catch{return null}
   return {scope,secret,members,livekit:{url:livekitUrl,key:livekitKey,secret:livekitSecret}}
 }
+
+export function privateZariaMember(url:string,userId:string|null,env:NodeJS.ProcessEnv=process.env) {
+  const config=privateZariaConfig(url,env)
+  return config&&userId&&config.members.includes(userId)?config:null
+}
 function mac(payload:string,secret:string) {
  return createHmac('sha256',secret).update(VERSION+'\0'+payload).digest()
 }

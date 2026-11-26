@@ -66,6 +66,9 @@ const grant={version:bridge.VERSION,audience:bridge.AUDIENCE,host:'zaria',scope:
  conversationId:'10000000-0000-0000-0000-000000000002',nonce:'10000000-0000-0000-0000-000000000003',galleryWork:'current',iat:500,exp:300500}
 test('voice bridge gate rejects production, alternate host, shared secret and nonisolated database',()=>{
  assert.ok(bridge.privateZariaConfig(origin,cfg))
+ assert.ok(bridge.privateZariaMember(origin,cfg.CS_ZARIA_PREVIEW_QA_USER_IDS,cfg))
+ assert.equal(bridge.privateZariaMember(origin,'30000000-0000-0000-0000-000000000000',cfg),null)
+ assert.equal(bridge.privateZariaMember(origin,null,cfg),null)
  assert.equal(bridge.privateZariaConfig('https://other.vercel.app',cfg),null)
  for(const broken of [{VERCEL_ENV:'production'},{CS_ZARIA_PREVIEW_BRIDGE:'false'},{CS_ZARIA_PREVIEW_QA_USER_IDS:''},
  {CS_ZARIA_LIVEKIT_VERIFIED_VOICE_MODEL:'wrong'},{CS_LIVEKIT_BRIDGE_SECRET:cfg.CS_ZARIA_PREVIEW_BRIDGE_SECRET},

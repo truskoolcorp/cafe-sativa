@@ -4,8 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getHost } from '@/lib/concierge/personas'
 import { decideStageAutoReply } from '@/lib/events/stage-auto-reply'
-import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
+import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, rehearsalAccessEnd, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
 import { stageHostIsPerforming, STAGE_HOST_ON_STAGE } from '@/lib/events/stage-host-availability'
+import { dressPlayoutEndsAt } from '@/lib/events/stage-dress-playout'
 import { safeStageConversationText } from '@/lib/events/stage-conversation-policy'
 import { answerStageQuestion } from '@/lib/events/stage-conversation'
 import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } from '@/lib/events/ahnika-premiere-window'
@@ -48,15 +49,21 @@ async function roomAccess(roomId: unknown) {
     .eq('user_id', user.id).gt('expires_at', new Date().toISOString()).maybeSingle()
   const slot = privateStagePlaybackSlot(process.env)
   const now = Date.now()
-  if (!invite || !slot || now < slot.start || now >= slot.end || !rehearsalInviteCoversCut(invite.expires_at, slot.end, slot.inviteUntil)) {
+  if (!invite || !slot || now < (slot.dress?.doors ?? slot.start) || now >= rehearsalAccessEnd(slot) ||
+      !rehearsalInviteCoversCut(invite.expires_at, rehearsalAccessEnd(slot), slot.inviteUntil)) {
     return { error: json({ error: 'Stage questions are closed for this rehearsal.' }, 404) }
   }
   const solo = soloStageHostTest(slot, user.id, process.env)
-  if (!solo && (process.env.VERCEL_ENV === 'production' || process.env.STAGE_HOST_INBOX_ENABLED !== 'true')) {
+  if (!solo && !slot.dress && (process.env.VERCEL_ENV === 'production' || process.env.STAGE_HOST_INBOX_ENABLED !== 'true')) {
     return { error: json({ error: 'Stage questions are closed.' }, 404) }
   }
   return { attendeeId: user.id, roomId, moderator: !solo && invite.can_draft === true,
-    startsAt: slot.startsAt, threadFrom: slot.startsAt, solo, publicPremiere: false as const }
+    startsAt: slot.startsAt, threadFrom: slot.dress ? new Date(slot.dress.doors).toISOString() : slot.startsAt,
+    dress: slot.dress ? { start: slot.start, end: dressPlayoutEndsAt(slot.end) } : null, solo, publicPremiere: false as const }
+}
+
+function performerQuiet(host: string, dress?: { start: number; end: number } | null, now = Date.now()) {
+  return stageHostIsPerforming(host) || Boolean(host === 'ahnika' && dress && now >= dress.start && now < dress.end)
 }
 
 export async function GET(request: Request) {
@@ -88,14 +95,14 @@ export async function POST(request: Request) {
     if (access.error) return access.error
     const host = getHost(body.host)
     if (!host) return unavailable()
-    if (stageHostIsPerforming(host.id)) return json({ error: STAGE_HOST_ON_STAGE }, 409)
+    if (performerQuiet(host.id, access.dress)) return json({ error: STAGE_HOST_ON_STAGE }, 409)
     const admin = createAdminClient()
     const laviche = host.id === 'laviche'
     // The preview moderation exercise keeps its exact-fact policy. The bounded
     // solo path runs the persona only after the private insert wins dedup/rate checks.
     const decision = decideStageAutoReply({ question, host: host.id as 'laviche' | 'ahnika',
       facts: { startsAt: access.startsAt, format: 'scheduled-premiere', enableSoundControl: false, vipReplayPublished: false },
-      enabled: !access.solo && !access.publicPremiere && process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
+      enabled: !access.solo && !access.dress && !access.publicPremiere && process.env.STAGE_AUTO_TEXT_REPLIES_ENABLED === 'true' &&
         (!laviche || process.env.STAGE_LAVICHE_MODERATOR_ENABLED === 'true'), paused: false })
     const canonical = decision.action === 'eligible'
       ? await canonicalConciergeHost(host.id, AbortSignal.timeout(2500)).catch(() => null) : null
@@ -109,7 +116,7 @@ export async function POST(request: Request) {
     }
     if (error) return unavailable()
     if (data) {
-      if ((access.solo || access.publicPremiere) && safeStageConversationText(question)) {
+      if ((access.solo || access.dress || access.publicPremiere) && safeStageConversationText(question)) {
         if (access.publicPremiere) {
           const claim = await admin.rpc('claim_stage_premiere_conversation', {
             p_question_id: data.id, p_room_id: access.roomId, p_attendee_id: access.attendeeId,
@@ -130,14 +137,15 @@ export async function POST(request: Request) {
             ? [{ role: 'user', content: row.question }, { role: 'assistant', content: row.answer }] : [])
         const reply = await answerStageQuestion({ host: body.host, persona: host.system_prompt, question, history,
           ...(access.publicPremiere ? { publicPremiere: true } : {}),
+          ...(access.dress ? { dressRehearsal: true } : {}),
         }).catch(() => {
           console.info('[stage-conversation] dependencies_unavailable')
           return null
         })
-        if (reply && !stageHostIsPerforming(host.id)) {
+        if (reply && !performerQuiet(host.id, access.dress)) {
           const current = await roomAccess(access.roomId)
-          if ((access.publicPremiere ? current.publicPremiere : current.solo) &&
-              current.attendeeId === access.attendeeId && current.startsAt === access.startsAt && !stageHostIsPerforming(host.id)) {
+          if ((access.publicPremiere ? current.publicPremiere : access.dress ? current.dress : current.solo) &&
+              current.attendeeId === access.attendeeId && current.startsAt === access.startsAt && !performerQuiet(host.id, current.dress)) {
             const saved = await admin.from(inbox).update({ answer: reply, answer_source: 'verified_host' })
               .eq('id', data.id).eq('room_id', access.roomId).eq('attendee_id', access.attendeeId)
               .eq('host', host.id).is('answer', null).select(itemFields).maybeSingle()

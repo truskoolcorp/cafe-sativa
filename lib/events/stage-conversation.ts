@@ -22,6 +22,7 @@ export async function answerStageQuestion(input: {
   question: string
   history: ConciergeMessage[]
   publicPremiere?: true
+  dressRehearsal?: true
 }) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
@@ -41,7 +42,9 @@ export async function answerStageQuestion(input: {
   const knownPremiere = input.publicPremiere === true || events.some(event => event.slug === AHNIKA_PREMIERE_SLUG && isCanonicalAhnikaPremiere(event))
   const context = input.publicPremiere
     ? 'This is private attendee Q&A during the scheduled Stage premiere. For this verified room, Ahnika Merlot’s “Already Gone” starts Tuesday, December 1, 2026 at midnight Central. Watching is free and joining attendee chat requires signing in. The premiere and its live audience chat are distinct. Ahnika does not answer while she is on stage. Never claim to see or hear the audience or to have taken moderation actions.'
-    : 'This is a solo rehearsal. The current viewer can start, pause and rewind their own playback without affecting the public premiere or anyone else. No moderator is on duty for this test. The rehearsal is not the scheduled public premiere.'
+    : input.dressRehearsal
+      ? 'This is the private November 24 timed Stage dress rehearsal. Doors open at 7:45 a.m. Central, and synchronized performance starts at 8:00 a.m. Central. This is not the December 1 public premiere. Ahnika does not answer during her set. Do not claim a moderator is present.'
+      : 'This is a solo rehearsal. The current viewer can start, pause and rewind their own playback without affecting the public premiere or anyone else. No moderator is on duty for this test. The rehearsal is not the scheduled public premiere.'
   try {
     const result = await generateConciergeResponse({
       hostSystemPrompt: `${input.persona}\n\n${STAGE_CONVERSATION_RULES}\n${context}`,

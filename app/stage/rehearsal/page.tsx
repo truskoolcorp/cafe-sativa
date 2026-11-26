@@ -4,10 +4,13 @@ import { loungeDisplayName } from '@/lib/lounge-speaker'
 import { createClient } from '@/lib/supabase/server'
 import StageLobby from '@/components/events/StageLobby'
 import StagePremiereVideo from '@/components/events/StagePremiereVideo'
+import StageDressPlayer from '@/components/events/StageDressPlayer'
 import StagePremiereRefresh from '@/components/events/StagePremiereRefresh'
-import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, soloStageHostTest } from '@/lib/events/private-stage-rehearsal'
+import { PRIVATE_STAGE_REHEARSAL_ROOM, privateStagePlaybackSlot, rehearsalInviteCoversCut, rehearsalAccessEnd, soloStageHostTest, privateDressReportSlot } from '@/lib/events/private-stage-rehearsal'
 import { isCleanRehearsalSlot } from '@/lib/events/ahnika-premiere-media'
 import { signCleanRehearsalCut } from '@/lib/events/stage-rehearsal-storage'
+import { privateDressMedia } from '@/lib/events/private-dress-media'
+import { dressPlayoutEndsAt } from '@/lib/events/stage-dress-playout'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Private Stage rehearsal', robots: { index: false, follow: false } }
@@ -30,19 +33,31 @@ export default async function Rehearsal() {
   ])
   if (messages.error) notFound()
   const configured = privateStagePlaybackSlot(process.env)
-  const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, configured.end, configured.inviteUntil) ? configured : null
+  const slot = configured && rehearsalInviteCoversCut(invitation.expires_at, rehearsalAccessEnd(configured), configured.inviteUntil) ? configured : null
+  if (configured?.dress && !slot) notFound()
   const now = Date.now()
+  const dressMediaReady = Boolean(slot?.dress && privateDressMedia(process.env.STAGE_PRIVATE_DRESS_MEDIA))
+  const dressPlayoutEnd = slot?.dress ? dressPlayoutEndsAt(slot.end) : null
   const hostSlotActive = Boolean(slot && now >= slot.start && now < slot.end)
   const soloHost = Boolean(slot && hostSlotActive && soloStageHostTest(slot, user.id, process.env))
-  const boundary = slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
+  const dressOpen = Boolean(slot?.dress && dressMediaReady && now >= slot.dress.doors && now < slot.dress.closes)
+  const local = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' })
+  const time = (instant: number) => local.format(new Date(instant)).replace(' AM', ' a.m.').replace(' PM', ' p.m.')
+  const boundary = slot?.dress ? [slot.dress.doors, slot.dress.intro, slot.start, dressPlayoutEnd!, slot.dress.closes].find(at => at > now)
+    : slot && (now < slot.start ? slot.start : now < slot.end ? slot.end : null)
   const cleanAvailable = slot && isCleanRehearsalSlot(slot, process.env) && now >= slot.start && now < slot.end
     ? Boolean(await signCleanRehearsalCut()) : false
   return (
     <main className="mx-auto max-w-4xl space-y-4 px-4 pb-12 pt-28">
       <h1 className="font-heading text-3xl font-bold">Private Stage rehearsal</h1>
       <p>Invite-only Stage rehearsal. This is not the December 1 premiere.</p>
+      {slot?.dress && <p>Doors open at {time(slot.dress.doors)} Central. The synchronized performance starts at {time(slot.start)} Central. Private chat stays open until {time(slot.dress.closes)} Central.</p>}
       {boundary && <StagePremiereRefresh key={boundary} startsAt={new Date(boundary).toISOString()} serverNow={now} />}
-      {slot && (now < slot.start ? (
+      {slot?.dress && (!dressMediaReady || now < slot.dress.doors) ? (
+        <p role="status">{dressMediaReady ? `The rehearsal room will open at ${time(slot.dress.doors)} Central.` : 'The dress rehearsal is not ready to open.'}</p>
+      ) : slot && (slot.dress && now >= slot.dress.intro && dressPlayoutEnd && now < dressPlayoutEnd ? (
+        <StageDressPlayer key="dress-player" introAt={slot.dress.intro} kickoff={slot.start} cutoff={slot.end} serverNow={now} />
+      ) : now < slot.start ? (
         <StageLobby startsAt={slot.startsAt} serverNow={now}
           poster="/rooms/stage-beach-terrace-v2.webp"
           loop={{ webm: '/rooms/stage-golden-hour-surf-v3.webm', mp4: '/rooms/stage-golden-hour-surf-v3.mp4' }}
@@ -51,20 +66,24 @@ export default async function Rehearsal() {
       ) : now < slot.end ? (
         <>
           {slot.onDemand && <p>Rehearsal playback is open. Play, pause, or rewind at your own pace.</p>}
-          <StagePremiereVideo src={cleanAvailable ? '/api/stage/rehearsal-media?cut=clean' : '/api/stage/rehearsal-media'}
+          <StagePremiereVideo key="rehearsal-performance"
+            src={cleanAvailable ? '/api/stage/rehearsal-media?cut=clean' : '/api/stage/rehearsal-media'}
             label={cleanAvailable ? 'Private rehearsal: Laviche opening and Ahnika performance' : 'Private rehearsal of the approved Ahnika performance'}
             kickoff={slot.onDemand ? undefined : slot.start} serverNow={now} />
         </>
       ) : (
-        <p role="status">The rehearsal playback window has ended. The private chat remains available for invited participants.</p>
+        <p role="status">{slot.dress ? `The scheduled performance has ended. Private chat stays open until ${time(slot.dress.closes)} Central.` : 'The rehearsal playback window has ended. The private chat remains available for invited participants.'}</p>
       ))}
-      <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
+      {(!slot?.dress || dressOpen) && <section className="flex h-[34rem] flex-col rounded-2xl border border-border bg-card p-4" aria-label="Private rehearsal chat">
         <LoungeRoom roomId={room.id} userId={user.id} displayName={loungeDisplayName(profile.data?.display_name, room.id, user.id)}
           tier="explorer" minPostTier="explorer" isStaff={Boolean(profile.data?.is_staff || profile.data?.is_admin)}
           initialMessages={(messages.data || []).reverse()} conciergeDrafts privateRoom
           rehearsalDraftModerator={invitation.can_draft === true && !soloHost} soloStageHostTest={soloHost}
-          stageHostInbox={soloHost || (hostSlotActive && process.env.VERCEL_ENV !== 'production' && process.env.STAGE_HOST_INBOX_ENABLED === 'true')} />
-      </section>
+          dressReportsSince={dressOpen && slot?.dress && privateDressReportSlot(slot.startsAt) && process.env.STAGE_PRIVATE_DRESS_REPORTS_ENABLED === 'true'
+            ? new Date(slot.dress.doors).toISOString() : undefined}
+          ahnikaOnStage={Boolean(slot?.dress && dressPlayoutEnd && now >= slot.start && now < dressPlayoutEnd)}
+          stageHostInbox={dressOpen || soloHost || (hostSlotActive && process.env.VERCEL_ENV !== 'production' && process.env.STAGE_HOST_INBOX_ENABLED === 'true')} />
+      </section>}
     </main>
   )
 }

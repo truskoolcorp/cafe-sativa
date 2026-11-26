@@ -16,7 +16,9 @@ function load(path, deps = {}, globals = {}) {
 }
 const lobby = load('lib/events/stage-lobby.ts')
 const event = load('lib/events/ahnika-premiere-window.ts', { './stage-lobby': lobby })
-const slots = load('lib/events/private-stage-rehearsal.ts', { './ahnika-premiere-window': event })
+const slots = load('lib/events/private-stage-rehearsal.ts', {
+  './ahnika-premiere-window': event, './stage-lobby': lobby,
+})
 const start = '2026-11-25T19:00:00Z'
 const env = { VERCEL_ENV: 'production', STAGE_PRIVATE_REHEARSAL_ENABLED: 'true', STAGE_PRIVATE_PROD_PLAYBACK_STARTS_AT: start }
 const slot = slots.privateStagePlaybackSlot(env)

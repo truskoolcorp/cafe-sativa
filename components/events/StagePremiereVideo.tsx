@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { MIN_STAGE_VOLUME, readStageSound, readStageVolume, writeStageSound, writeStageVolume } from '@/lib/events/stage-sound'
 import StageSoundToggle from './StageSoundToggle'
 
-export default function StagePremiereVideo({ src, label, kickoff, serverNow }: {
-  src: string; label: string; kickoff?: number; serverNow?: number
+export default function StagePremiereVideo({ src, label, kickoff, serverNow, captions, poster }: {
+  src: string; label: string; kickoff?: number; serverNow?: number; captions?: string; poster?: string
 }) {
   const [enabled, setEnabled] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -40,7 +40,7 @@ export default function StagePremiereVideo({ src, label, kickoff, serverNow }: {
         <StageSoundToggle on={enabled} toggle={toggleSound} />
       </div>
       <video ref={video} className="aspect-video w-full rounded-xl bg-black"
-        controls playsInline muted={!enabled} preload="metadata" src={src} aria-label={label}
+        controls playsInline muted={!enabled} preload="metadata" src={src} poster={poster} aria-label={label}
         onPlaying={event => {
           const player = event.currentTarget
           if (synchronized.current || kickoff === undefined || serverNow === undefined ||
@@ -57,7 +57,9 @@ export default function StagePremiereVideo({ src, label, kickoff, serverNow }: {
           if (player.volume > 0) writeStageVolume(Math.max(MIN_STAGE_VOLUME, Math.round(player.volume * 100)))
           setEnabled(on)
           writeStageSound(on)
-        }} />
+        }}>
+        {captions && <track kind="captions" src={captions} srcLang="en" label="English" default />}
+      </video>
       {failed && <p role="status" className="text-sm text-muted-foreground">Playback is temporarily unavailable. Refresh to try again while the premiere is still running.</p>}
     </div>
   )

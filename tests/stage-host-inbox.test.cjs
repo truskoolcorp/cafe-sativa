@@ -60,6 +60,7 @@ function fixture() {
     PRIVATE_STAGE_REHEARSAL_ROOM: room, AHNIKA_PREMIERE_SLUG: 'ahnika-already-gone',
     AHNIKA_AUDIENCE_SCHEDULE: { doors }, ahnikaAudiencePhase:()=>session.premierePhase,
     privateStagePlaybackSlot:()=>({ onDemand:true, startsAt:'2026-11-22T20:03:00Z', start:0, end:session.ended ? 0 : Number.MAX_SAFE_INTEGER }), rehearsalInviteCoversCut:()=>true,
+    rehearsalAccessEnd:slot=>slot.dress?.closes ?? slot.end,
     soloStageHostTest:(slot, id, e)=>e.VERCEL_ENV==='production' && slot.onDemand && slot.startsAt===e.STAGE_PRIVATE_SOLO_HOST_STARTS_AT && id===e.STAGE_PRIVATE_SOLO_HOST_USER_ID,
     getHost:id=>({id,system_prompt:`Persona for ${id}`}), decideStageAutoReply, safeStageConversationText,
     stageHostIsPerforming:host=>host==='ahnika' && session.performing, STAGE_HOST_ON_STAGE:'Ahnika is on The Stage.',

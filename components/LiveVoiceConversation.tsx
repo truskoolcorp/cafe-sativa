@@ -74,7 +74,7 @@ export default function LiveVoiceConversation({ host, galleryWork, conversationI
   }
   function stop() {
     pending.current?.abort(); pending.current = null
-    connection.current?.stop(); setState('ended'); setMessage(''); onActive(false)
+    connection.current?.stop(); setState('ended'); setMessage(host === 'zaria' ? 'You ended the live conversation. You can keep chatting by text.' : ''); onActive(false)
   }
   const active = ['connecting', 'waiting', 'connected', 'reconnecting'].includes(state)
   if(host==='zaria'&&checked&&!available)return <p role="status" className="py-3 text-sm text-muted-foreground">Live voice is not available. You can still chat with Zaria by text.</p>

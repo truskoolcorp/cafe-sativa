@@ -3,6 +3,9 @@ export const ZARIA_PORTRAIT = {
   id: '473df9fd-b48c-4f01-a89a-499de631b954',
   sha256: 'ce1ea17c890419d4c7a8384e5f32ac5997694b6598fdfe53d32ecac3003b9eca',
 } as const
+// The production route serves only the rights-checked, resized public derivative.
+// The fixed URL also works from the isolated Preview, without publishing the master.
+export const ZARIA_DISPLAY_PORTRAIT = 'https://www.cafe-sativa.com/api/gallery/zaria-portrait'
 export const ZARIA_VOICE = { id: '5zneNR4v1Uw5AjIZ9Un4', model: 'eleven_v4' } as const
 export const zariaChatEnabled = () => process.env.NEXT_PUBLIC_CS_ZARIA_GALLERY_CHAT === 'true'
 export const zariaPortraitEnabled = () => process.env.CS_ZARIA_GALLERY_PORTRAIT === 'true'
@@ -29,4 +32,14 @@ export function zariaGalleryHref(value?: string): string {
 export function approvedZariaPortrait(row: {id?:unknown; production_ready?:unknown; rights_status?:unknown; primary_asset_id?:unknown; sha256?:unknown} | undefined): boolean {
   return row?.id === 'zaria-solenne' && row.production_ready === true && row.rights_status === 'approved' &&
     row.primary_asset_id === ZARIA_PORTRAIT.id && row.sha256 === ZARIA_PORTRAIT.sha256
+}
+
+// Render generated chat as text; browse links are separate server-validated controls.
+export function zariaChatDisplay(value: string): string {
+  return value
+    .replace(/!?\[([^\]\n]+)\]\([^\n)]+\)/g, '$1')
+    .replace(/^ {0,3}#{1,6}[ \t]+/gm, '')
+    .replace(/[*\x60]/g, '')
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?:;]|$)/g, '$1$2')
+    .trim()
 }

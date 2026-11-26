@@ -198,3 +198,12 @@ test('session endpoint signs Zaria admission only with the isolated key and choo
   for(const [key,value] of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value}
  }
 })
+
+
+test('Zaria renders the public approved portrait derivative and keeps generated Markdown out of the chat bubble',()=>{
+  assert.equal(policy.ZARIA_DISPLAY_PORTRAIT,'https://www.cafe-sativa.com/api/gallery/zaria-portrait')
+  assert.equal(policy.zariaChatDisplay('*[Explore the Gallery](/gallery)** — first stop'), 'Explore the Gallery — first stop')
+  assert.equal(policy.zariaChatDisplay('## Try this\n\n**An artwork** and _its artist_.'), 'Try this\n\nAn artwork and its artist.')
+  assert.equal(policy.zariaChatDisplay('[Safe link label](https://untrusted.invalid)'), 'Safe link label')
+  assert.match(fs.readFileSync('app/ask/page.tsx','utf8'),/avatar: ZARIA_DISPLAY_PORTRAIT/)
+})

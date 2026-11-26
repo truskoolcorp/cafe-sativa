@@ -71,7 +71,13 @@ export class LiveVoiceConnection {
       }
     })
     room.on(RoomEvent.ParticipantDisconnected, participant => {
-      if (participant.kind === ParticipantKind.AGENT) fail('The host disconnected. End this call and try again.')
+      if (!current() || participant.kind !== ParticipantKind.AGENT) return
+      if (this.onGalleryLinks && hostJoined && participant.attributes['lk.agent.name'] === ZARIA_AGENT) {
+        this.stop()
+        this.notify('ended', 'Your live conversation with Zaria has ended. You can keep chatting by text.')
+        return
+      }
+      fail('The host disconnected. End this call and try again.')
     })
     room.on(RoomEvent.TrackSubscribed, track => {
       if (!current() || track.kind !== Track.Kind.Audio) return

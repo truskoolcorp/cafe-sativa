@@ -24,7 +24,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { createChatStorage } from '@/lib/concierge/browser-session'
-import {galleryWorkSlug,zariaChatEnabled} from '@/lib/gallery/zaria'
+import {galleryWorkSlug,zariaChatEnabled,zariaChatDisplay,ZARIA_DISPLAY_PORTRAIT} from '@/lib/gallery/zaria'
 import LiveVoiceConversation from '@/components/LiveVoiceConversation'
 
 /**
@@ -119,7 +119,7 @@ const HOSTS: HostMeta[] = [
   ...(zariaChatEnabled() ? [{
     id: 'zaria' as const, displayName: 'Zaria', role: 'Gallery curator',
     tagline: 'Discover the work and the artists behind it.',
-    icon: Sparkles, avatar: '/api/hosts/portrait?host=zaria',
+    icon: Sparkles, avatar: ZARIA_DISPLAY_PORTRAIT,
     suggestions: ['What can I see in the Gallery?', 'Where should I go next?', 'Tell me about the work on display.'],
   }] : []),
 ]
@@ -738,7 +738,7 @@ function AskInner() {
                         )}
                       </div>
                     )}
-                    <p className="whitespace-pre-wrap">{m.content}</p>
+                    <p className="whitespace-pre-wrap">{activeHost === 'zaria' && !isUser ? zariaChatDisplay(m.content) : m.content}</p>
                   </div>
                 </div>
               )

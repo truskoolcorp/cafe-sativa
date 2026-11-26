@@ -19,13 +19,13 @@ export function privateZariaConfig(url: string, env:NodeJS.ProcessEnv=process.en
   if(branchPinRequested&&(!pinnedProject||!/^prj_[a-zA-Z0-9]+$/.test(pinnedProject)||
       pinnedProject!==env.VERCEL_PROJECT_ID||!pinnedBranch||pinnedBranch!==env.VERCEL_GIT_COMMIT_REF))return null
   const production=env.VERCEL_ENV==='production'
-  const scope=production?env.VERCEL_PROJECT_PRODUCTION_URL:(branchPinRequested?env.VERCEL_BRANCH_URL:env.VERCEL_URL)
+  const expectedHost=production?env.CS_ZARIA_PRODUCTION_EXPECTED_HOST:env.CS_ZARIA_PREVIEW_EXPECTED_HOST
+  const scope=production?expectedHost:(branchPinRequested?env.VERCEL_BRANCH_URL:env.VERCEL_URL)
   const secret=production?env.CS_ZARIA_PRODUCTION_BRIDGE_SECRET:env.CS_ZARIA_PREVIEW_BRIDGE_SECRET
   const members=(production?env.CS_ZARIA_PRODUCTION_USER_IDS:env.CS_ZARIA_PREVIEW_QA_USER_IDS)?.split(',').map(v=>v.trim()).filter(v=>UUID.test(v))??[]
-  const expectedHost=production?env.CS_ZARIA_PRODUCTION_EXPECTED_HOST:env.CS_ZARIA_PREVIEW_EXPECTED_HOST
   const enabled=production?env.CS_ZARIA_PRODUCTION_BRIDGE:env.CS_ZARIA_PREVIEW_BRIDGE
   if((production?env.VERCEL_ENV!=='production':env.VERCEL_ENV!=='preview')||enabled!=='true'||env.CS_LIVEKIT_ENABLED!=='true'||!zariaVoiceAgent(env)||
-     !scope||scope!==expectedHost||!/^[-a-z0-9]+\.vercel\.app$/.test(scope)||
+     !scope||scope!==expectedHost||!(production?scope==='www.cafe-sativa.com':/^[-a-z0-9]+\.vercel\.app$/.test(scope))||
      !secret||secret.length<32||secret===env.CS_LIVEKIT_BRIDGE_SECRET||!members.length)return null
   const db=env.NEXT_PUBLIC_SUPABASE_URL
   const selectedDb=production?env.CS_ZARIA_PRODUCTION_SUPABASE_URL:env.CS_ZARIA_PREVIEW_SUPABASE_URL

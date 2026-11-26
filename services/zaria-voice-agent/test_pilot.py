@@ -88,8 +88,8 @@ class PilotTests(unittest.IsolatedAsyncioTestCase):
     async def test_approved_production_uses_exact_public_bridge_without_bypass(self):
         env = ENV | {
             "CS_ZARIA_WORKER_ENV": "approved-production",
-            "CS_ZARIA_BRIDGE_ORIGIN": "https://virtual-cafe-sativa-glyph-protocol.vercel.app",
-            "CS_ZARIA_APPROVED_BRIDGE_HOST": "virtual-cafe-sativa-glyph-protocol.vercel.app",
+            "CS_ZARIA_BRIDGE_ORIGIN": "https://www.cafe-sativa.com",
+            "CS_ZARIA_APPROVED_BRIDGE_HOST": "www.cafe-sativa.com",
         }
         env.pop("CS_ZARIA_VERCEL_BYPASS_SECRET")
         cfg = Settings.read(env)

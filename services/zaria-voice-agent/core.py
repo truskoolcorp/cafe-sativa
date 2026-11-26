@@ -66,15 +66,17 @@ class Settings:
             raise Unavailable("Private bridge settings disagree")
         try:
             parsed_bridge = urlsplit(raw_bridge)
+            valid_bridge_host = (approved_bridge.endswith((".vercel.app", ".example"))
+                                 if worker_env == "private-staging"
+                                 else approved_bridge == "www.cafe-sativa.com")
             if (parsed_bridge.scheme != "https" or parsed_bridge.hostname != approved_bridge
-                or not approved_bridge.endswith((".vercel.app", ".example")) or parsed_bridge.username
+                or not valid_bridge_host or parsed_bridge.username
                 or parsed_bridge.password or parsed_bridge.port is not None
                 or parsed_bridge.path not in ("", "/") or parsed_bridge.query
                 or parsed_bridge.fragment or (worker_env == "private-staging" and approved_bridge in (
                     "virtual-cafe-sativa-glyph-protocol.vercel.app",
                     "virtual-cafe-sativa.vercel.app",
-                )) or (worker_env == "approved-production" and
-                    approved_bridge != "virtual-cafe-sativa-glyph-protocol.vercel.app")):
+                ))):
                 raise ValueError
         except (TypeError, ValueError):
             raise Unavailable("Private bridge not allowlisted") from None

@@ -99,8 +99,8 @@ test('voice grant rejects wrong audience, identity, room, deployment, duration, 
  {exp:300501},{galleryWork:'//private'}])assert.equal(bridge.verifyZariaGrant(bridge.signZariaGrant({...grant,...broken},secret),secret,cfg.VERCEL_URL,bridge.PREVIEW_AUDIENCE,600),null)
 })
 test('production voice opens only for the exact production host, database and approved user allowlist',()=>{
- const host='virtual-cafe-sativa-glyph-protocol.vercel.app'
- const production={...validVoice,VERCEL_ENV:'production',VERCEL_PROJECT_PRODUCTION_URL:host,
+ const host='www.cafe-sativa.com'
+ const production={...validVoice,VERCEL_ENV:'production',VERCEL_PROJECT_PRODUCTION_URL:'virtual-cafe-sativa-glyph-protocol.vercel.app',
   CS_ZARIA_PRODUCTION_EXPECTED_HOST:host,CS_ZARIA_PRODUCTION_BRIDGE:'true',CS_LIVEKIT_ENABLED:'true',
   CS_ZARIA_PRODUCTION_BRIDGE_SECRET:'production-fixture-secret-at-least-32-chars',
   CS_ZARIA_PRODUCTION_USER_IDS:'20000000-0000-0000-0000-000000000000',
@@ -114,7 +114,7 @@ test('production voice opens only for the exact production host, database and ap
  assert.equal(selected?.audience,bridge.PRODUCTION_AUDIENCE)
  assert.ok(bridge.privateZariaMember(url,production.CS_ZARIA_PRODUCTION_USER_IDS,production))
  assert.equal(bridge.privateZariaMember(url,'30000000-0000-0000-0000-000000000000',production),null)
- for(const broken of [{VERCEL_ENV:'preview'},{VERCEL_PROJECT_PRODUCTION_URL:'other.vercel.app'},
+ for(const broken of [{VERCEL_ENV:'preview'},{CS_ZARIA_PRODUCTION_EXPECTED_HOST:'cafe-sativa.com'},
   {CS_ZARIA_PRODUCTION_USER_IDS:''},{NEXT_PUBLIC_SUPABASE_URL:'https://isolated.supabase.co'},
   {CS_ZARIA_PRODUCTION_LIVEKIT_URL:'wss://shared-hosts.livekit.cloud'}])
   assert.equal(bridge.privateZariaConfig(url,{...production,...broken}),null)

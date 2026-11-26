@@ -186,6 +186,13 @@ function AskInner() {
 
   // Voice — layered on top of the text concierge, fully optional.
   const [portraitFailures,setPortraitFailures]=useState<Record<string,boolean>>({})
+  const [zariaPortraitAttempt,setZariaPortraitAttempt]=useState(0)
+  const portraitFailed=(id:HostId)=>id==='zaria' ? zariaPortraitAttempt>=2 : Boolean(portraitFailures[id])
+  const portraitSource=(id:HostId, src:string)=>id==='zaria' && zariaPortraitAttempt===1 ? src+'?retry=1' : src
+  const markPortraitFailure=(id:HostId, attempt:number)=>{
+    if(id==='zaria') setZariaPortraitAttempt(prev=>prev===attempt ? Math.min(2,prev+1) : prev)
+    else setPortraitFailures(previous=>({...previous,[id]:true}))
+  }
   const [voiceMode, setVoiceMode] = useState(false) // speak replies aloud
   const [voiceSupported, setVoiceSupported] = useState(true) // server TTS (flips off on 503)
   const [sttSupported, setSttSupported] = useState(false) // browser speech-to-text
@@ -549,7 +556,7 @@ function AskInner() {
   const ActiveHostIcon = activeHostMeta.icon
 
   const hostMark = (size: 'sm' | 'md') => {
-    if (activeHostMeta.avatar && !portraitFailures[activeHost]) {
+    if (activeHostMeta.avatar && !portraitFailed(activeHost)) {
       return (
         <span
           className={cn(
@@ -558,8 +565,8 @@ function AskInner() {
           )}
         >
           <Image
-            src={activeHostMeta.avatar}
-            onError={()=>setPortraitFailures(previous=>({...previous,[activeHost]:true}))}
+            key={portraitSource(activeHost,activeHostMeta.avatar)} src={portraitSource(activeHost,activeHostMeta.avatar)}
+            onError={()=>markPortraitFailure(activeHost,zariaPortraitAttempt)}
             unoptimized
             alt=""
             width={24}
@@ -623,10 +630,10 @@ function AskInner() {
                           : 'bg-muted border-border'
                     )}
                   >
-                    {h.avatar && !portraitFailures[h.id] ? (
+                    {h.avatar && !portraitFailed(h.id) ? (
                       <Image
-                        src={h.avatar}
-                        onError={()=>setPortraitFailures(previous=>({...previous,[h.id]:true}))}
+                        key={portraitSource(h.id,h.avatar)} src={portraitSource(h.id,h.avatar)}
+                        onError={()=>markPortraitFailure(h.id,zariaPortraitAttempt)}
                         unoptimized
                         alt=""
                         width={36}

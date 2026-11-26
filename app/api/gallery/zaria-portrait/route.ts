@@ -42,7 +42,7 @@ export async function GET() {
       .resize(448, 560, { fit: 'contain', background: '#17120f' })
       .toColourspace('srgb').flatten({ background: '#17120f' })
       .png().toBuffer()
-    return new NextResponse(new Uint8Array(derivative), { headers: { ...headers, 'Content-Type': 'image/png' } })
+    return new NextResponse(new Uint8Array(derivative), { headers: { ...headers, 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=120', 'CDN-Cache-Control': 'public, s-maxage=300' } })
   } catch {
     console.warn('gallery_zaria_portrait', phase === 'encode' ? 'encode_failed' : phase + (signal.aborted ? '_timeout' : '_invalid'))
     return NextResponse.json({ error: 'Portrait unavailable' }, { status: 503, headers })

@@ -12,8 +12,8 @@ type OrderBinding = {productId:string,artistId:string,buyerId:string,destination
 /** When persisted, bind the provider payment to the immutable purchased line,
  * not today's artist payout settings or merely a matching amount/currency. */
 export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean,expectedSaleKind:'consigned'|'house'='consigned',binding?:OrderBinding){
- // One observation has a bounded provider-read budget. Never accept a truncated
- // refund list as financial evidence. No automatic SDK retries in this path.
+ // Preserve the whole-observation deadline from the ordinary Gallery draft,
+ // as well as the queue's strict prevalidation of refund identities.
  const deadline=Date.now()+20_000
  const requestOptions=():Stripe.RequestOptions=>{
   const remaining=deadline-Date.now()
@@ -63,15 +63,17 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
  }
  const chargeBalance=await readBalance(charge.balance_transaction,charge.id)
  if(chargeBalance&&chargeBalance.amount_cents!==charge.amount_captured)throw Error('Captured amount mismatch')
- const refunds=[]
- const maxRefunds=10
- const page=await stripe.refunds.list({charge:charge.id,limit:maxRefunds+1},requestOptions())
- if(!Array.isArray(page.data)||page.has_more!==false||page.data.length>maxRefunds)
-  throw Error('Gallery settlement refund read budget exceeded')
+ // A complete bounded page is required; larger histories remain retry/review work.
+ const page=await stripe.refunds.list({charge:charge.id,limit:11},requestOptions())
+ if(page.has_more!==false||!Array.isArray(page.data)||page.data.length>10)
+  throw Error('Gallery refund page incomplete or over limit')
  const seenRefunds=new Set<string>()
  for(const refund of page.data){
-  if(!refund.id||seenRefunds.has(refund.id))throw Error('Duplicate Gallery refund evidence')
+  if(typeof refund.id!=='string'||!refund.id||seenRefunds.has(refund.id))throw Error('Gallery duplicate or invalid refund identity')
   seenRefunds.add(refund.id)
+ }
+ const refunds=[]
+ for(const refund of page.data){
   if(idOf(refund.charge)!==charge.id||refund.currency!==charge.currency||
     !Number.isSafeInteger(refund.amount)||refund.amount<=0)throw Error('Refund mismatch')
   const balance=refund.status==='succeeded'?await readBalance(refund.balance_transaction,refund.id):null

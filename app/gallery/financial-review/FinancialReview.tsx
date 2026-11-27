@@ -8,9 +8,10 @@ type Order = {order_id:string,title_snapshot:string,currency:string,sale_kind:st
   observed_at:string|null,evidence_state:string,financial_evidence:Record<string,unknown>|null}
 type Refund = {order_id:string,currency:string,total_cents:number,succeeded_refund_cents:number|null,
   review_reason:string,review_state:string}
-type Report = {scope:Scope,mode:'isolated-test',orders:Order[],refund_review:Refund[],more_orders:boolean,more_refunds:boolean}
+type Mode='isolated-test'|'production'
+type Report = {scope:Scope,mode:Mode,orders:Order[],refund_review:Refund[],more_orders:boolean,more_refunds:boolean}
 type Result = {scope:Scope,report?:Report,error?:string}
-export default function FinancialReview(){
+export default function FinancialReview({mode}:{mode:Mode}){
   const [scope,setScope]=useState<Scope>('artist')
   const [result,setResult]=useState<Result|null>(null)
   const [revision,setRevision]=useState(0)
@@ -22,15 +23,15 @@ export default function FinancialReview(){
         const response=await fetch('/api/gallery/financial-review?scope='+scope,{cache:'no-store',signal:abort.signal})
         if(!response.ok)throw new Error('unavailable')
         const report:Report=await response.json()
-        if(report.scope!==scope||report.mode!=='isolated-test'||!Array.isArray(report.orders)||!Array.isArray(report.refund_review))throw new Error('invalid')
+        if(report.scope!==scope||report.mode!==mode||!Array.isArray(report.orders)||!Array.isArray(report.refund_review))throw new Error('invalid')
         if(!abort.signal.aborted)setResult({scope,report})
       }catch{
-        if(!abort.signal.aborted)setResult({scope,error:'Report unavailable. Sign in with an authorized test account.'})
+        if(!abort.signal.aborted)setResult({scope,error:'Report unavailable. Sign in with an authorized Gallery account.'})
       }
     }
     void load()
     return ()=>abort.abort()
-  },[scope,revision])
+  },[scope,revision,mode])
   const current=result?.scope===scope?result:null
   const report=current?.report
   const fields=(order:Order):[string,unknown][]=>[
@@ -53,7 +54,7 @@ export default function FinancialReview(){
   ]
   return <section className="space-y-6">
     <header>
-      <p className="text-sm text-primary">Isolated test environment · read only</p>
+      <p className="text-sm text-primary">{mode==='production'?'Live Gallery · read only':'Isolated test environment · read only'}</p>
       <h1 className="font-heading text-3xl font-bold mt-2">Gallery financial review</h1>
       <p className="text-muted-foreground mt-2">Expected allocations and observed provider evidence are separate. Neither is a bank payout or total profit. Missing amounts are unknown, not zero. House sales have no independent artist allocation; Connect fields are not applicable to house sales.</p>
     </header>
@@ -66,7 +67,7 @@ export default function FinancialReview(){
       {!current&&<p>Loading authorized report…</p>}
       {current?.error&&<p role="alert">{current.error}</p>}
       {report&&<div className="space-y-5">
-        <h2 className="text-xl font-semibold">{scope==='owner'?'All authorized test orders':'Your consigned test orders'}</h2>
+        <h2 className="text-xl font-semibold">{scope==='owner'?'All authorized orders':'Your consigned orders'}</h2>
         {report.orders.length===0&&<p>No orders to review.</p>}
         {report.orders.map(order=><article key={order.order_id} className="rounded-lg border p-4 space-y-3">
           <h3 className="font-semibold break-words">{order.title_snapshot}</h3>

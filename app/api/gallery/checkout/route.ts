@@ -249,6 +249,10 @@ export async function POST(req: Request) {
     }
   }
   const houseMetadata: Stripe.MetadataParam = house ? { gallery_sale_kind: 'house', gallery_platform_account_id: house.accountId } : {}
+  // Durable provider marker; late events cannot silently fall back to legacy writes.
+  const settlementMetadata: Stripe.MetadataParam = mode === 'production' ? {
+    gallery_settlement_schema:'queue-v1', site:'cafe-sativa',
+  } : {}
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL || 'https://www.cafe-sativa.com'
 
@@ -307,6 +311,7 @@ export async function POST(req: Request) {
         metadata: {
           ...houseMetadata,
           ...privateMetadata,
+          ...settlementMetadata,
           kind: 'gallery_order',
           product_id: product.id,
           artist_id: artistRow.id,
@@ -316,6 +321,7 @@ export async function POST(req: Request) {
       metadata: {
         ...houseMetadata,
           ...privateMetadata,
+          ...settlementMetadata,
         kind: 'gallery_order',
         product_id: product.id,
         artist_id: artistRow.id,

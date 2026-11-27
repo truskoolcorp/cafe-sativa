@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../lib/gallery/environment.ts', import.meta
 const { outputText } = ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022,
 } })
-const { galleryEnvironment, gallerySalesEnabled } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
+const { galleryEnvironment, gallerySalesEnabled, galleryFinancialReviewMode } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
 const site = 'https://gallery-preview.example'
 const database = 'https://syntheticgallery.supabase.co'
 const sandbox = {
@@ -57,12 +57,26 @@ test('production continues using its existing path', () => {
 })
 
 test('new sales default off and cannot use a test key in production', () => {
- const ready = {...sandbox, VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_live_synthetic', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true'}
+ const ready = {...sandbox, VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_live_synthetic', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
+   GALLERY_PRODUCTION_FINANCIAL_REVIEW:'true',GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'10000000-0000-4000-8000-000000000003',GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'p'.repeat(48),GALLERY_REFUND_LEDGER:'true',
+   GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'}
  assert.equal(gallerySalesEnabled('production',ready),true)
  assert.equal(gallerySalesEnabled('isolated-test',{...ready,STRIPE_SECRET_KEY:'sk_test_synthetic'}),true)
  assert.equal(gallerySalesEnabled('blocked',ready),false)
- for (const change of [{GALLERY_SALES_ENABLED:undefined},{GALLERY_SALES_ENABLED:'false'},{GALLERY_PRIVATE_DOWNLOADS:'false'},{GALLERY_INVENTORY_HOLDS:'false'},{GALLERY_DIGITAL_WORKER:undefined},{STRIPE_SECRET_KEY:'sk_test_synthetic'}])
+ for (const change of [{GALLERY_SALES_ENABLED:undefined},{GALLERY_SALES_ENABLED:'false'},{GALLERY_PRIVATE_DOWNLOADS:'false'},{GALLERY_INVENTORY_HOLDS:'false'},{GALLERY_DIGITAL_WORKER:undefined},{STRIPE_SECRET_KEY:'sk_test_synthetic'},{GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:undefined},
+   {GALLERY_SETTLEMENT_QUEUE_ENABLED:'false'},{GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'false'},
+   {GALLERY_PRODUCTION_FINANCIAL_REVIEW:'false'},{GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'invalid'},{GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:undefined},{GALLERY_PRODUCTION_SETTLEMENT_WORKER:'false'},{GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:undefined},
+   {GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'short'},{CRON_SECRET:'p'.repeat(48)},
+   {GALLERY_SETTLEMENT_QA_SECRET:'p'.repeat(48)},{STRIPE_WEBHOOK_SECRET:'p'.repeat(48)},
+   {GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'p'.repeat(48)},{SUPABASE_SERVICE_ROLE_KEY:'p'.repeat(48)},
+   {NEXT_PUBLIC_SUPABASE_ANON_KEY:'p'.repeat(48)},{GALLERY_REFUND_LEDGER:'false'},
+   {GALLERY_ISOLATED_TEST:'true'},{GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_other'},
+   {NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co'}])
   assert.equal(gallerySalesEnabled('production',{...ready,...change}),false)
+ assert.equal(galleryFinancialReviewMode('https://www.cafe-sativa.com/api/gallery/financial-review',{...ready,GALLERY_SALES_ENABLED:'false'}),'production')
+ assert.equal(galleryFinancialReviewMode('https://wrong.example/api/gallery/financial-review',ready),'blocked')
+ assert.equal(galleryFinancialReviewMode('https://www.cafe-sativa.com/api/gallery/financial-review',{...ready,GALLERY_PRODUCTION_FINANCIAL_REVIEW:'false'}),'blocked')
  // Existing paid/refunded webhook environment classification is unchanged by the sales switch.
  assert.equal(galleryEnvironment(site,{...ready,GALLERY_SALES_ENABLED:'false'}),'production')
 })

@@ -16,6 +16,11 @@ export async function persistGalleryTestSettlement(requestUrl:string,orderId:str
  * Enablement still requires merchant sandbox and production migration review.
  */
 export async function persistGalleryProductionSettlement(requestUrl:string,orderId:string){
+ assertProductionSettlementEnvironment(requestUrl)
+ return persistGallerySettlement(orderId,true)
+}
+
+function assertProductionSettlementEnvironment(requestUrl:string){
  if(galleryEnvironment(requestUrl)!=='production'||
     process.env.GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS!=='true'||
     process.env.GALLERY_ISOLATED_TEST==='true'||
@@ -26,14 +31,31 @@ export async function persistGalleryProductionSettlement(requestUrl:string,order
  if(url.origin!=='https://www.cafe-sativa.com'||
     process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,'')!=='https://nwfxvhqbjtfvoopcadff.supabase.co')
   throw Error('Production Gallery settlement environment mismatch')
- return persistGallerySettlement(orderId,true)
 }
 
 async function persistGallerySettlement(orderId:string,live:boolean){
  const stripe=new Stripe(process.env.STRIPE_SECRET_KEY!)
  const db=createAdminClient()
- const {data:order,error}=await db.from('orders').select('id,currency,stripe_payment_intent_id,paid_at,subtotal_cents,total_cents,shipping_cents,tax_cents,user_id').eq('id',orderId).maybeSingle()
+ const {order,evidence}=await readBoundGallerySettlement(db,stripe,orderId,live)
+ const {error:writeError}=await db.from('gallery_settlement_observations').insert({
+  order_id:order.id,stripe_payment_intent_id:order.stripe_payment_intent_id,provider_snapshot:evidence
+ })
+ if(writeError)throw Error('Settlement observation persistence failed')
+ return evidence
+}
+
+/** The queued path supplies a platform verified before claiming the lease.
+ * It also checks ordinary single-item, same-mode order identity before reading payment data.
+ * No observation is persisted here. Only the lease RPC may append queued evidence.
+ */
+async function readBoundGallerySettlement(db:ReturnType<typeof createAdminClient>,stripe:Stripe,orderId:string,live:boolean,verifiedPlatform?:string){
+ const {data:order,error}=await db.from('orders').select('id,currency,stripe_payment_intent_id,paid_at,subtotal_cents,total_cents,shipping_cents,tax_cents,user_id,stripe_checkout_session_id').eq('id',orderId).maybeSingle()
  if(error||!order?.paid_at||!order.stripe_payment_intent_id||!order.user_id)throw Error('Paid Gallery order unavailable')
+ if(verifiedPlatform&&(order.id!==orderId||
+   !/^pi_[A-Za-z0-9_]+$/.test(order.stripe_payment_intent_id)||
+   !order.stripe_checkout_session_id?.startsWith(live?'cs_live_':'cs_test_')||
+   order.shipping_cents!==0||order.tax_cents!==0||order.subtotal_cents!==order.total_cents))
+  throw Error('Claimed Gallery order identity mismatch')
  const {data:items,error:itemError}=await db.from('order_items').select('gallery_sale_kind,product_id,artist_id,quantity,price_cents,line_total_cents,application_fee_cents,transfer_destination').eq('order_id',orderId).limit(2)
  if(itemError||items?.length!==1)throw Error('Single-item settlement basis unavailable')
  const item=items[0]
@@ -49,7 +71,7 @@ async function persistGallerySettlement(orderId:string,live:boolean){
   const house=galleryHouseConfig()
   if(!house||house.productId!==item.product_id||house.artistId!==item.artist_id||item.transfer_destination!==null||
     (live&&house.accountId!==process.env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID)||
-    !await verifiedGalleryHouseAccount(stripe,house.accountId,false))throw Error('House settlement account mismatch')
+    (verifiedPlatform?house.accountId!==verifiedPlatform:!await verifiedGalleryHouseAccount(stripe,house.accountId,false)))throw Error('House settlement account mismatch')
   houseAccountId=house.accountId
  }else{
   if(!/^acct_[A-Za-z0-9]+$/.test(item.transfer_destination??''))throw Error('Order destination unavailable')
@@ -57,17 +79,54 @@ async function persistGallerySettlement(orderId:string,live:boolean){
   // Require a separately verified platform binding before reading consigned evidence.
   const platform=live?process.env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:process.env.GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID
   if(!platform||!/^acct_[A-Za-z0-9]+$/.test(platform)||platform===item.transfer_destination||
-     !await verifiedGalleryHouseAccount(stripe,platform,false))throw Error('Consigned settlement platform mismatch')
+     (verifiedPlatform?platform!==verifiedPlatform:!await verifiedGalleryHouseAccount(stripe,platform,false)))throw Error('Consigned settlement platform mismatch')
  }
  const snapshot=await observeGallerySettlement(stripe,order.stripe_payment_intent_id,live,saleKind,{
   productId:item.product_id,artistId:item.artist_id,buyerId:order.user_id,destination:item.transfer_destination,houseAccountId
  })
  if(snapshot.currency!==order.currency)throw Error('Order currency mismatch')
  const comparison=compareGalleryOrderSettlement(order,snapshot)
- const evidence={...snapshot,order_comparison:comparison}
- const {error:writeError}=await db.from('gallery_settlement_observations').insert({
-  order_id:order.id,stripe_payment_intent_id:order.stripe_payment_intent_id,provider_snapshot:evidence
- })
- if(writeError)throw Error('Settlement observation persistence failed')
- return evidence
+ return {order,evidence:{...snapshot,order_comparison:comparison}}
 }
+
+/** Draft, default-off, one lease per invocation. No public route, schedule or catch-up sweep.
+ * No direct insert, money movement or shared worker activation. A separate authoritative
+ * payment/refund SQL transaction must enqueue before this can be enabled.
+ */
+export async function runGallerySettlementQueueOnce(requestUrl:string){
+ const mode=galleryEnvironment(requestUrl)
+ if(process.env.GALLERY_SETTLEMENT_QUEUE_ENABLED!=='true'||mode==='blocked')
+  throw Error('Gallery settlement queue disabled')
+ const live=mode==='production'
+ if(live)assertProductionSettlementEnvironment(requestUrl)
+ else if(mode!=='isolated-test'||process.env.GALLERY_SETTLEMENT_OBSERVATIONS!=='true')
+  throw Error('Gallery settlement queue test disabled')
+ const platform=live?process.env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:process.env.GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID
+ if(!platform||!/^acct_[A-Za-z0-9]+$/.test(platform))throw Error('Gallery settlement queue platform unavailable')
+ // Account lookup is read-only and bounded too. No retries inside the two-minute lease.
+ const stripe=new Stripe(process.env.STRIPE_SECRET_KEY!,{timeout:3000,maxNetworkRetries:0})
+ if(!await verifiedGalleryHouseAccount(stripe,platform,false))throw Error('Gallery settlement queue platform mismatch')
+ const db=createAdminClient()
+ const claim=await db.rpc('cs_claim_gallery_settlement',{p_live:live,p_limit:1})
+ if(claim.error||!Array.isArray(claim.data)||claim.data.length>1)throw Error('Gallery settlement claim failed')
+ if(claim.data.length===0)return {status:'idle'} as const
+ const lease=claim.data[0]
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+ if(!lease||typeof lease.order_id!=='string'||!uuid.test(lease.order_id)||
+   typeof lease.lease_token!=='string'||!uuid.test(lease.lease_token)||
+   !Number.isSafeInteger(lease.generation)||lease.generation<=0)throw Error('Gallery settlement lease invalid')
+ const args={p_order:lease.order_id,p_live:live,p_generation:lease.generation,p_lease:lease.lease_token}
+ try{
+  const {evidence}=await readBoundGallerySettlement(db,stripe,lease.order_id,live,platform)
+  const done=await db.rpc('cs_finish_gallery_settlement',{...args,p_snapshot:evidence})
+  if(done.error||typeof done.data!=='boolean')throw Error('Gallery settlement finish failed')
+  return {status:done.data?'recorded':'stale'} as const
+ }catch{
+  // Includes incomplete evidence and uncertain transport results; retry is itself lease-CAS.
+  // If the finish succeeded but the response was lost, it cannot append a second observation.
+  const retry=await db.rpc('cs_retry_gallery_settlement',{...args,p_reason:'evidence_retry'})
+  if(retry.error||typeof retry.data!=='boolean')throw Error('Gallery settlement retry failed')
+  return {status:retry.data?'retry_or_review':'stale'} as const
+ }
+}
+

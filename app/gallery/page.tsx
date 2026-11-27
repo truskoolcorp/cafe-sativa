@@ -8,11 +8,12 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
 import { debutWork } from './debut-work'
+import { loadDebutDisplay } from './debut-offer'
 
 /**
  * /gallery
  *
- * The approved editorial debut is always display-only. Published physical
+ * The approved editorial debut stays canonical; an exact, eligible row may supply the offer. Published physical
  * and digital works from approved artists can appear beside it.
  *
  * Data source: gallery_v, the denormalized view that joins products
@@ -79,11 +80,11 @@ async function loadGallery(): Promise<GalleryRow[]> {
 }
 
 export default async function GalleryPage({ searchParams }: { searchParams: { kind?: string } }) {
-  const [products, covers] = await Promise.all([loadGallery(), approvedVenueCovers()])
+  const [products, covers, debut] = await Promise.all([loadGallery(), approvedVenueCovers(), loadDebutDisplay()])
 
   const kind = ['physical', 'digital'].includes(searchParams.kind || '') ? searchParams.kind : undefined
-  // Keep this exact editorial work browse-only even if a matching inventory row appears.
-  const collection = [debutWork, ...products.filter(p => p.slug !== debutWork.slug)]
+  // Use only the dedicated exact-slug read for the debut; never trust a duplicate from the limited grid.
+  const collection = [debut, ...products.filter(p => p.slug !== debutWork.slug)]
   const visibleProducts = kind ? collection.filter(p => p.kind === kind) : collection
   return (
     <div className="pb-16 bg-background min-h-screen">
@@ -156,7 +157,7 @@ export default async function GalleryPage({ searchParams }: { searchParams: { ki
   )
 }
 
-function GalleryCard({ row }: { row: GalleryRow | typeof debutWork }) {
+function GalleryCard({ row }: { row: GalleryRow | Awaited<ReturnType<typeof loadDebutDisplay>> }) {
   const priceUsd = 'price_cents' in row ? (row.price_cents / 100).toLocaleString('en-US', {
     style: 'currency',
     currency: (row.currency || 'usd').toUpperCase(),
@@ -177,7 +178,7 @@ function GalleryCard({ row }: { row: GalleryRow | typeof debutWork }) {
           <img
             src={row.primary_image_url}
             alt={row.title}
-            className={priceUsd === null ? "w-full h-full object-contain" : "w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"}
+            className={row.slug === debutWork.slug ? "w-full h-full object-contain" : "w-full h-full object-cover motion-safe:group-hover:scale-[1.03] motion-safe:transition-transform duration-500"}
             loading="lazy"
           />
         ) : (

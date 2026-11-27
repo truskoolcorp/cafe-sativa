@@ -161,7 +161,7 @@ test('settlement reads have explicit deadlines and zero retries; one complete re
  for(const [resource,method] of [['paymentIntents','retrieve'],['transfers','retrieve'],['applicationFees','retrieve'],['balanceTransactions','retrieve'],['refunds','list']]){
   const original=stripe[resource][method]
   stripe[resource][method]=async(...args)=>{
-   const opts=args.at(-1);assert.equal(opts.timeout,3000);assert.equal(opts.maxNetworkRetries,0);reads++
+   const opts=args.at(-1);assert.ok(opts.timeout>0&&opts.timeout<=3000);assert.equal(opts.maxNetworkRetries,0);reads++
    if(resource==='refunds'){listCalls++;assert.equal(args[0].limit,11);assert.equal(args[0].charge,'ch_fixture')}
    return original(...args)
   }
@@ -178,6 +178,26 @@ test('incomplete or oversized refund history and duplicate identities fail befor
   await assert.rejects(observe(stripe,'pi_fixture',false),pattern)
   assert.equal(listCalls,1);assert.equal(refundReads,0)
  }
+})
+
+test('whole observation deadline stops subsequent reads and rejects a late final response',async()=>{
+ const originalNow=Date.now
+ let now=1000
+ try{
+  Date.now=()=>now
+  const early=mock()
+  const readIntent=early.paymentIntents.retrieve
+  let downstream=0
+  early.paymentIntents.retrieve=async(...args)=>{const value=await readIntent(...args);now+=20_000;return value}
+  early.transfers.retrieve=async()=>{downstream++;throw Error('Unexpected downstream read')}
+  await assert.rejects(observe(early,'pi_fixture',false),/observation deadline exceeded/)
+  assert.equal(downstream,0)
+  now=1000
+  const late=mock()
+  const list=late.refunds.list
+  late.refunds.list=async(...args)=>{const value=await list(...args);now+=20_000;return value}
+  await assert.rejects(observe(late,'pi_fixture',false),/observation deadline exceeded/)
+ }finally{Date.now=originalNow}
 })
 
 const queueLease={order_id:'c0000000-0000-4000-8000-000000000001',generation:2,lease_token:'c0000000-0000-4000-8000-000000000002'}

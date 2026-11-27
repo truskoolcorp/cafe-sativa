@@ -12,7 +12,9 @@ type OrderBinding = {productId:string,artistId:string,buyerId:string,destination
 /** When persisted, bind the provider payment to the immutable purchased line,
  * not today's artist payout settings or merely a matching amount/currency. */
 export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:string,expectedLive:boolean,expectedSaleKind:'consigned'|'house'='consigned',binding?:OrderBinding){
- const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:['latest_charge']})
+ // One bounded provider observation per lease. Never auto-page or retry inside a read.
+ const readOptions={timeout:3000,maxNetworkRetries:0}
+ const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{expand:['latest_charge']},readOptions)
  const charge=intent.latest_charge
  if(intent.id!==paymentIntentId||intent.livemode!==expectedLive||intent.status!=='succeeded'||
    !charge||typeof charge==='string'||charge.livemode!==expectedLive||!charge.paid||
@@ -34,8 +36,8 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
    throw Error('House charge has invalid settlement classification')
  }else if(!destination||intent.metadata?.gallery_sale_kind)throw Error('Gallery destination unavailable')
  const [transfer,fee]=await Promise.all([
-  transferId?stripe.transfers.retrieve(transferId):Promise.resolve(null),
-  feeId?stripe.applicationFees.retrieve(feeId):Promise.resolve(null)
+  transferId?stripe.transfers.retrieve(transferId,{},readOptions):Promise.resolve(null),
+  feeId?stripe.applicationFees.retrieve(feeId,{},readOptions):Promise.resolve(null)
  ])
  if(transfer&&(transfer.id!==transferId||transfer.livemode!==expectedLive||
    transfer.currency!==charge.currency||idOf(transfer.destination)!==destination||
@@ -48,15 +50,24 @@ export async function observeGallerySettlement(stripe:Stripe,paymentIntentId:str
  const readBalance=async (value:string|Stripe.BalanceTransaction|null,source:string)=>{
   const id=idOf(value)
   if(!id)return null
-  const b=await stripe.balanceTransactions.retrieve(id)
+  const b=await stripe.balanceTransactions.retrieve(id,{},readOptions)
   if(b.id!==id||idOf(b.source)!==source||b.currency!==charge.currency||
    b.amount-b.fee!==b.net)throw Error('Balance transaction mismatch')
   return {id:b.id,amount_cents:b.amount,fee_cents:b.fee,net_cents:b.net,status:b.status}
  }
  const chargeBalance=await readBalance(charge.balance_transaction,charge.id)
  if(chargeBalance&&chargeBalance.amount_cents!==charge.amount_captured)throw Error('Captured amount mismatch')
+ // A complete bounded page is required; larger histories remain retry/review work.
+ const page=await stripe.refunds.list({charge:charge.id,limit:11},readOptions)
+ if(page.has_more!==false||!Array.isArray(page.data)||page.data.length>10)
+  throw Error('Gallery refund page incomplete or over limit')
+ const seenRefunds=new Set<string>()
+ for(const refund of page.data){
+  if(typeof refund.id!=='string'||!refund.id||seenRefunds.has(refund.id))throw Error('Gallery duplicate or invalid refund identity')
+  seenRefunds.add(refund.id)
+ }
  const refunds=[]
- for await(const refund of stripe.refunds.list({charge:charge.id,limit:100})){
+ for(const refund of page.data){
   if(idOf(refund.charge)!==charge.id||refund.currency!==charge.currency||
     !Number.isSafeInteger(refund.amount)||refund.amount<=0)throw Error('Refund mismatch')
   const balance=refund.status==='succeeded'?await readBalance(refund.balance_transaction,refund.id):null

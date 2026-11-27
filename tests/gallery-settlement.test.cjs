@@ -10,7 +10,7 @@ function mock({refund=0,reversed=refund,feeRefund=refund/10,missing=false,live=f
   transfers:{retrieve:async()=>({id:'tr_fixture',livemode:live,destination:'acct_fixture',source_transaction:charge.id,destination_payment:'py_destination',currency:crossCurrency?'eur':'usd',amount:10000,amount_reversed:reversed})},
   applicationFees:{retrieve:async()=>({id:'fee_fixture',livemode:live,account:'acct_fixture',charge:'py_destination',originating_transaction:charge.id,currency:'usd',amount:1000,amount_refunded:feeRefund})},
   balanceTransactions:{retrieve:async id=>id==='txn_charge'?{id,source:charge.id,currency:'usd',amount:10000,fee:320,net:9680,status:'available'}:{id,source:'re_fixture',currency:'usd',amount:-refund,fee:0,net:-refund,status:'available'}},
-  refunds:{list:async function*(){if(refund)yield {id:'re_fixture',charge:charge.id,currency:'usd',amount:refund,status:pending?'pending':'succeeded',balance_transaction:pending?null:'txn_refund'}}}
+  refunds:{list:async()=>({has_more:false,data:refund?[{id:'re_fixture',charge:charge.id,currency:'usd',amount:refund,status:pending?'pending':'succeeded',balance_transaction:pending?null:'txn_refund'}]:[]})}
  }
 }
 test('destination charge: gross transfer less fee is artist allocation, not bank payout',async()=>{
@@ -147,4 +147,29 @@ test('draft production persistence verifies platform before any provider payment
  const correct=settlementPersistenceFixture('acct_platform','acct_platform',true)
  await correct.production()
  assert.equal(correct.calls.account,1);assert.equal(correct.calls.observe,1);assert.equal(correct.calls.insert,1)
+})
+
+// Queued workers must not auto-page provider history or inherit SDK retries.
+test('settlement reads have explicit deadlines and zero retries; one complete refund page only',async()=>{
+ const stripe=mock({refund:2000});let listCalls=0,reads=0
+ for(const [resource,method] of [['paymentIntents','retrieve'],['transfers','retrieve'],['applicationFees','retrieve'],['balanceTransactions','retrieve'],['refunds','list']]){
+  const original=stripe[resource][method]
+  stripe[resource][method]=async(...args)=>{
+   const opts=args.at(-1);assert.equal(opts.timeout,3000);assert.equal(opts.maxNetworkRetries,0);reads++
+   if(resource==='refunds'){listCalls++;assert.equal(args[0].limit,11);assert.equal(args[0].charge,'ch_fixture')}
+   return original(...args)
+  }
+ }
+ const x=await observe(stripe,'pi_fixture',false)
+ assert.equal(x.attention.length,0);assert.equal(listCalls,1);assert.equal(reads,6)
+})
+test('incomplete or oversized refund history and duplicate identities fail before refund balance reads',async()=>{
+ const refund={id:'re_fixture',charge:'ch_fixture',currency:'usd',amount:100,status:'succeeded',balance_transaction:'txn_refund'}
+ for(const [page,pattern] of [[{has_more:true,data:[refund]},/page incomplete/],[{data:[]},/page incomplete/],[{has_more:false,data:Array.from({length:11},(_,i)=>({...refund,id:'re_'+i}))},/over limit/],[{has_more:false,data:[refund,refund]},/duplicate or invalid/]]){
+  const stripe=mock();const original=stripe.balanceTransactions.retrieve;let refundReads=0,listCalls=0
+  stripe.balanceTransactions.retrieve=async(id,...args)=>{if(id!=='txn_charge')refundReads++;return original(id,...args)}
+  stripe.refunds.list=async()=>{listCalls++;return page}
+  await assert.rejects(observe(stripe,'pi_fixture',false),pattern)
+  assert.equal(listCalls,1);assert.equal(refundReads,0)
+ }
 })

@@ -57,11 +57,18 @@ test('production continues using its existing path', () => {
 })
 
 test('new sales default off and cannot use a test key in production', () => {
- const ready = {...sandbox, VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_live_synthetic', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true'}
+ const ready = {...sandbox, VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_live_synthetic', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
+   GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
+   GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'}
  assert.equal(gallerySalesEnabled('production',ready),true)
  assert.equal(gallerySalesEnabled('isolated-test',{...ready,STRIPE_SECRET_KEY:'sk_test_synthetic'}),true)
  assert.equal(gallerySalesEnabled('blocked',ready),false)
- for (const change of [{GALLERY_SALES_ENABLED:undefined},{GALLERY_SALES_ENABLED:'false'},{GALLERY_PRIVATE_DOWNLOADS:'false'},{GALLERY_INVENTORY_HOLDS:'false'},{GALLERY_DIGITAL_WORKER:undefined},{STRIPE_SECRET_KEY:'sk_test_synthetic'}])
+ for (const change of [{GALLERY_SALES_ENABLED:undefined},{GALLERY_SALES_ENABLED:'false'},{GALLERY_PRIVATE_DOWNLOADS:'false'},{GALLERY_INVENTORY_HOLDS:'false'},{GALLERY_DIGITAL_WORKER:undefined},{STRIPE_SECRET_KEY:'sk_test_synthetic'},{GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:undefined},
+   {GALLERY_SETTLEMENT_QUEUE_ENABLED:'false'},{GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'false'},
+   {GALLERY_PRODUCTION_SETTLEMENT_WORKER:'false'},{GALLERY_REFUND_LEDGER:'false'},
+   {GALLERY_ISOLATED_TEST:'true'},{GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_other'},
+   {NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co'}])
   assert.equal(gallerySalesEnabled('production',{...ready,...change}),false)
  // Existing paid/refunded webhook environment classification is unchanged by the sales switch.
  assert.equal(galleryEnvironment(site,{...ready,GALLERY_SALES_ENABLED:'false'}),'production')

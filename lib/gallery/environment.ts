@@ -59,12 +59,28 @@ export function galleryEnvironment(requestUrl: string, env: Env = process.env): 
   }
 }
 
+/** Keep settlement admission separate from new-sales availability. */
+export function galleryProductionSettlementConfigured(env: Env = process.env): boolean {
+  return env.VERCEL_ENV === 'production' &&
+    env.GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK === 'true' &&
+    env.GALLERY_SETTLEMENT_QUEUE_ENABLED === 'true' &&
+    env.GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS === 'true' &&
+    env.GALLERY_REFUND_LEDGER === 'true' &&
+    env.GALLERY_ISOLATED_TEST !== 'true' && env.GALLERY_SETTLEMENT_QA_ENDPOINT !== 'true' &&
+    env.STRIPE_SECRET_KEY?.startsWith('sk_live_') === true &&
+    /^acct_[A-Za-z0-9]+$/.test(env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID ?? '') &&
+    env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/,'') === 'https://www.cafe-sativa.com' &&
+    env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,'') === 'https://nwfxvhqbjtfvoopcadff.supabase.co'
+}
+
 /** New checkout only. Never use this switch to gate paid/refunded events,
  * fulfillment or access for existing buyers. Defaults closed in every environment. */
 export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process.env): boolean {
   if (mode === 'blocked' || env.GALLERY_SALES_ENABLED !== 'true' ||
       env.GALLERY_INVENTORY_HOLDS !== 'true' || env.GALLERY_PRIVATE_DOWNLOADS !== 'true' ||
       env.GALLERY_DIGITAL_WORKER !== 'true') return false
-  return mode === 'production' ? env.STRIPE_SECRET_KEY?.startsWith('sk_live_') === true :
+  return mode === 'production' ? galleryProductionSettlementConfigured(env) &&
+    env.GALLERY_PRODUCTION_SETTLEMENT_WORKER === 'true' &&
+    env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID === env.GALLERY_HOUSE_STRIPE_ACCOUNT_ID :
     env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env)
 }

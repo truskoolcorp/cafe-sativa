@@ -30,6 +30,7 @@ function setup(event, options = {}) {
   const db = {
     rpc: async (name, input) => {
       actions.push({ op: 'rpc', name, input })
+      if(name==='cs_read_gallery_settlement')return {data:options.enrollment??null,error:options.enrollmentError??null}
       return { data: options.rpcResult || { id: 'order_1', created: true, state: 'paid' }, error: null }
     },
     from: table => ({
@@ -394,4 +395,60 @@ test('dedicated queued full refund records signed floor and revocation before le
  assert.equal(h.actions[1].table,'gallery_refund_receipts');assert.equal(h.actions.filter(a=>a.op==='update').length,0);
  const failed=setup(e,{...o,refundListError:true});assert.equal((await failed.post()).status,500);assert.equal(failed.actions.length,1);
  const unknown=setup(e,{...o,order:null});assert.equal((await unknown.post()).status,200);assert.equal(unknown.actions.length,0)
+})
+
+function queuedProductionHouseEvent(){
+ const [e,o]=houseEvent();e.id='evt_live_queued_house';e.data.object.id='cs_live_queued_house';
+ e.data.object.metadata.gallery_settlement_schema='queue-v1';o.intent.metadata.gallery_settlement_schema='queue-v1';
+ Object.assign(o.env,{STRIPE_SECRET_KEY:'sk_live_synthetic',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
+   GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
+   GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false',GALLERY_SALES_ENABLED:'false',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'false'});
+ return [e,o]
+}
+test('marked production Gallery payment uses atomic live receipt and queue even with sales and worker off',async()=>{
+ const [e,o]=queuedProductionHouseEvent();const h=setup(e,o);
+ assert.equal((await h.post()).status,200);assert.equal(h.actions.length,1);
+ assert.equal(h.actions[0].name,'cs_record_gallery_payment_with_settlement');
+ assert.equal(h.actions[0].input.p_live,true);assert.equal(h.actions[0].input.p_event,e.id)
+})
+test('marked production payment cannot fall back if settlement configuration or marker is wrong',async()=>{
+ for(const change of [(e,o)=>o.env.GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK='false',
+ (e,o)=>o.env.GALLERY_REFUND_LEDGER='false',(e,o)=>o.env.NEXT_PUBLIC_SUPABASE_URL='https://other.supabase.co',
+ (e,o)=>delete o.intent.metadata.gallery_settlement_schema,(e,o)=>o.env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID='acct_other',
+ (e,o)=>e.data.object.id='cs_test_wrong',(e,o)=>o.url='https://preview.example/api/webhooks/stripe']){
+  const [e,o]=queuedProductionHouseEvent();change(e,o);const h=setup(e,o);
+  assert.equal((await h.post()).status,500);assert.equal(h.actions.length,0)
+ }
+})
+function queuedProductionRefund(){
+ const [e,o]=queuedProductionHouseEvent();e.type='charge.refunded';e.id='evt_live_refund';
+ e.data.object={id:'ch_1',payment_intent:'pi_house',livemode:true,currency:'usd',amount_captured:1200,
+ amount_refunded:1200,refunded:true,metadata:{kind:'gallery_order',site:'cafe-sativa',gallery_settlement_schema:'queue-v1'}};
+ o.order={id:'order_house',stripe_checkout_session_id:'cs_live_queued_house',currency:'usd',total_cents:1200};
+ o.item={gallery_sale_kind:'house',product_id:o.env.GALLERY_HOUSE_PRODUCT_ID,artist_id:o.env.GALLERY_HOUSE_ARTIST_ID,transfer_destination:null};
+ o.enrollment={state:'observed',generation:1};o.refunds=[refundReceipt({payment_intent:'pi_house',amount:1200})];o.rpcResult=2;
+ return [e,o]
+}
+test('production Gallery refund updates accepted queue generation and revokes before provider ledger read',async()=>{
+ const [e,o]=queuedProductionRefund();const h=setup(e,o);
+ assert.equal((await h.post()).status,200);assert.equal(h.actions[0].name,'cs_read_gallery_settlement');
+ assert.equal(h.actions[1].name,'cs_record_gallery_refund_event_with_settlement');
+ assert.equal(h.actions[1].input.p_live,true);assert.equal(h.actions[1].input.p_refunded,1200);
+ assert.equal(h.actions[2].table,'gallery_refund_receipts');
+ const failed=setup(e,{...o,refundListError:true});assert.equal((await failed.post()).status,500);
+ assert.equal(failed.actions[1].name,'cs_record_gallery_refund_event_with_settlement')
+})
+test('production refund admission preserves ticket precedence, legacy fallback and early marked retry',async()=>{
+ const [e,o]=queuedProductionRefund();
+ const ticket=setup(e,{...o,ticket:{id:'ticket_1',state:'paid'}});assert.equal((await ticket.post()).status,200);
+ assert.equal(ticket.actions.length,1);assert.equal(ticket.actions[0].table,'tickets');assert.deepEqual(ticket.calls.reads,['tickets']);
+ for(const change of [{order:null},{enrollment:null},{enrollmentError:'outage'},{env:{...o.env,GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'false'}}]){
+  const h=setup(e,{...o,...change});assert.equal((await h.post()).status,500);
+  assert.equal(h.actions.some(a=>a.op==='update'||a.name==='cs_record_gallery_refund_event_with_settlement'),false)
+ }
+ const old={...e,data:{object:{...e.data.object,metadata:{}}}};
+ const h=setup(old,{...o,enrollment:null});assert.equal((await h.post()).status,200);
+ assert.equal(h.actions[0].name,'cs_read_gallery_settlement');assert.equal(h.actions[1].table,'orders');
+ const foreign=setup(old,{...o,order:null});assert.equal((await foreign.post()).status,200);assert.equal(foreign.actions.length,0)
 })

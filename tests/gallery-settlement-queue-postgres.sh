@@ -228,5 +228,92 @@ begin
      and provider_snapshot->>'queue_generation' in ('1','2'))<>2 then
   raise exception 'House review generation or retained evidence mismatch'; end if;
 end $house_queue_state$;
+
+-- Fresh independent transactions, synthetic Stripe identities, both sale kinds.
+grant update on public.orders to service_role;
+insert into public.products(id,kind,status,stock_count,artist_id,title,price_cents,currency)
+values('00000000-0000-4000-8000-000000000085','digital','published',1,'00000000-0000-4000-8000-000000000080','Atomic consigned fixture',1249,'usd'),
+ ('00000000-0000-4000-8000-000000000087','digital','published',1,'00000000-0000-4000-8000-000000000080','Atomic house fixture',1200,'usd');
+insert into public.gallery_approved_assets(id,product_id,object_path,sha256,approved_by)
+values('00000000-0000-4000-8000-000000000086','00000000-0000-4000-8000-000000000085','00000000-0000-4000-8000-000000000085/fixture.bin',repeat('1',64),'00000000-0000-4000-8000-000000000080'),
+ ('00000000-0000-4000-8000-000000000088','00000000-0000-4000-8000-000000000087','00000000-0000-4000-8000-000000000087/fixture.bin',repeat('2',64),'00000000-0000-4000-8000-000000000080');
+insert into storage.objects values('gallery-approved','00000000-0000-4000-8000-000000000085/fixture.bin'),
+ ('gallery-approved','00000000-0000-4000-8000-000000000087/fixture.bin');
+do $atomic_permissions$
+begin
+ if has_function_privilege('anon','public.cs_record_gallery_payment_with_settlement(uuid,uuid,uuid,uuid,integer,jsonb,boolean,text,text)','EXECUTE')
+ or has_function_privilege('authenticated','public.cs_record_gallery_refund_event_with_settlement(uuid,boolean,text,text,text,text,bigint,bigint,boolean)','EXECUTE')
+ then raise exception 'Atomic event wrapper exposed'; end if;
+end $atomic_permissions$;
+set role service_role;
+do $atomic_event$
+declare ar uuid='00000000-0000-4000-8000-000000000080'; buyer uuid='00000000-0000-4000-8000-000000000083';
+ p uuid; edition uuid; h uuid; r jsonb; o uuid; receipt jsonb; pi text; k text; total integer; g bigint;
+begin
+ for k,p,edition,total in select * from (values
+ ('consigned','00000000-0000-4000-8000-000000000085'::uuid,'00000000-0000-4000-8000-000000000086'::uuid,1249),
+ ('house','00000000-0000-4000-8000-000000000087'::uuid,'00000000-0000-4000-8000-000000000088'::uuid,1200)) as x(kind,product,asset,amount)
+ loop
+  pi:='pi_test_atomic_'||k;
+  h:=public.cs_hold_gallery_inventory(p,buyer,1);
+  if h is null then raise exception 'Atomic fixture hold unavailable'; end if;
+  if k='consigned' and not public.cs_pin_consigned_private_gallery_hold(h,p,ar,edition,buyer,'acct_ConsignedFixture',total,'usd')
+  then raise exception 'Atomic fixture pin unavailable'; end if;
+  update public.gallery_inventory_holds set stripe_session_id='cs_test_atomic_'||k where id=h;
+  receipt:=jsonb_build_object('session_id','cs_test_atomic_'||k,'payment_intent_id',pi,'payment_status','paid',
+   'user_id',buyer,'subtotal_cents',total,'total_cents',total,'currency','usd',
+   'application_fee_cents',case when k='house' then 0 else total/10 end);
+  if k='consigned' then receipt:=receipt||jsonb_build_object('transfer_destination','acct_ConsignedFixture'); end if;
+  begin
+   perform public.cs_record_gallery_payment_with_settlement(h,edition,p,ar,1,receipt,false,k,'evt_paid_fixture');
+   raise exception 'Conflicting queue event allowed a paid mutation';
+  exception when others then
+   if sqlerrm<>'Gallery settlement event already bound' then raise; end if;
+  end;
+  if exists(select 1 from public.orders where stripe_payment_intent_id=pi)
+   or exists(select 1 from public.gallery_private_deliveries where product_id=p)
+   or (select stock_count from public.products where id=p)<>1
+   or (select state from public.gallery_inventory_holds where id=h)<>'held'
+  then raise exception 'Failed enqueue leaked paid order, entitlement or stock mutation'; end if;
+  r:=public.cs_record_gallery_payment_with_settlement(h,edition,p,ar,1,receipt,false,k,'evt_atomic_paid_'||k);
+  o:=(r->>'id')::uuid;
+  if r->>'created' is distinct from 'true' or r->>'settlement_generation' is distinct from '1'
+  then raise exception 'Atomic payment not recorded'; end if;
+  r:=public.cs_record_gallery_payment_with_settlement(h,edition,p,ar,1,receipt,false,k,'evt_atomic_paid_'||k);
+  if r is distinct from jsonb_build_object('id',o,'created',false,'settlement_generation',1)
+  then raise exception 'Atomic payment replay mismatch'; end if;
+  g:=public.cs_record_gallery_refund_event_with_settlement(o,false,k,'evt_atomic_partial_'||k,pi,'usd',total,200,false);
+  if g<>2 or (select fulfillment_state from public.orders where id=o)='refunded'
+  then raise exception 'Partial refund incorrectly revoked access'; end if;
+  begin
+   perform public.cs_record_gallery_refund_event_with_settlement(o,false,k,'evt_atomic_paid_'||k,pi,'usd',total,total,true);
+   raise exception 'Conflicting refund event accepted';
+  exception when others then
+   if sqlerrm<>'Gallery settlement event already bound' then raise; end if;
+  end;
+  if (select fulfillment_state from public.orders where id=o)='refunded'
+   or exists(select 1 from public.gallery_restock_reviews where order_id=o)
+  then raise exception 'Conflicting refund leaked mutation'; end if;
+  g:=public.cs_record_gallery_refund_event_with_settlement(o,false,k,'evt_atomic_full_'||k,pi,'usd',total,total,true);
+  if g<>3 then raise exception 'Full refund generation mismatch'; end if;
+  g:=public.cs_record_gallery_refund_event_with_settlement(o,false,k,'evt_atomic_full_'||k,pi,'usd',total,total,true);
+  if g<>3 then raise exception 'Full refund replay changed generation'; end if;
+  g:=public.cs_record_gallery_refund_event_with_settlement(o,false,k,'evt_atomic_partial_'||k,pi,'usd',total,200,false);
+  if g<>3 or (select fulfillment_state from public.orders where id=o)<>'refunded'
+   or public.cs_authorize_gallery_delivery(o)
+   or (select stock_count from public.products where id=p)<>0
+   or not exists(select 1 from public.gallery_restock_reviews where order_id=o and state='pending')
+  then raise exception 'Refund revocation or review-only restock failed'; end if;
+ end loop;
+end $atomic_event$;
+reset role;
+do $atomic_event_proof$
+begin
+ if (select count(*) from public.gallery_settlement_queue
+  where stripe_payment_intent_id in ('pi_test_atomic_house','pi_test_atomic_consigned')
+  and generation=3 and refund_floor_cents=captured_cents and state='queued')<>2
+ then raise exception 'Atomic refund floor was not preserved'; end if;
+end $atomic_event_proof$;
+
 SQL
 echo 'PASS: Gallery settlement queue transaction rollback, dedupe, scope, stale refund/lease rejection, delay, idempotency and terminal review.'

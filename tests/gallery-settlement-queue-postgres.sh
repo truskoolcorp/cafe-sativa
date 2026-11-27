@@ -9,6 +9,8 @@ begin
  if has_function_privilege('anon','public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint)','EXECUTE')
   or has_function_privilege('authenticated','public.cs_claim_gallery_settlement(boolean,integer)','EXECUTE')
   or has_function_privilege('authenticated','public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb)','EXECUTE')
+  or has_function_privilege('anon','public.cs_read_gallery_settlement(uuid,boolean)','EXECUTE')
+  or has_function_privilege('authenticated','public.cs_read_gallery_settlement(uuid,boolean)','EXECUTE')
   or has_table_privilege('service_role','public.gallery_settlement_queue','UPDATE')
   or has_table_privilege('service_role','public.gallery_settlement_queue_events','SELECT') then
   raise exception 'Queue exposed beyond service-only RPC';
@@ -136,6 +138,16 @@ begin
  if (select count(*) from public.gallery_settlement_observations s
      where s.order_id=q.order_id and s.provider_snapshot->'queue_generation'='2'::jsonb)<>1 then
   raise exception 'Current evidence not recorded exactly once'; end if;
+ if public.cs_read_gallery_settlement(q.order_id,true) is not null or
+    public.cs_read_gallery_settlement(q.order_id,null) is not null or
+    public.cs_read_gallery_settlement(q.order_id,false)->>'state' is distinct from 'observed' or
+    public.cs_read_gallery_settlement(q.order_id,false)->'evidence' is distinct from (evidence||jsonb_build_object('queue_generation',2)) then
+  raise exception 'Mode-scoped report did not return accepted evidence'; end if;
+ -- Even a later direct observation claiming the same generation is not accepted by the lease.
+ insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
+ values(q.order_id,intent,jsonb_set(evidence||jsonb_build_object('queue_generation',2),'{refunded_cents}','0'::jsonb));
+ if public.cs_read_gallery_settlement(q.order_id,false)->'evidence' is distinct from (evidence||jsonb_build_object('queue_generation',2)) then
+  raise exception 'Unaccepted later observation displaced accepted evidence'; end if;
 end $success$;
 reset role;
 -- Force an expired final lease as disposable fixture clock control.
@@ -191,6 +203,9 @@ begin
   raise exception 'House complete evidence not accepted'; end if;
  if public.cs_enqueue_gallery_settlement(o,false,'house','evt_house_review_fixture',1200)<>2 then
   raise exception 'House new event did not invalidate old evidence'; end if;
+ if public.cs_read_gallery_settlement(o,false)->>'state' is distinct from 'queued' or
+    public.cs_read_gallery_settlement(o,false)->'evidence' is distinct from 'null'::jsonb then
+  raise exception 'Queued generation exposed stale settled evidence'; end if;
  select * into strict q from public.cs_claim_gallery_settlement(false,1);
  ev:=jsonb_set(ev,'{attention}','["balance_transactions_incomplete"]'::jsonb);
  ev:=jsonb_set(ev,'{charge_balance}','null'::jsonb);
@@ -198,6 +213,9 @@ begin
  ev:=jsonb_set(ev,'{order_comparison,observed_platform_after_charge_refund_fees_cents}','null'::jsonb);
  if not public.cs_finish_gallery_settlement(o,false,q.generation,q.lease_token,ev) then
   raise exception 'House incomplete evidence not retained for review'; end if;
+ if public.cs_read_gallery_settlement(o,false)->>'state' is distinct from 'review' or
+    public.cs_read_gallery_settlement(o,false)->'evidence' is distinct from 'null'::jsonb then
+  raise exception 'Review evidence exposed as settled'; end if;
 end $house_queue_acceptance$;
 reset role;
 do $house_queue_state$

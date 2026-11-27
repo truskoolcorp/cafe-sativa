@@ -260,3 +260,30 @@ test('lost finish response or superseded lease cannot cause a second observation
   assert.equal(h.calls.rpc.filter(r=>r.name==='cs_finish_gallery_settlement').length,1)
  }
 })
+
+const qaSource=ts.transpileModule(fs.readFileSync('app/api/gallery/settlement-qa/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+function settlementQA({overrides={},mode='isolated-test',url='http://127.0.0.1:4116/api/gallery/settlement-qa',authorization='Bearer '+('a'.repeat(48)),body=null,workerError=false}={}){
+ const secret='a'.repeat(48)
+ const env={GALLERY_SETTLEMENT_QA_ENDPOINT:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',GALLERY_SETTLEMENT_OBSERVATIONS:'true',GALLERY_SETTLEMENT_QA_SECRET:secret,NEXT_PUBLIC_SITE_URL:'http://127.0.0.1:4116',NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:54321',...overrides}
+ let calls=0
+ const ctx={exports:{},URL,Response,Buffer,process:{env},require(id){
+  if(id==='node:crypto')return require(id)
+  if(id.endsWith('/environment'))return {galleryEnvironment:()=>mode}
+  if(id.endsWith('/persist-test-settlement'))return {runGallerySettlementQueueOnce:async()=>{calls++;if(workerError)throw Error('private provider error');return {status:'recorded',private:'not returned'}}}
+  throw Error(id)
+ }}
+ vm.runInNewContext(qaSource,ctx)
+ return {calls:()=>calls,post:async()=>{const r=await ctx.exports.POST(new Request(url,{method:'POST',headers:authorization?{authorization}:{},body}));return {status:r.status,body:await r.json(),cache:r.headers.get('cache-control')}}}
+}
+test('settlement QA endpoint denies hosted, disabled, shared credentials, and non-loopback before claiming',async()=>{
+ for(const o of [{overrides:{GALLERY_SETTLEMENT_QA_ENDPOINT:undefined}},{overrides:{GALLERY_SETTLEMENT_QUEUE_ENABLED:undefined}},{overrides:{GALLERY_SETTLEMENT_OBSERVATIONS:undefined}},{overrides:{VERCEL_ENV:'preview'}},{overrides:{VERCEL:'1'}},{overrides:{GALLERY_DELIVERY_NOTICES:'true'}},{mode:'production'},{mode:'blocked'},{overrides:{NEXT_PUBLIC_SUPABASE_URL:'https://other.supabase.co'}},{overrides:{NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:4116'}},{overrides:{CRON_SECRET:'a'.repeat(48)}},{overrides:{GALLERY_SETTLEMENT_QA_SECRET:'short'}},{url:'http://127.0.0.1:4116/api/gallery/settlement-qa?order=other'},{url:'http://127.0.0.1:4116/api/gallery/worker'},{url:'http://localhost:4116/api/gallery/settlement-qa'}]){
+  const h=settlementQA(o);assert.equal((await h.post()).status,404);assert.equal(h.calls(),0)
+ }
+})
+test('settlement QA endpoint requires distinct bearer and empty body; one invocation returns only status',async()=>{
+ for(const [o,s] of [[{authorization:''},401],[{authorization:'Bearer '+('b'.repeat(48))},401],[{body:'{"order":"other"}'},400]]){
+  const h=settlementQA(o);assert.equal((await h.post()).status,s);assert.equal(h.calls(),0)
+ }
+ const h=settlementQA(),r=await h.post();assert.equal(r.status,200);assert.deepEqual(r.body,{status:'recorded'});assert.equal(r.cache,'private, no-store');assert.equal(h.calls(),1)
+ const bad=settlementQA({workerError:true}),failure=await bad.post();assert.equal(failure.status,503);assert.equal(bad.calls(),1);assert.equal(failure.body.error,'Gallery settlement QA unavailable')
+})

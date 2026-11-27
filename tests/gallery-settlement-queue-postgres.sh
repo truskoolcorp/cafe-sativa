@@ -94,6 +94,41 @@ begin
  select * into strict q from public.cs_claim_gallery_settlement(false,3);
  evidence:=jsonb_build_object('payment_intent_id',intent,'livemode',false,'sale_kind','consigned','currency','usd',
  'captured_cents',1249,'refunded_cents',200,'order_comparison',jsonb_build_object('attention','[]'::jsonb));
+ -- The existing minimal identity-only JSON must not settle even at the correct refund floor.
+ begin
+  perform public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence);
+  raise exception 'Sparse snapshot accepted';
+ exception when others then
+  if sqlerrm<>'Incomplete Gallery settlement evidence' then raise; end if;
+ end;
+ -- Synthetic complete provider-shaped evidence; not an actual provider response.
+ evidence:=evidence||jsonb_build_object(
+  'charge_id','ch_fixture','expected_original_fee_cents',124,
+  'transfer_id','tr_fixture','transfer_cents',1249,'transfer_reversed_cents',200,
+  'application_fee_id','fee_fixture','application_fee_cents',124,'application_fee_refunded_cents',19,
+  'observed_artist_connect_allocation_cents',944,'observed_platform_application_fee_cents',105,
+  'observed_charge_refund_balance_fee_cents',66,
+  'charge_balance',jsonb_build_object('id','txn_charge_fixture','amount_cents',1249,'fee_cents',66,'net_cents',1183,'status','available'),
+  'refunds',jsonb_build_array(jsonb_build_object('id','re_fixture','amount_cents',200,'status','succeeded',
+   'balance',jsonb_build_object('id','txn_refund_fixture','amount_cents',-200,'fee_cents',0,'net_cents',-200,'status','available'))),
+  'attention','[]'::jsonb,
+  'order_comparison',jsonb_build_object('sale_kind','consigned','order_subtotal_cents',1249,'order_total_cents',1249,
+   'expected_original_commission_cents',124,'expected_remaining_commission_cents',105,
+   'expected_remaining_artist_cents',944,'observed_platform_after_charge_refund_fees_cents',39,'attention','[]'::jsonb));
+ begin
+  perform public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,
+   jsonb_set(evidence,'{transfer_reversed_cents}','0'::jsonb));
+  raise exception 'Contradictory transfer evidence accepted';
+ exception when others then
+  if sqlerrm<>'Invalid Gallery consigned Connect evidence' then raise; end if;
+ end;
+ begin
+  perform public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,
+   jsonb_set(evidence,'{observed_charge_refund_balance_fee_cents}','0'::jsonb));
+  raise exception 'Contradictory processing fee accepted';
+ exception when others then
+  if sqlerrm<>'Invalid Gallery refund or processing fee total' then raise; end if;
+ end;
  if not public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence) then
   raise exception 'Current lease did not complete'; end if;
  if public.cs_finish_gallery_settlement(q.order_id,false,q.generation,q.lease_token,evidence) then

@@ -279,7 +279,7 @@ end $$;
 -- Never choose the newest observation by timestamp: only the exact observation
 -- accepted by the current lease can establish settled evidence.
 create function public.cs_read_gallery_settlement(p_order uuid,p_live boolean)
-returns jsonb language sql stable security definer set search_path=pg_catalog,public,pg_temp as $
+returns jsonb language sql stable security definer set search_path=pg_catalog,public,pg_temp as $$
  select jsonb_build_object(
   'state',case when q.state='observed' and s.id is null then 'review' else q.state end,
   'generation',q.generation,'refund_floor_cents',q.refund_floor_cents,
@@ -296,7 +296,7 @@ returns jsonb language sql stable security definer set search_path=pg_catalog,pu
       then (s.provider_snapshot->>'refunded_cents')::numeric between q.refund_floor_cents and q.captured_cents
       else false end
  where p_order is not null and p_live is not null and q.order_id=p_order and q.livemode=p_live
-$;
+$$;
 revoke all on function public.cs_read_gallery_settlement(uuid,boolean) from public,anon,authenticated,service_role;
 grant execute on function public.cs_read_gallery_settlement(uuid,boolean) to service_role;
 

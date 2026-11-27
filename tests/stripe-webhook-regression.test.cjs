@@ -41,7 +41,7 @@ function setup(event, options = {}) {
       select: () => ({
         eq: () => ({ maybeSingle: async () => {
           calls.reads.push(table)
-          return {data: table==='products' ? options.product || null : table==='tickets' ? options.ticket || null : table==='orders' ? options.order || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:table==='tickets'&&options.ticketLookupError||table==='orders'&&options.orderLookupError||null}
+          return {data: table==='products' ? options.product || null : table==='tickets' ? options.ticket || null : table==='orders' ? options.order || null : table==='order_items' ? options.item || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:table==='tickets'&&options.ticketLookupError||table==='orders'&&options.orderLookupError||null}
         } })
       })
     })
@@ -360,4 +360,38 @@ test('private consigned marker, account, asset, fee and amount mismatches do not
   assert.equal((await h.post()).status,500)
   assert.equal(h.actions.length,0)
  }
+})
+
+
+function queuedHouseEvent(){
+ const [e,o]=houseEvent();e.id='evt_queued_house';e.livemode=false;e.data.object.livemode=false;
+ e.data.object.id='cs_test_queued_house';o.intent.livemode=false;
+ o.env={...o.env,...sandboxEnv,GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',GALLERY_SETTLEMENT_OBSERVATIONS:'true',
+   GALLERY_REFUND_LEDGER:'true',GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house'};o.url=dedicatedURL;
+ return [e,o]
+}
+test('dedicated queued payment invokes atomic receipt and enqueue RPC, including replay',async()=>{
+ const [e,o]=queuedHouseEvent();const h=setup(e,o);
+ assert.equal((await h.post()).status,200);assert.equal(h.actions.length,1);
+ const a=h.actions[0];assert.equal(a.name,'cs_record_gallery_payment_with_settlement');
+ assert.equal(a.input.p_kind,'house');assert.equal(a.input.p_live,false);assert.equal(a.input.p_event,e.id);
+ assert.equal(a.input.p_receipt.application_fee_cents,0);assert.equal(a.input.p_receipt.session_id,'cs_test_queued_house');
+ assert.equal((await h.post()).status,200);assert.equal(h.actions.length,2);assert.equal(h.actions[1].input.p_event,e.id)
+})
+test('dedicated queued payment refuses absent evidence flag, wrong account or event identity',async()=>{
+ for(const change of [(e,o)=>o.env.GALLERY_SETTLEMENT_OBSERVATIONS='false',(e,o)=>o.env.GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID='acct_other',(e,o)=>delete e.id,(e,o)=>e.account='acct_other']){
+  const [e,o]=queuedHouseEvent();change(e,o);const h=setup(e,o);
+  assert.equal((await h.post()).status,500);assert.equal(h.actions.length,0)
+ }
+})
+test('dedicated queued full refund records signed floor and revocation before ledger read',async()=>{
+ const [e,o]=queuedHouseEvent();e.type='charge.refunded';e.id='evt_queued_refund';e.data.object={id:'ch_1',payment_intent:'pi_house',livemode:false,currency:'usd',amount_captured:1200,amount_refunded:1200,refunded:true};
+ o.order={id:'order_house',stripe_checkout_session_id:'cs_test_queued_house',currency:'usd',total_cents:1200};
+ o.item={gallery_sale_kind:'house',product_id:o.env.GALLERY_HOUSE_PRODUCT_ID,artist_id:o.env.GALLERY_HOUSE_ARTIST_ID,transfer_destination:null};
+ o.refunds=[refundReceipt({payment_intent:'pi_house',amount:1200})];o.rpcResult=2;
+ const h=setup(e,o);assert.equal((await h.post()).status,200);
+ assert.equal(h.actions[0].name,'cs_record_gallery_refund_event_with_settlement');assert.equal(h.actions[0].input.p_refunded,1200);assert.equal(h.actions[0].input.p_full,true);
+ assert.equal(h.actions[1].table,'gallery_refund_receipts');assert.equal(h.actions.filter(a=>a.op==='update').length,0);
+ const failed=setup(e,{...o,refundListError:true});assert.equal((await failed.post()).status,500);assert.equal(failed.actions.length,1);
+ const unknown=setup(e,{...o,order:null});assert.equal((await unknown.post()).status,200);assert.equal(unknown.actions.length,0)
 })

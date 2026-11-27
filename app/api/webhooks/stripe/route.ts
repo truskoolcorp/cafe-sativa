@@ -49,6 +49,16 @@ export async function POST(req: Request) {
   }
 
   const admin = createAdminClient()
+  // Draft atomic settlement integration: dedicated isolated test ingress only.
+  const queuedTest = dedicated && galleryMode === 'isolated-test' && process.env.GALLERY_SETTLEMENT_QUEUE_ENABLED === 'true'
+  const verifyQueuedTest = async () => {
+    const platform = process.env.GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID
+    if (process.env.GALLERY_SETTLEMENT_OBSERVATIONS !== 'true' || process.env.GALLERY_REFUND_LEDGER !== 'true' ||
+        !platform || !/^acct_[A-Za-z0-9]+$/.test(platform) || event.livemode !== false ||
+        !/^evt_[A-Za-z0-9_]{1,120}$/.test(event.id) || (event.account && event.account !== platform) ||
+        !await verifiedGalleryHouseAccount(stripe,platform,false)) throw Error('Gallery test settlement identity mismatch')
+    return platform
+  }
 
   try {
     switch (event.type) {
@@ -183,19 +193,27 @@ export async function POST(req: Request) {
           }
           if (galleryMode === 'isolated-test' && (!holdId || (product.kind === 'digital' && !session.metadata?.approved_asset_id))) throw Error('Isolated test purchase requires a reservation and approved digital edition')
           if(holdId && (session.metadata?.site!=='cafe-sativa' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(holdId)))throw Error('Invalid gallery reservation')
-          const {data:recorded,error:recordError}=await admin.rpc(housePayment?'cs_record_house_gallery_payment':privateConsignment?'cs_record_consigned_private_gallery_payment':holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
-            ...(holdId?{p_hold:holdId}:{}),
-            ...((housePayment||privateConsignment)?{p_asset:approvedAssetId}:{}),
-            product_uuid:productId,artist_uuid:artistId,quantity,
-            receipt:{session_id:session.id,payment_status:session.payment_status,user_id:userId,
+          if(queuedTest){
+            const platform=await verifyQueuedTest()
+            if((!housePayment&&!privateConsignment)||!holdId||!approvedAssetId||
+              (housePayment&&house?.accountId!==platform)||(privateConsignment&&privateDestination===platform))
+              throw Error('Gallery queued test requires an approved private edition')
+          }
+          const receipt={session_id:session.id,payment_status:session.payment_status,user_id:userId,
               payment_intent_id:paymentIntentId,email:session.customer_details?.email || session.customer_email || '',
               subtotal_cents:lineTotal,total_cents:session.amount_total,currency:session.currency || 'usd',
               application_fee_cents:applicationFee,title:line.description,
               ...(privateConsignment?{transfer_destination:privateDestination}:{}),
               shipping_cents:session.shipping_cost?.amount_total || 0,tax_cents:session.total_details?.amount_tax || 0,
               shipping_name:shipping?.name,shipping_line1:addr?.line1,shipping_line2:addr?.line2,
-              shipping_city:addr?.city,shipping_state:addr?.state,shipping_postal_code:addr?.postal_code,shipping_country:addr?.country},
-          })
+              shipping_city:addr?.city,shipping_state:addr?.state,shipping_postal_code:addr?.postal_code,shipping_country:addr?.country}
+          const {data:recorded,error:recordError}=queuedTest
+            ? await admin.rpc('cs_record_gallery_payment_with_settlement',{
+                p_hold:holdId,p_asset:approvedAssetId,p_product:productId,p_artist:artistId,p_quantity:quantity,
+                p_receipt:receipt,p_live:false,p_kind:housePayment?'house':'consigned',p_event:event.id})
+            : await admin.rpc(housePayment?'cs_record_house_gallery_payment':privateConsignment?'cs_record_consigned_private_gallery_payment':holdId?'cs_record_reserved_gallery_payment':'cs_record_gallery_payment',{
+                ...(holdId?{p_hold:holdId}:{}),...((housePayment||privateConsignment)?{p_asset:approvedAssetId}:{}),
+                product_uuid:productId,artist_uuid:artistId,quantity,receipt})
           if(recordError || !recorded?.id)throw Error('Atomic paid order write failed')
           if(!housePayment && !privateConsignment && approvedAssetId && session.metadata?.site==='cafe-sativa' && product.kind==='digital'){
             const {data:asset,error:assetError}=await admin.from('gallery_approved_assets').select('id,product_id,revoked_at').eq('id',approvedAssetId).eq('product_id',productId).maybeSingle()
@@ -286,6 +304,28 @@ export async function POST(req: Request) {
           }
         }
         if (galleryMode === 'blocked') break
+        if(queuedTest){
+          const platform=await verifyQueuedTest()
+          const {data:order,error:lookupError}=await admin.from('orders').select('id,stripe_checkout_session_id,currency,total_cents').eq('stripe_payment_intent_id',paymentIntentId).maybeSingle()
+          if(lookupError)throw Error('Gallery queued refund order lookup failed')
+          if(!order)break
+          if(!order.stripe_checkout_session_id?.startsWith('cs_test_')||charge.livemode!==false||
+            charge.currency!==order.currency||charge.amount_captured!==order.total_cents)
+            throw Error('Gallery queued refund identity mismatch')
+          const {data:item,error:itemError}=await admin.from('order_items').select('gallery_sale_kind,product_id,artist_id,transfer_destination').eq('order_id',order.id).maybeSingle()
+          if(itemError||!item)throw Error('Gallery queued refund item lookup failed')
+          const house=galleryHouseConfig()
+          const kind=item.gallery_sale_kind==='house'?'house':item.gallery_sale_kind===null?'consigned':null
+          if(!kind||(kind==='house'&&(!house||house.accountId!==platform||house.productId!==item.product_id||house.artistId!==item.artist_id||item.transfer_destination!==null))||
+            (kind==='consigned'&&(!/^acct_[A-Za-z0-9]+$/.test(item.transfer_destination??'')||item.transfer_destination===platform)))
+            throw Error('Gallery queued refund classification mismatch')
+          const result=await admin.rpc('cs_record_gallery_refund_event_with_settlement',{
+            p_order:order.id,p_live:false,p_kind:kind,p_event:event.id,p_intent:paymentIntentId,
+            p_currency:charge.currency,p_captured:charge.amount_captured,p_refunded:charge.amount_refunded,p_full:charge.refunded})
+          if(result.error||result.data===null)throw Error('Gallery queued refund write failed')
+          await recordGalleryRefunds(stripe,charge)
+          break
+        }
         // Revoke a fully refunded Gallery order before collecting financial
         // evidence. A ledger failure remains retryable, not an access grant.
         if (charge.refunded) {

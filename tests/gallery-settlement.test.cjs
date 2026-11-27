@@ -287,3 +287,30 @@ test('settlement QA endpoint requires distinct bearer and empty body; one invoca
  const h=settlementQA(),r=await h.post();assert.equal(r.status,200);assert.deepEqual(r.body,{status:'recorded'});assert.equal(r.cache,'private, no-store');assert.equal(h.calls(),1)
  const bad=settlementQA({workerError:true}),failure=await bad.post();assert.equal(failure.status,503);assert.equal(bad.calls(),1);assert.equal(failure.body.error,'Gallery settlement QA unavailable')
 })
+
+const productionWorkerSource=ts.transpileModule(fs.readFileSync('app/api/gallery/settlement-worker/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+function productionSettlementWorker({overrides={},mode='production',url='https://www.cafe-sativa.com/api/gallery/settlement-worker',authorization='Bearer '+('p'.repeat(48)),body=null,workerError=false}={}){
+ const secret='p'.repeat(48)
+ const env={VERCEL_ENV:'production',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:secret,GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_fixture',STRIPE_SECRET_KEY:'sk_live_synthetic',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_SALES_ENABLED:'false',...overrides}
+ let calls=0
+ const ctx={exports:{},URL,Response,Buffer,process:{env},require(id){
+  if(id==='node:crypto')return require(id)
+  if(id.endsWith('/environment'))return {galleryEnvironment:()=>mode}
+  if(id.endsWith('/persist-test-settlement'))return {runGallerySettlementQueueOnce:async()=>{calls++;if(workerError)throw Error('private provider error');return {status:'recorded',private:'not returned'}}}
+  throw Error(id)
+ }}
+ vm.runInNewContext(productionWorkerSource,ctx)
+ return {calls:()=>calls,post:async()=>{const r=await ctx.exports.POST(new Request(url,{method:'POST',headers:authorization?{authorization}:{},body}));return {status:r.status,body:await r.json(),cache:r.headers.get('cache-control')}}}
+}
+test('draft production settlement worker defaults off and rejects wrong mode, host, database, shared secret or caller-selected work',async()=>{
+ for(const o of [{overrides:{GALLERY_PRODUCTION_SETTLEMENT_WORKER:undefined}},{overrides:{GALLERY_SETTLEMENT_QUEUE_ENABLED:undefined}},{overrides:{GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:undefined}},{overrides:{VERCEL_ENV:'preview'}},{overrides:{VERCEL_ENV:undefined}},{overrides:{GALLERY_ISOLATED_TEST:'true'}},{overrides:{GALLERY_SETTLEMENT_QA_ENDPOINT:'true'}},{overrides:{STRIPE_SECRET_KEY:'sk_test_synthetic'}},{overrides:{GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:undefined}},{mode:'isolated-test'},{mode:'blocked'},{overrides:{NEXT_PUBLIC_SUPABASE_URL:'https://anrprovgdpwqcalkolsz.supabase.co'}},{overrides:{CRON_SECRET:'p'.repeat(48)}},{overrides:{GALLERY_SETTLEMENT_QA_SECRET:'p'.repeat(48)}},{overrides:{GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'short'}},{url:'https://www.cafe-sativa.com/api/gallery/settlement-worker?order=other'},{url:'https://www.cafe-sativa.com/api/gallery/worker'},{url:'https://preview.example.com/api/gallery/settlement-worker'}]){
+  const h=productionSettlementWorker(o);assert.equal((await h.post()).status,404);assert.equal(h.calls(),0)
+ }
+})
+test('draft production settlement worker requires separate bearer and empty body; new sales off does not block existing settlement',async()=>{
+ for(const [o,s] of [[{authorization:''},401],[{authorization:'Bearer '+('q'.repeat(48))},401],[{body:'{"order":"other"}'},400]]){
+  const h=productionSettlementWorker(o);assert.equal((await h.post()).status,s);assert.equal(h.calls(),0)
+ }
+ const h=productionSettlementWorker(),r=await h.post();assert.equal(r.status,200);assert.deepEqual(r.body,{status:'recorded'});assert.equal(r.cache,'private, no-store');assert.equal(h.calls(),1)
+ const bad=productionSettlementWorker({workerError:true}),failure=await bad.post();assert.equal(failure.status,503);assert.equal(bad.calls(),1);assert.equal(failure.body.error,'Gallery settlement worker unavailable')
+})

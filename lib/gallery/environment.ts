@@ -73,13 +73,30 @@ export function galleryProductionSettlementConfigured(env: Env = process.env): b
     env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,'') === 'https://nwfxvhqbjtfvoopcadff.supabase.co'
 }
 
+/** Owner authority is explicit and server-side; no user metadata or email-domain inference. */
+export function galleryProductionFinancialReviewConfigured(env: Env = process.env): boolean {
+  const owners = (env.GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS ?? '').split(',').map(x=>x.trim())
+  return galleryProductionSettlementConfigured(env) &&
+    env.GALLERY_PRODUCTION_FINANCIAL_REVIEW === 'true' &&
+    owners.every(x=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x))
+}
+
+export function galleryFinancialReviewMode(requestUrl:string,env:Env=process.env):GalleryEnvironment {
+  const mode=galleryEnvironment(requestUrl,env)
+  if(mode==='isolated-test' && env.GALLERY_FINANCIAL_REVIEW_TEST==='true') return mode
+  if(mode==='production' && galleryProductionFinancialReviewConfigured(env)) {
+    try { if(new URL(requestUrl).origin==='https://www.cafe-sativa.com') return mode } catch {}
+  }
+  return 'blocked'
+}
+
 /** New checkout only. Never use this switch to gate paid/refunded events,
  * fulfillment or access for existing buyers. Defaults closed in every environment. */
 export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process.env): boolean {
   if (mode === 'blocked' || env.GALLERY_SALES_ENABLED !== 'true' ||
       env.GALLERY_INVENTORY_HOLDS !== 'true' || env.GALLERY_PRIVATE_DOWNLOADS !== 'true' ||
       env.GALLERY_DIGITAL_WORKER !== 'true') return false
-  return mode === 'production' ? galleryProductionSettlementConfigured(env) &&
+  return mode === 'production' ? galleryProductionFinancialReviewConfigured(env) &&
     env.GALLERY_PRODUCTION_SETTLEMENT_WORKER === 'true' &&
     env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID === env.GALLERY_HOUSE_STRIPE_ACCOUNT_ID :
     env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env)

@@ -436,4 +436,14 @@ where o.paid_at is not null and i.artist_id is not null and i.product_id is not 
 revoke all on public.gallery_order_accepted_financial_review from public,anon,authenticated,service_role;
 grant select on public.gallery_order_accepted_financial_review to service_role;
 
+-- Restrict refund review to the same private-order population and recorded
+-- Checkout mode as the accepted financial view. Never expose the unscoped
+-- legacy refund view in a live report.
+create view public.gallery_refund_mode_review_candidates with (security_invoker=true) as
+select r.*, a.provider_livemode
+from public.gallery_refund_review_candidates r
+join public.gallery_order_accepted_financial_review a on a.order_id=r.order_id;
+revoke all on public.gallery_refund_mode_review_candidates from public,anon,authenticated,service_role;
+grant select on public.gallery_refund_mode_review_candidates to service_role;
+
 commit;

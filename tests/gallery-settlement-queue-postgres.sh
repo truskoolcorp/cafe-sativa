@@ -14,7 +14,10 @@ begin
   or has_table_privilege('service_role','public.gallery_settlement_queue','UPDATE')
   or has_table_privilege('service_role','public.gallery_settlement_queue_events','SELECT')
   or has_table_privilege('authenticated','public.gallery_order_accepted_financial_review','SELECT')
-  or not has_table_privilege('service_role','public.gallery_order_accepted_financial_review','SELECT') then
+  or not has_table_privilege('service_role','public.gallery_order_accepted_financial_review','SELECT')
+  or has_table_privilege('anon','public.gallery_refund_mode_review_candidates','SELECT')
+  or has_table_privilege('authenticated','public.gallery_refund_mode_review_candidates','SELECT')
+  or not has_table_privilege('service_role','public.gallery_refund_mode_review_candidates','SELECT') then
   raise exception 'Queue exposed beyond service-only RPC';
  end if;
 end $permissions$;
@@ -330,6 +333,15 @@ begin
   and generation=3 and refund_floor_cents=captured_cents and state='queued')<>2
  then raise exception 'Atomic refund floor was not preserved'; end if;
 end $atomic_event_proof$;
+set role service_role;
+do $mode_review$
+begin
+ if (select count(*) from public.gallery_refund_mode_review_candidates r join public.orders o on o.id=r.order_id
+      where o.stripe_payment_intent_id in ('pi_test_atomic_house','pi_test_atomic_consigned') and r.provider_livemode='false'::jsonb)<>2
+ or exists(select 1 from public.gallery_refund_mode_review_candidates where provider_livemode is distinct from 'false'::jsonb)
+ then raise exception 'Refund report mode isolation or eligibility failed'; end if;
+end $mode_review$;
+reset role;
 
 SQL
 echo 'PASS: Gallery settlement queue transaction rollback, dedupe, scope, stale refund/lease rejection, delay, idempotency and terminal review.'

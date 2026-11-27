@@ -2,7 +2,7 @@ const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require(
 let providerFailure=false,linkFailure=false;const errorLogs=[];
 let authenticated=true,holds=0,calls=0,dbCalls=0,accountCheck=0,checkoutInput,platformAccount='acct_house',assets=[],houseReady=true;let product={id:'12345678-1234-1234-1234-123456789abc',status:'published',price_cents:1200,kind:'physical',stock_count:2,artist:{id:'artist',is_approved:true,charges_enabled:true,payouts_enabled:true,stripe_account_id:'acct_test'}};
 const context={exports:{},URL,process:{env:{VERCEL_ENV:'production',STRIPE_SECRET_KEY:'sk_live_mock',GALLERY_SALES_ENABLED:'true',GALLERY_INVENTORY_HOLDS:'true',GALLERY_PRIVATE_DOWNLOADS:'true',GALLERY_DIGITAL_WORKER:'true',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
-   GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
+   GALLERY_PRODUCTION_FINANCIAL_REVIEW:'true',GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'10000000-0000-4000-8000-000000000003',GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
    GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
    NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'}},console:{log:console.log,error:(...args)=>errorLogs.push(args)},require(name){if(name==='@/lib/gallery/environment')return require('./helpers/load-gallery-environment.cjs')(context.process.env);if(name==='@/lib/gallery/house-checkout'){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/house-checkout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:context.process});return exports}if(name==='next/server')return {NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})}};if(name==='stripe')return {default:class {accounts={retrieveCurrent:async()=>{accountCheck++;return {id:platformAccount,charges_enabled:true,payouts_enabled:true}}};checkout={sessions:{create:async input=>{calls++;checkoutInput=input;if(providerFailure)throw Error('synthetic private provider detail');assert.equal(input.line_items[0].quantity,1);return {id:'cs_mock',url:'https://checkout.stripe.com/test'}}}}}};if(name==='@supabase/ssr')return {createServerClient:()=>({auth:{getUser:async()=>({data:{user:authenticated?{id:'user'}:null}})}})};if(name==='next/headers')return {cookies:()=>({get:()=>null})};if(name.endsWith('/admin'))return {createAdminClient:()=>({rpc:async name=>{if(name==='cs_hold_gallery_inventory')holds++;return {data:name==='cs_gallery_house_ready'?houseReady:'hold'}},from(table){dbCalls++;return {select(){return this},eq(){return this},update(){return this},is(){return this},order(){return this},limit:async()=>({data:assets}),maybeSingle:async()=>({data:table==='gallery_inventory_holds'?(linkFailure?null:{id:'hold'}):product})}}})};throw Error(name)}};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/gallery/checkout/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
@@ -36,7 +36,7 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  assert.equal((await send({product_id:product.id},isolatedSite)).status,400);assert.equal(calls,1);
  const env=context.process.env;
  Object.assign(env,{VERCEL_ENV:'production',STRIPE_SECRET_KEY:'sk_live_mock',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
-   GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
+   GALLERY_PRODUCTION_FINANCIAL_REVIEW:'true',GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'10000000-0000-4000-8000-000000000003',GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
    GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
    NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'});
  Object.assign(env,{GALLERY_HOUSE_PRODUCT_ID:product.id,GALLERY_HOUSE_ARTIST_ID:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house'});
@@ -78,6 +78,8 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  env.GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK='false';
  assert.equal((await post()).status,503);assert.equal(calls,2);
  env.GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK='true';
+ env.GALLERY_PRODUCTION_FINANCIAL_REVIEW='false';assert.equal((await post()).status,503);assert.equal(calls,2);
+ env.GALLERY_PRODUCTION_FINANCIAL_REVIEW='true';
  const local='http://127.0.0.1:4116', db='http://127.0.0.1:54321';
  Object.assign(env,{VERCEL_ENV:undefined,GALLERY_ISOLATED_TEST:'true',GALLERY_LOCAL_STRIPE_CLI:'true',
   STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_house',

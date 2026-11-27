@@ -14,6 +14,7 @@ create table public.gallery_settlement_queue (
  state text not null default 'queued' check(state in ('queued','leased','observed','review')),
  due_at timestamptz not null default clock_timestamp(),
  lease_token uuid, lease_expires_at timestamptz,
+ accepted_observation_id uuid references public.gallery_settlement_observations(id) on delete restrict,
  reason text check(reason is null or reason in ('provider_retry','evidence_retry','invalid_evidence','attempt_limit')),
  check ((state='leased' and lease_token is not null and lease_expires_at is not null)
     or (state<>'leased' and lease_token is null and lease_expires_at is null))
@@ -79,7 +80,7 @@ begin
  insert into public.gallery_settlement_queue as q(order_id,stripe_payment_intent_id,livemode,sale_kind,currency,captured_cents,refund_floor_cents)
  values(p_order,o.stripe_payment_intent_id,p_live,p_kind,o.currency,o.total_cents,greatest(o.refund_floor_cents,p_signed_refund_floor))
  on conflict(order_id) do update set generation=q.generation+1,attempts=0,state='queued',due_at=clock_timestamp(),
-   lease_token=null,lease_expires_at=null,reason=null,
+   lease_token=null,lease_expires_at=null,reason=null,accepted_observation_id=null,
    refund_floor_cents=greatest(q.refund_floor_cents,excluded.refund_floor_cents)
  where q.stripe_payment_intent_id=excluded.stripe_payment_intent_id and q.livemode=excluded.livemode
    and q.sale_kind=excluded.sale_kind and q.currency=excluded.currency and q.captured_cents=excluded.captured_cents
@@ -119,7 +120,7 @@ end $$;
 
 create function public.cs_finish_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_snapshot jsonb)
 returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-declare q public.gallery_settlement_queue%rowtype; is_review boolean;
+declare q public.gallery_settlement_queue%rowtype; is_review boolean; observation_id uuid;
  c jsonb; bal jsonb; r jsonb; rb jsonb; refund_ids text[]:=array[]::text[];
  refunded numeric; succeeded_total numeric:=0; provider_fee numeric; original_fee numeric;
  remaining_fee numeric; remaining_artist numeric; platform_net numeric; fee_reversal numeric;
@@ -250,9 +251,10 @@ begin
   end if;
  end if;
  insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
+ values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation)) returning id into observation_id;
  update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
+   lease_token=null,lease_expires_at=null,accepted_observation_id=case when is_review then null else observation_id end,
+   reason=case when is_review then 'invalid_evidence' else null end
  where order_id=q.order_id;
  return true;
 end $$;
@@ -271,6 +273,32 @@ begin
    and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
  return found;
 end $$;
+
+-- Service-only, single-order report source. The caller must separately authorize
+-- the owner/artist and choose mode from trusted server configuration, not input.
+-- Never choose the newest observation by timestamp: only the exact observation
+-- accepted by the current lease can establish settled evidence.
+create function public.cs_read_gallery_settlement(p_order uuid,p_live boolean)
+returns jsonb language sql stable security definer set search_path=pg_catalog,public,pg_temp as $
+ select jsonb_build_object(
+  'state',case when q.state='observed' and s.id is null then 'review' else q.state end,
+  'generation',q.generation,'refund_floor_cents',q.refund_floor_cents,
+  'evidence',case when q.state='observed' then s.provider_snapshot else null end)
+ from public.gallery_settlement_queue q
+ left join public.gallery_settlement_observations s on s.id=q.accepted_observation_id
+  and s.order_id=q.order_id and s.stripe_payment_intent_id=q.stripe_payment_intent_id
+  and s.provider_snapshot->'livemode'=to_jsonb(q.livemode)
+  and s.provider_snapshot->'queue_generation'=to_jsonb(q.generation)
+  and s.provider_snapshot->>'currency'=q.currency
+  and s.provider_snapshot->>'sale_kind'=q.sale_kind
+  and s.provider_snapshot->'captured_cents'=to_jsonb(q.captured_cents)
+  and case when jsonb_typeof(s.provider_snapshot->'refunded_cents')='number'
+      then (s.provider_snapshot->>'refunded_cents')::numeric between q.refund_floor_cents and q.captured_cents
+      else false end
+ where p_order is not null and p_live is not null and q.order_id=p_order and q.livemode=p_live
+$;
+revoke all on function public.cs_read_gallery_settlement(uuid,boolean) from public,anon,authenticated,service_role;
+grant execute on function public.cs_read_gallery_settlement(uuid,boolean) to service_role;
 
 revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
  public.cs_claim_gallery_settlement(boolean,integer),

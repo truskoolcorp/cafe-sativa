@@ -5,17 +5,16 @@ function setup({mode='isolated-test',flag='true',user=a,ownerIds=owner,fail=fals
  const calls=[]
  const rows={
   artists:[{id:artist,user_id:a},{id:other,user_id:b}],
-  gallery_order_financial_review:[
+  gallery_order_accepted_financial_review:[
     {order_id:'one',artist_id:artist,sale_kind:'consigned',provider_livemode:false,evidence_state:'observed',financial_evidence:{processing_fees_cents:null}},
-    {order_id:'two',artist_id:other,sale_kind:'consigned',provider_livemode:null,evidence_state:'unobserved'},
+    {order_id:'two',artist_id:other,sale_kind:'consigned',provider_livemode:false,evidence_state:'unobserved'},
     {order_id:'house',artist_id:artist,sale_kind:'house',provider_livemode:false,evidence_state:'observed'},
     {order_id:'live',artist_id:artist,sale_kind:'consigned',provider_livemode:true,evidence_state:'observed'}],
   gallery_refund_review_candidates:[{order_id:'two',review_reason:'digital_edition_manual_review'}]
  }
  const admin={from(table){calls.push(table);let r=rows[table].slice();return {
  select(fields){assert.ok(!fields.includes('*')&&!fields.includes('buyer')&&!fields.includes('snapshot,provider_snapshot'));return this},
- eq(k,v){r=r.filter(x=>x[k]===v);return this},
- or(f){assert.equal(f,'provider_livemode.is.null,provider_livemode.eq.false');if(!foreignMode)r=r.filter(x=>x.provider_livemode!==true);return this},
+ eq(k,v){if(k==='provider_livemode')assert.equal(v,false);if(k!=='provider_livemode'||!foreignMode)r=r.filter(x=>x[k]===v);return this},
  order(){return this},
  limit(n){assert.equal(n,101);return Promise.resolve(fail?{error:{message:'internal'}}:{data:r.slice(0,n)})},
  maybeSingle(){return Promise.resolve({data:r.length===1?r[0]:null})}

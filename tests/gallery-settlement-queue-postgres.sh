@@ -12,7 +12,9 @@ begin
   or has_function_privilege('anon','public.cs_read_gallery_settlement(uuid,boolean)','EXECUTE')
   or has_function_privilege('authenticated','public.cs_read_gallery_settlement(uuid,boolean)','EXECUTE')
   or has_table_privilege('service_role','public.gallery_settlement_queue','UPDATE')
-  or has_table_privilege('service_role','public.gallery_settlement_queue_events','SELECT') then
+  or has_table_privilege('service_role','public.gallery_settlement_queue_events','SELECT')
+  or has_table_privilege('authenticated','public.gallery_order_accepted_financial_review','SELECT')
+  or not has_table_privilege('service_role','public.gallery_order_accepted_financial_review','SELECT') then
   raise exception 'Queue exposed beyond service-only RPC';
  end if;
 end $permissions$;
@@ -148,6 +150,12 @@ begin
  values(q.order_id,intent,jsonb_set(evidence||jsonb_build_object('queue_generation',2),'{refunded_cents}','0'::jsonb));
  if public.cs_read_gallery_settlement(q.order_id,false)->'evidence' is distinct from (evidence||jsonb_build_object('queue_generation',2)) then
   raise exception 'Unaccepted later observation displaced accepted evidence'; end if;
+ if not exists(select 1 from public.gallery_order_accepted_financial_review v where v.order_id=q.order_id
+   and v.provider_livemode='false'::jsonb and v.evidence_state='observed' and v.observed_at is not null
+   and v.financial_evidence->'refunded_cents'='200'::jsonb
+   and v.financial_evidence->'processing_fees_cents'='66'::jsonb
+   and v.financial_evidence->'artist_connect_allocation_cents'='944'::jsonb) then
+  raise exception 'Report projection selected unaccepted consigned evidence'; end if;
 end $success$;
 reset role;
 -- Force an expired final lease as disposable fixture clock control.
@@ -206,6 +214,10 @@ begin
  if public.cs_read_gallery_settlement(o,false)->>'state' is distinct from 'queued' or
     public.cs_read_gallery_settlement(o,false)->'evidence' is distinct from 'null'::jsonb then
   raise exception 'Queued generation exposed stale settled evidence'; end if;
+ if not exists(select 1 from public.gallery_order_accepted_financial_review v where v.order_id=o
+   and v.provider_livemode='false'::jsonb and v.evidence_state='incomplete' and v.observed_at is null
+   and v.financial_evidence->'processing_fees_cents'='null'::jsonb) then
+  raise exception 'Queued report exposed stale provider amounts'; end if;
  select * into strict q from public.cs_claim_gallery_settlement(false,1);
  ev:=jsonb_set(ev,'{attention}','["balance_transactions_incomplete"]'::jsonb);
  ev:=jsonb_set(ev,'{charge_balance}','null'::jsonb);
@@ -216,6 +228,10 @@ begin
  if public.cs_read_gallery_settlement(o,false)->>'state' is distinct from 'review' or
     public.cs_read_gallery_settlement(o,false)->'evidence' is distinct from 'null'::jsonb then
   raise exception 'Review evidence exposed as settled'; end if;
+ if not exists(select 1 from public.gallery_order_accepted_financial_review v where v.order_id=o
+   and v.evidence_state='attention' and v.observed_at is null
+   and v.financial_evidence->'processing_fees_cents'='null'::jsonb) then
+  raise exception 'Review report exposed unaccepted provider amounts'; end if;
 end $house_queue_acceptance$;
 reset role;
 do $house_queue_state$

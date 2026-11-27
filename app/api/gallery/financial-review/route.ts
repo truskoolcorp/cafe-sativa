@@ -35,12 +35,11 @@ export async function GET(req:Request) {
     }
     // No raw snapshots, buyer identity, or private object paths. The dedicated
     // test database is required even for rows with no provider observation.
-    let query = admin.from('gallery_order_financial_review').select(financialFields)
-      .or('provider_livemode.is.null,provider_livemode.eq.false')
+    let query = admin.from('gallery_order_accepted_financial_review').select(financialFields)
+      .eq('provider_livemode',false)
     if(artistId)query=query.eq('artist_id',artistId).eq('sale_kind','consigned')
     const {data:rows,error} = await query.order('paid_at',{ascending:false}).order('order_id').limit(101)
-    if(error || !rows || rows.some(r=>r.provider_livemode!==false &&
-        !(r.provider_livemode===null && r.evidence_state==='unobserved'))) return deny(503)
+    if(error || !rows || rows.some(r=>r.provider_livemode!==false)) return deny(503)
     // Refund queue has no provider-mode column; only the verified isolated DB
     // may use it. No restock or review mutation is exposed.
     let refunds:unknown[]=[]

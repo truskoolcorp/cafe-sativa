@@ -345,6 +345,7 @@ returns jsonb language sql stable security definer set search_path=pg_catalog,pu
  select jsonb_build_object(
   'state',case when q.state='observed' and s.id is null then 'review' else q.state end,
   'generation',q.generation,'refund_floor_cents',q.refund_floor_cents,
+  'observed_at',case when q.state='observed' then s.observed_at else null end,
   'evidence',case when q.state='observed' then s.provider_snapshot else null end)
  from public.gallery_settlement_queue q
  left join public.gallery_settlement_observations s on s.id=q.accepted_observation_id
@@ -371,4 +372,68 @@ grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text
  public.cs_claim_gallery_settlement(boolean,integer),
  public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
  public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
+
+-- Service-only report projection of accepted queue evidence. Session mode is
+-- derived from the recorded Checkout session, never from unaccepted observations.
+create view public.gallery_order_accepted_financial_review with (security_invoker=true) as
+select o.id as order_id, i.artist_id, i.product_id, i.title_snapshot, o.currency,
+ o.paid_at, o.fulfillment_state, i.quantity, i.line_total_cents,
+ case when i.gallery_sale_kind='house' then 'house' else 'consigned' end as sale_kind,
+ i.application_fee_cents as recorded_commission_cents,
+ s.observed_at, to_jsonb(starts_with(o.stripe_checkout_session_id,'cs_live_')) as provider_livemode,
+ case when s.queue_state='review' then 'attention'
+      when s.queue_state in ('queued','leased') then 'incomplete'
+      when s.provider_snapshot is null then 'unobserved'
+      when ((o.fulfillment_state::text='refunded' and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(o.total_cents))
+       or (refund_totals.succeeded_cents is not null and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(refund_totals.succeeded_cents))) then 'attention'
+      when jsonb_typeof(s.provider_snapshot#>'{order_comparison,attention}') is distinct from 'array' then 'incomplete'
+      when jsonb_array_length(s.provider_snapshot#>'{order_comparison,attention}')>0 then 'attention'
+      else 'observed' end as evidence_state,
+ jsonb_build_object(
+ -- Original expectation is derived from the recorded artwork line, even before provider observation.
+ 'expected_original_commission_cents',case when i.line_total_cents>0 then
+   case when i.gallery_sale_kind='house' then 0 else floor(i.line_total_cents::numeric/10)::bigint end end,
+ 'expected_original_artist_cents',case when i.line_total_cents>0 then
+   case when i.gallery_sale_kind='house' then 0 else i.line_total_cents-floor(i.line_total_cents::numeric/10)::bigint end end,
+ 'captured_cents',s.provider_snapshot->'captured_cents',
+ 'refunded_cents',s.provider_snapshot->'refunded_cents',
+ 'expected_remaining_commission_cents',s.provider_snapshot#>'{order_comparison,expected_remaining_commission_cents}',
+ 'expected_remaining_artist_cents',s.provider_snapshot#>'{order_comparison,expected_remaining_artist_cents}',
+ 'gross_transfer_cents',s.provider_snapshot->'transfer_cents',
+ 'original_application_fee_cents',s.provider_snapshot->'application_fee_cents',
+ 'artist_connect_allocation_cents',s.provider_snapshot->'observed_artist_connect_allocation_cents',
+ 'platform_application_fee_cents',s.provider_snapshot->'observed_platform_application_fee_cents',
+ 'processing_fees_cents',s.provider_snapshot->'observed_charge_refund_balance_fee_cents',
+ 'transfer_reversed_cents',s.provider_snapshot->'transfer_reversed_cents',
+ 'application_fee_refunded_cents',s.provider_snapshot->'application_fee_refunded_cents',
+ 'platform_after_charge_refund_fees_cents',s.provider_snapshot#>'{order_comparison,observed_platform_after_charge_refund_fees_cents}',
+ 'refund_evidence_mismatch',case when s.provider_snapshot is not null then ((o.fulfillment_state::text='refunded' and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(o.total_cents))
+       or (refund_totals.succeeded_cents is not null and
+         s.provider_snapshot->'refunded_cents' is distinct from to_jsonb(refund_totals.succeeded_cents))) end,
+ 'attention',s.provider_snapshot#>'{order_comparison,attention}'
+ ) as financial_evidence
+from public.orders o
+join public.order_items i on i.order_id=o.id
+left join lateral (
+ select q.result->>'state' as queue_state,
+   case when q.result->>'state'='observed' then (q.result->>'observed_at')::timestamptz end as observed_at,
+   case when q.result->>'state'='observed' and jsonb_typeof(q.result->'evidence')='object'
+     then q.result->'evidence' end as provider_snapshot
+ from (select public.cs_read_gallery_settlement(o.id,starts_with(o.stripe_checkout_session_id,'cs_live_')) as result) q
+) s on true
+left join lateral (
+ select sum(f.amount_cents) as succeeded_cents from public.gallery_refund_receipts f
+ where f.order_id=o.id and f.stripe_payment_intent_id=o.stripe_payment_intent_id
+   and f.currency=o.currency and f.provider_status='succeeded'
+) refund_totals on true
+where o.paid_at is not null and i.artist_id is not null and i.product_id is not null
+ and (starts_with(o.stripe_checkout_session_id,'cs_test_') or starts_with(o.stripe_checkout_session_id,'cs_live_'))
+ and exists(select 1 from public.gallery_private_deliveries d where d.order_id=o.id and d.product_id=i.product_id)
+ and (select count(*) from public.order_items oi where oi.order_id=o.id)=1;
+revoke all on public.gallery_order_accepted_financial_review from public,anon,authenticated,service_role;
+grant select on public.gallery_order_accepted_financial_review to service_role;
+
 commit;

@@ -167,77 +167,9 @@ begin
  if not is_review then
   refunded:=(p_snapshot->>'refunded_cents')::numeric;
   bal:=p_snapshot->'charge_balance';
-  if coalesce(p_snapshot->>'charge_id','') !~ '^ch_[A-Za-z0-9_]+
- insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
- update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
- where order_id=q.order_id;
- return true;
-end $$;
-
-create function public.cs_retry_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_reason text)
-returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-begin
- if p_reason is null or p_reason not in ('provider_retry','evidence_retry') then
-  raise exception 'Invalid Gallery settlement retry reason';
- end if;
- update public.gallery_settlement_queue q
- set state=case when q.attempts>=5 then 'review' else 'queued' end,
-   due_at=clock_timestamp()+make_interval(mins=>5 * (1 << (q.attempts-1))),
-   reason=case when q.attempts>=5 then 'attempt_limit' else p_reason end,lease_token=null,lease_expires_at=null
- where q.order_id=p_order and q.livemode=p_live and q.generation=p_generation and q.state='leased'
-   and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
- return found;
-end $$;
-
-revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text)
- from public,anon,authenticated,service_role;
-grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
-commit;
-
+  if coalesce(p_snapshot->>'charge_id','') !~ '^ch_[A-Za-z0-9_]+$'
    or jsonb_typeof(bal) is distinct from 'object'
-   or coalesce(bal->>'id','') !~ '^txn_[A-Za-z0-9_]+
- insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
- update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
- where order_id=q.order_id;
- return true;
-end $$;
-
-create function public.cs_retry_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_reason text)
-returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-begin
- if p_reason is null or p_reason not in ('provider_retry','evidence_retry') then
-  raise exception 'Invalid Gallery settlement retry reason';
- end if;
- update public.gallery_settlement_queue q
- set state=case when q.attempts>=5 then 'review' else 'queued' end,
-   due_at=clock_timestamp()+make_interval(mins=>5 * (1 << (q.attempts-1))),
-   reason=case when q.attempts>=5 then 'attempt_limit' else p_reason end,lease_token=null,lease_expires_at=null
- where q.order_id=p_order and q.livemode=p_live and q.generation=p_generation and q.state='leased'
-   and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
- return found;
-end $$;
-
-revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text)
- from public,anon,authenticated,service_role;
-grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
-commit;
-
+   or coalesce(bal->>'id','') !~ '^txn_[A-Za-z0-9_]+$'
    or bal->'amount_cents' is distinct from to_jsonb(q.captured_cents)
    or jsonb_typeof(bal->'fee_cents') is distinct from 'number'
    or jsonb_typeof(bal->'net_cents') is distinct from 'number'
@@ -250,41 +182,7 @@ commit;
   end if;
   for r in select value from jsonb_array_elements(p_snapshot->'refunds') loop
    if jsonb_typeof(r) is distinct from 'object' or not (r ?& array['id','amount_cents','status','balance'])
-    or coalesce(r->>'id','') !~ '^re_[A-Za-z0-9_]+
- insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
- update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
- where order_id=q.order_id;
- return true;
-end $$;
-
-create function public.cs_retry_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_reason text)
-returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-begin
- if p_reason is null or p_reason not in ('provider_retry','evidence_retry') then
-  raise exception 'Invalid Gallery settlement retry reason';
- end if;
- update public.gallery_settlement_queue q
- set state=case when q.attempts>=5 then 'review' else 'queued' end,
-   due_at=clock_timestamp()+make_interval(mins=>5 * (1 << (q.attempts-1))),
-   reason=case when q.attempts>=5 then 'attempt_limit' else p_reason end,lease_token=null,lease_expires_at=null
- where q.order_id=p_order and q.livemode=p_live and q.generation=p_generation and q.state='leased'
-   and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
- return found;
-end $$;
-
-revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text)
- from public,anon,authenticated,service_role;
-grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
-commit;
- or (r->>'id')=any(refund_ids)
+    or coalesce(r->>'id','') !~ '^re_[A-Za-z0-9_]+$' or (r->>'id')=any(refund_ids)
     or jsonb_typeof(r->'amount_cents') is distinct from 'number'
     or coalesce(r->>'status','') not in ('succeeded','failed','canceled') then
     raise exception 'Incomplete Gallery refund evidence';
@@ -296,41 +194,7 @@ commit;
    end if;
    if r->>'status'='succeeded' then
     rb:=r->'balance';
-    if jsonb_typeof(rb) is distinct from 'object' or coalesce(rb->>'id','') !~ '^txn_[A-Za-z0-9_]+
- insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
- update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
- where order_id=q.order_id;
- return true;
-end $$;
-
-create function public.cs_retry_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_reason text)
-returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-begin
- if p_reason is null or p_reason not in ('provider_retry','evidence_retry') then
-  raise exception 'Invalid Gallery settlement retry reason';
- end if;
- update public.gallery_settlement_queue q
- set state=case when q.attempts>=5 then 'review' else 'queued' end,
-   due_at=clock_timestamp()+make_interval(mins=>5 * (1 << (q.attempts-1))),
-   reason=case when q.attempts>=5 then 'attempt_limit' else p_reason end,lease_token=null,lease_expires_at=null
- where q.order_id=p_order and q.livemode=p_live and q.generation=p_generation and q.state='leased'
-   and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
- return found;
-end $$;
-
-revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text)
- from public,anon,authenticated,service_role;
-grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
-commit;
-
+    if jsonb_typeof(rb) is distinct from 'object' or coalesce(rb->>'id','') !~ '^txn_[A-Za-z0-9_]+$'
       or rb->'amount_cents' is distinct from to_jsonb(-(r->>'amount_cents')::numeric)
       or jsonb_typeof(rb->'fee_cents') is distinct from 'number'
       or jsonb_typeof(rb->'net_cents') is distinct from 'number'
@@ -359,82 +223,14 @@ commit;
    if p_snapshot->'expected_original_fee_cents' not in ('null'::jsonb,'0'::jsonb)
     or exists(select 1 from unnest(array['transfer_id','transfer_cents','transfer_reversed_cents',
       'application_fee_id','application_fee_cents','application_fee_refunded_cents',
-      'observed_artist_connect_allocation_cents','observed_platform_application_fee_cents']) k
+      'observed_artist_connect_allocation_cents','observed_platform_application_fee_cents']) as keys(k)
       where p_snapshot->k is distinct from 'null'::jsonb) then
     raise exception 'Unexpected Gallery house Connect evidence';
    end if;
    platform_net:=q.captured_cents-refunded-provider_fee;
   else
-   if coalesce(p_snapshot->>'transfer_id','') !~ '^tr_[A-Za-z0-9_]+
- insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
- update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
- where order_id=q.order_id;
- return true;
-end $$;
-
-create function public.cs_retry_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_reason text)
-returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-begin
- if p_reason is null or p_reason not in ('provider_retry','evidence_retry') then
-  raise exception 'Invalid Gallery settlement retry reason';
- end if;
- update public.gallery_settlement_queue q
- set state=case when q.attempts>=5 then 'review' else 'queued' end,
-   due_at=clock_timestamp()+make_interval(mins=>5 * (1 << (q.attempts-1))),
-   reason=case when q.attempts>=5 then 'attempt_limit' else p_reason end,lease_token=null,lease_expires_at=null
- where q.order_id=p_order and q.livemode=p_live and q.generation=p_generation and q.state='leased'
-   and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
- return found;
-end $$;
-
-revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text)
- from public,anon,authenticated,service_role;
-grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
-commit;
-
-    or coalesce(p_snapshot->>'application_fee_id','') !~ '^fee_[A-Za-z0-9_]+
- insert into public.gallery_settlement_observations(order_id,stripe_payment_intent_id,provider_snapshot)
- values(q.order_id,q.stripe_payment_intent_id,p_snapshot||jsonb_build_object('queue_generation',q.generation));
- update public.gallery_settlement_queue set state=case when is_review then 'review' else 'observed' end,
-   lease_token=null,lease_expires_at=null,reason=case when is_review then 'invalid_evidence' else null end
- where order_id=q.order_id;
- return true;
-end $$;
-
-create function public.cs_retry_gallery_settlement(p_order uuid,p_live boolean,p_generation bigint,p_lease uuid,p_reason text)
-returns boolean language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-begin
- if p_reason is null or p_reason not in ('provider_retry','evidence_retry') then
-  raise exception 'Invalid Gallery settlement retry reason';
- end if;
- update public.gallery_settlement_queue q
- set state=case when q.attempts>=5 then 'review' else 'queued' end,
-   due_at=clock_timestamp()+make_interval(mins=>5 * (1 << (q.attempts-1))),
-   reason=case when q.attempts>=5 then 'attempt_limit' else p_reason end,lease_token=null,lease_expires_at=null
- where q.order_id=p_order and q.livemode=p_live and q.generation=p_generation and q.state='leased'
-   and q.lease_token=p_lease and q.lease_expires_at>clock_timestamp();
- return found;
-end $$;
-
-revoke all on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text)
- from public,anon,authenticated,service_role;
-grant execute on function public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint),
- public.cs_claim_gallery_settlement(boolean,integer),
- public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb),
- public.cs_retry_gallery_settlement(uuid,boolean,bigint,uuid,text) to service_role;
-commit;
-
+   if coalesce(p_snapshot->>'transfer_id','') !~ '^tr_[A-Za-z0-9_]+$'
+    or coalesce(p_snapshot->>'application_fee_id','') !~ '^fee_[A-Za-z0-9_]+$'
     or p_snapshot->'expected_original_fee_cents' is distinct from to_jsonb(original_fee)
     or p_snapshot->'application_fee_cents' is distinct from to_jsonb(original_fee)
     or p_snapshot->'transfer_cents' is distinct from to_jsonb(q.captured_cents)

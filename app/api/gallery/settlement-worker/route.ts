@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
-import { galleryEnvironment } from '@/lib/gallery/environment'
+import { galleryEnvironment, galleryProductionSettlementWorkerCredentialConfigured } from '@/lib/gallery/environment'
 import { runGallerySettlementQueueOnce } from '@/lib/gallery/persist-test-settlement'
 
 export const runtime = 'nodejs'
@@ -27,12 +27,8 @@ export async function POST(req:Request) {
     if(url.origin!=='https://www.cafe-sativa.com' ||
        url.pathname!=='/api/gallery/settlement-worker' ||
        url.search || url.hash || galleryEnvironment(req.url)!=='production') return deny(404)
-    const secret=process.env.GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET
-    if(!secret || !/^[A-Za-z0-9_-]{32,128}$/.test(secret) ||
-       [process.env.CRON_SECRET,process.env.GALLERY_SETTLEMENT_QA_SECRET,
-        process.env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET,process.env.STRIPE_WEBHOOK_SECRET,
-        process.env.STRIPE_SECRET_KEY,process.env.SUPABASE_SERVICE_ROLE_KEY,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY].includes(secret)) return deny(404)
+    if(!galleryProductionSettlementWorkerCredentialConfigured()) return deny(404)
+    const secret=process.env.GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET!
     const expected=Buffer.from('Bearer '+secret)
     const actual=Buffer.from(req.headers.get('authorization') ?? '')
     if(actual.length!==expected.length || !timingSafeEqual(actual,expected)) return deny(401)

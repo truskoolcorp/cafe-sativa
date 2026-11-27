@@ -90,6 +90,15 @@ export function galleryFinancialReviewMode(requestUrl:string,env:Env=process.env
   return 'blocked'
 }
 
+/** Same credential admission for the worker and public new-sales interlock. */
+export function galleryProductionSettlementWorkerCredentialConfigured(env: Env = process.env): boolean {
+  const secret = env.GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET
+  return !!secret && /^[A-Za-z0-9_-]{32,128}$/.test(secret) &&
+    ![env.CRON_SECRET,env.GALLERY_SETTLEMENT_QA_SECRET,env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET,
+      env.STRIPE_WEBHOOK_SECRET,env.STRIPE_SECRET_KEY,env.SUPABASE_SERVICE_ROLE_KEY,
+      env.NEXT_PUBLIC_SUPABASE_ANON_KEY].includes(secret)
+}
+
 /** New checkout only. Never use this switch to gate paid/refunded events,
  * fulfillment or access for existing buyers. Defaults closed in every environment. */
 export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process.env): boolean {
@@ -98,6 +107,7 @@ export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process
       env.GALLERY_DIGITAL_WORKER !== 'true') return false
   return mode === 'production' ? galleryProductionFinancialReviewConfigured(env) &&
     env.GALLERY_PRODUCTION_SETTLEMENT_WORKER === 'true' &&
+    galleryProductionSettlementWorkerCredentialConfigured(env) &&
     env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID === env.GALLERY_HOUSE_STRIPE_ACCOUNT_ID :
     env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env)
 }

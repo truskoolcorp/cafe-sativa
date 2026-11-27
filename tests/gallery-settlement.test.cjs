@@ -295,7 +295,7 @@ function productionSettlementWorker({overrides={},mode='production',url='https:/
  let calls=0
  const ctx={exports:{},URL,Response,Buffer,process:{env},require(id){
   if(id==='node:crypto')return require(id)
-  if(id.endsWith('/environment'))return {galleryEnvironment:()=>mode}
+  if(id.endsWith('/environment'))return {...require('./helpers/load-gallery-environment.cjs')(env),galleryEnvironment:()=>mode}
   if(id.endsWith('/persist-test-settlement'))return {runGallerySettlementQueueOnce:async()=>{calls++;if(workerError)throw Error('private provider error');return {status:'recorded',private:'not returned'}}}
   throw Error(id)
  }}

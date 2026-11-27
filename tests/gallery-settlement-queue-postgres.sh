@@ -6,7 +6,7 @@ psql -f docs/gallery/proposed-settlement-queue.sql >/dev/null
 psql <<'SQL'
 do $permissions$
 begin
- if has_function_privilege('anon','public.cs_enqueue_gallery_settlement(uuid,boolean,text,text)','EXECUTE')
+ if has_function_privilege('anon','public.cs_enqueue_gallery_settlement(uuid,boolean,text,text,bigint)','EXECUTE')
   or has_function_privilege('authenticated','public.cs_claim_gallery_settlement(boolean,integer)','EXECUTE')
   or has_function_privilege('authenticated','public.cs_finish_gallery_settlement(uuid,boolean,bigint,uuid,jsonb)','EXECUTE')
   or has_table_privilege('service_role','public.gallery_settlement_queue','UPDATE')
@@ -21,7 +21,7 @@ begin
  select id into strict o from public.orders where stripe_payment_intent_id=intent;
  -- An enqueue rolled back with its parent mutation does not retain work or dedupe.
  begin
-  if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_paid_fixture')<>1 then
+  if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_paid_fixture',0)<>1 then
    raise exception 'Unexpected generation inside rolled-back transaction'; end if;
   raise exception 'Fixture intentional rollback';
  exception when others then
@@ -29,15 +29,15 @@ begin
  end;
  if exists(select 1 from public.cs_claim_gallery_settlement(false,3)) then raise exception 'Rollback leaked queue work'; end if;
  begin
-  perform public.cs_enqueue_gallery_settlement(o,true,'consigned','evt_wrong_mode');
+  perform public.cs_enqueue_gallery_settlement(o,true,'consigned','evt_wrong_mode',0);
   raise exception 'Wrong mode accepted';
  exception when no_data_found then null; end;
  begin
-  perform public.cs_enqueue_gallery_settlement(o,false,'house','evt_wrong_kind');
+  perform public.cs_enqueue_gallery_settlement(o,false,'house','evt_wrong_kind',0);
   raise exception 'Wrong kind accepted';
  exception when no_data_found then null; end;
- if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_paid_fixture')<>1 or
-    public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_paid_fixture')<>1 then
+ if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_paid_fixture',0)<>1 or
+    public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_paid_fixture',0)<>1 then
    raise exception 'Duplicate changed generation'; end if;
  if exists(select 1 from public.cs_claim_gallery_settlement(true,3)) then raise exception 'Test work leased to live worker'; end if;
  select * into strict q from public.cs_claim_gallery_settlement(false,3);
@@ -45,12 +45,25 @@ begin
     exists(select 1 from public.cs_claim_gallery_settlement(false,3)) then raise exception 'Unexpected claim'; end if;
  snapshot:=jsonb_build_object('payment_intent_id',intent,'livemode',false,'sale_kind','consigned','currency','usd',
    'captured_cents',1249,'refunded_cents',0,'order_comparison',jsonb_build_object('attention','[]'::jsonb));
- insert into public.gallery_refund_receipts(stripe_refund_id,order_id,stripe_payment_intent_id,amount_cents,currency,provider_status)
- values('re_fixture',o,intent,200,'usd','succeeded');
- if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_refund_fixture')<>2 or
+ -- Prove floor persistence before any provider ledger receipt exists.
+ begin
+  perform public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_excess_floor',1250);
+  raise exception 'Excess signed floor accepted';
+ exception when others then
+  if sqlerrm<>'Invalid Gallery signed refund floor' then raise; end if;
+ end;
+ if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_refund_fixture',200)<>2 or
     public.cs_finish_gallery_settlement(o,false,q.generation,q.lease_token,snapshot) or
     public.cs_retry_gallery_settlement(o,false,q.generation,q.lease_token,'evidence_retry') then
   raise exception 'New refund did not invalidate stale lease'; end if;
+ if public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_refund_fixture',200)<>2 then
+  raise exception 'Signed refund replay changed generation'; end if;
+ begin
+  perform public.cs_enqueue_gallery_settlement(o,false,'consigned','evt_refund_fixture',0);
+  raise exception 'Conflicting event floor accepted';
+ exception when others then
+  if sqlerrm<>'Gallery settlement event already bound' then raise; end if;
+ end;
  select * into strict q2 from public.cs_claim_gallery_settlement(false,3);
  begin
   perform public.cs_finish_gallery_settlement(o,false,q2.generation,q2.lease_token,snapshot);
@@ -66,7 +79,9 @@ do $proof$
 declare o uuid;
 begin
  select id into strict o from public.orders where stripe_payment_intent_id='pi_test_consigned_private_fixture';
- if exists(select 1 from public.gallery_settlement_observations where order_id=o) or
+ if exists(select 1 from public.gallery_refund_receipts where order_id=o) or
+   not exists(select 1 from public.gallery_settlement_queue_events where order_id=o and event_id='evt_refund_fixture' and signed_refund_floor_cents=200) or
+   exists(select 1 from public.gallery_settlement_observations where order_id=o) or
    not exists(select 1 from public.gallery_settlement_queue where order_id=o and generation=2 and refund_floor_cents=200
     and state='queued' and attempts=1 and reason='evidence_retry' and due_at>clock_timestamp()) then
   raise exception 'Stale evidence or retry proof mismatch'; end if;

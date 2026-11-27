@@ -8,7 +8,7 @@ const headers = {'Cache-Control':'private, no-store'}
 const deny = (status:number) => Response.json({error:'Gallery financial review unavailable'},{status,headers})
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const financialFields = 'order_id,artist_id,product_id,title_snapshot,currency,paid_at,fulfillment_state,quantity,line_total_cents,sale_kind,recorded_commission_cents,observed_at,provider_livemode,evidence_state,financial_evidence'
-const refundFields = 'order_id,product_id,artist_id,product_kind,quantity,currency,total_cents,succeeded_refund_cents,stock_count,review_state,review_reason'
+const refundFields = 'order_id,product_id,artist_id,product_kind,quantity,currency,total_cents,succeeded_refund_cents,stock_count,review_state,review_reason,provider_livemode'
 
 /** Explicitly enabled, mode-scoped read-only review. Never infer staff status from user metadata,
  * a request parameter, email domain, or an artist's payment readiness. */
@@ -46,7 +46,7 @@ export async function GET(req:Request) {
     let moreRefunds=false
     if(scope==='owner'){
       const {data:queue,error:queueError}=await admin.from('gallery_refund_mode_review_candidates')
-        .select(refundFields+',provider_livemode').eq('provider_livemode',live).order('order_id').limit(101)
+        .select(refundFields).eq('provider_livemode',live).order('order_id').limit(101)
       if(queueError || !queue || queue.some(r=>r.provider_livemode!==live))return deny(503)
       moreRefunds=queue.length>100
       refunds=queue.slice(0,100)

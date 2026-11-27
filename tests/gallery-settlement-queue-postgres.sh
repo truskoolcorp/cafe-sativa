@@ -151,5 +151,64 @@ begin
     where stripe_payment_intent_id='pi_test_consigned_private_fixture' and state='review'
      and reason='attempt_limit' and lease_token is null) then raise exception 'Expired terminal claim not quarantined'; end if;
 end $terminal$;
+
+-- Exercise the existing fully refunded house order, not a consigned approximation.
+set role service_role;
+do $house_queue_acceptance$
+declare o uuid; q record; ev jsonb;
+begin
+ select id into strict o from public.orders where stripe_payment_intent_id='pi_test_house';
+ if public.cs_enqueue_gallery_settlement(o,false,'house','evt_house_refunded_fixture',1200)<>1 then
+  raise exception 'House refund did not enqueue'; end if;
+ select * into strict q from public.cs_claim_gallery_settlement(false,1);
+ if q.order_id<>o then raise exception 'House lease identity mismatch'; end if;
+ ev:=jsonb_build_object('payment_intent_id','pi_test_house','livemode',false,'sale_kind','house','currency','usd',
+  'captured_cents',1200,'refunded_cents',1200,'charge_id','ch_house_fixture','expected_original_fee_cents',null,
+  'transfer_id',null,'transfer_cents',null,'transfer_reversed_cents',null,
+  'application_fee_id',null,'application_fee_cents',null,'application_fee_refunded_cents',null,
+  'observed_artist_connect_allocation_cents',null,'observed_platform_application_fee_cents',null,
+  'observed_charge_refund_balance_fee_cents',65,
+  'charge_balance',jsonb_build_object('id','txn_house_fixture','amount_cents',1200,'fee_cents',65,'net_cents',1135,'status','available'),
+  'refunds',jsonb_build_array(jsonb_build_object('id','re_house_fixture','amount_cents',1200,'status','succeeded',
+   'balance',jsonb_build_object('id','txn_house_refund_fixture','amount_cents',-1200,'fee_cents',0,'net_cents',-1200,'status','available'))),
+  'attention','[]'::jsonb,
+  'order_comparison',jsonb_build_object('sale_kind','house','order_subtotal_cents',1200,'order_total_cents',1200,
+   'expected_original_commission_cents',0,'expected_remaining_commission_cents',0,
+   'expected_remaining_artist_cents',0,'observed_platform_after_charge_refund_fees_cents',-65,'attention','[]'::jsonb));
+ begin
+  perform public.cs_finish_gallery_settlement(o,false,q.generation,q.lease_token,jsonb_set(ev,'{transfer_cents}','0'::jsonb));
+  raise exception 'House accepted non-null Connect evidence';
+ exception when others then
+  if sqlerrm<>'Unexpected Gallery house Connect evidence' then raise; end if;
+ end;
+ begin
+  perform public.cs_finish_gallery_settlement(o,false,q.generation,q.lease_token,jsonb_set(ev,'{order_comparison,observed_platform_after_charge_refund_fees_cents}','0'::jsonb));
+  raise exception 'House accepted understated processing loss';
+ exception when others then
+  if sqlerrm<>'Invalid Gallery order settlement comparison' then raise; end if;
+ end;
+ if not public.cs_finish_gallery_settlement(o,false,q.generation,q.lease_token,ev) then
+  raise exception 'House complete evidence not accepted'; end if;
+ if public.cs_enqueue_gallery_settlement(o,false,'house','evt_house_review_fixture',1200)<>2 then
+  raise exception 'House new event did not invalidate old evidence'; end if;
+ select * into strict q from public.cs_claim_gallery_settlement(false,1);
+ ev:=jsonb_set(ev,'{attention}','["balance_transactions_incomplete"]'::jsonb);
+ ev:=jsonb_set(ev,'{charge_balance}','null'::jsonb);
+ ev:=jsonb_set(ev,'{observed_charge_refund_balance_fee_cents}','null'::jsonb);
+ ev:=jsonb_set(ev,'{order_comparison,observed_platform_after_charge_refund_fees_cents}','null'::jsonb);
+ if not public.cs_finish_gallery_settlement(o,false,q.generation,q.lease_token,ev) then
+  raise exception 'House incomplete evidence not retained for review'; end if;
+end $house_queue_acceptance$;
+reset role;
+do $house_queue_state$
+declare o uuid;
+begin
+ select id into strict o from public.orders where stripe_payment_intent_id='pi_test_house';
+ if not exists(select 1 from public.gallery_settlement_queue where order_id=o and generation=2
+   and refund_floor_cents=1200 and state='review' and reason='invalid_evidence')
+  or (select count(*) from public.gallery_settlement_observations where order_id=o
+     and provider_snapshot->>'queue_generation' in ('1','2'))<>2 then
+  raise exception 'House review generation or retained evidence mismatch'; end if;
+end $house_queue_state$;
 SQL
 echo 'PASS: Gallery settlement queue transaction rollback, dedupe, scope, stale refund/lease rejection, delay, idempotency and terminal review.'

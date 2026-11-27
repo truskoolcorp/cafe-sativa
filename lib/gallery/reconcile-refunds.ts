@@ -18,7 +18,12 @@ export async function recordGalleryRefunds(stripe:Stripe,charge:Stripe.Charge){
  const seen=new Set<string>()
  const rows=[]
  let succeeded=0
- for await(const refund of stripe.refunds.list({charge:charge.id,limit:100})){
+ // Match the settlement observer's bounded evidence reads. A truncated page
+ // is not a complete refund ledger; leave it retryable for reconciliation.
+ const page=await stripe.refunds.list({charge:charge.id,limit:11},{timeout:3000,maxNetworkRetries:0})
+ if(!Array.isArray(page?.data)||page.has_more!==false||page.data.length>10)
+  throw Error('Gallery refund evidence exceeds read budget')
+ for(const refund of page.data){
   if(!refund.id||seen.has(refund.id)||idOf(refund.charge)!==charge.id||idOf(refund.payment_intent)!==pi||
     refund.currency!==order.currency||!Number.isSafeInteger(refund.amount)||refund.amount<=0||
     refund.amount>order.total_cents)throw Error('Refund identity, currency or amount mismatch')
@@ -31,6 +36,10 @@ export async function recordGalleryRefunds(stripe:Stripe,charge:Stripe.Charge){
    reconciliation_state:'attention',observed_at:new Date().toISOString()
   })
  }
+ // A complete list can still lag the signed event. Preserve its minimum
+ // succeeded amount on this attempt; never treat stale or pending-only
+ // receipts as a completed reconciliation. Older events may see newer totals.
+ if(succeeded<charge.amount_refunded)throw Error('Gallery refund evidence below signed event floor')
  if(rows.length){
   const {error:writeError}=await db.from('gallery_refund_receipts').upsert(rows,{onConflict:'stripe_refund_id'})
   if(writeError)throw Error('Refund receipt write failed')

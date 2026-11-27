@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     .from('products')
     .select(
       `
-      id, slug, title, description, kind, status, price_cents, currency,
+      id, artist_id, slug, title, description, kind, status, price_cents, currency,
       primary_image_url, stock_count, digital_delivery_url,
       artist:artists!inner (
         id, display_name, stripe_account_id, is_approved,
@@ -275,6 +275,7 @@ export async function POST(req: Request) {
     gallery_private_schema:'consigned-v1', approved_asset_id:approvedAssetId!, inventory_hold_id:holdId!,
     gallery_transfer_destination:artistRow.stripe_account_id,
   } : {}
+  let failurePhase: 'session_create_failed' | 'reservation_link_failed' = 'session_create_failed'
   try {
     const session = await stripe.checkout.sessions.create({
       ...(holdId ? {expires_at:Math.floor(Date.now()/1000)+40*60} : {}),
@@ -334,13 +335,16 @@ export async function POST(req: Request) {
       cancel_url: `${siteUrl}/gallery/${product.slug}?canceled=1`,
     },holdId ? {idempotencyKey:'gallery-hold-'+holdId} : undefined)
     if(holdId){
+      failurePhase = 'reservation_link_failed'
       const {data:linked,error:linkError}=await admin.from('gallery_inventory_holds').update({stripe_session_id:session.id}).eq('id',holdId).eq('state','held').select('id').maybeSingle()
       if(linkError||!linked)throw Error('Inventory reservation requires reconciliation')
     }
 
     return NextResponse.json({ url: session.url })
-  } catch (err: any) {
-    console.error('[gallery/checkout] session create failed', err)
+  } catch {
+    // Provider and database errors can contain checkout URLs or buyer data.
+    // Emit only a fixed phase; never serialize the underlying error.
+    console.error('[gallery/checkout] ' + failurePhase)
     return NextResponse.json(
       { error: 'Could not start checkout. Please retry.' },
       { status: 500 }

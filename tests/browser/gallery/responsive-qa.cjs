@@ -122,10 +122,10 @@ async function main() {
     GALLERY_HOUSE_ARTIST_ID:'22222222-2222-4222-8222-222222222222',
     GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_fixture',
   }
-  const offer = {...product,id:offerEnv.GALLERY_HOUSE_PRODUCT_ID}
+  const offer = {...product,id:offerEnv.GALLERY_HOUSE_PRODUCT_ID,artist_id:offerEnv.GALLERY_HOUSE_ARTIST_ID}
   const prodDetail = async(row,env=offerEnv,sales=true) => renderToStaticMarkup(await fixturePage(detailFile,[row],{sales,production:true,offerEnv:env})({params:{slug:row.slug}}))
   assert.match(await prodDetail(offer), /Synthetic checkout enabled/)
-  for (const altered of [{id:'other'},{slug:'other'},{price_cents:1201},{currency:'eur'},{kind:'physical'}]) {
+  for (const altered of [{id:'other'},{slug:'other'},{price_cents:1201},{currency:'eur'},{kind:'physical'},{artist_id:'other'},{artist_id:null},{artist_id:undefined}]) {
     assert.doesNotMatch(await prodDetail({...offer,...altered}), /Synthetic checkout enabled/)
   }
   assert.doesNotMatch(await prodDetail(offer,{},true), /Synthetic checkout enabled/)

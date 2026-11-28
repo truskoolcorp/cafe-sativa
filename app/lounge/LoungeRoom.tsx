@@ -118,6 +118,7 @@ export function LoungeRoom({
   const [reviewText, setReviewText] = useState('')
   const [reviewing, setReviewing] = useState(false)
   const [stageHidden, setStageHidden] = useState<Set<string>>(() => new Set())
+  const [stageReportsReady, setStageReportsReady] = useState(false)
   const [stageReportQueue, setStageReportQueue] = useState<{ id: string; content: string }[]>([])
   const [stageReportStatus, setStageReportStatus] = useState('')
   const [stageReporting, setStageReporting] = useState(false)
@@ -126,6 +127,7 @@ export function LoungeRoom({
   const [drafting, setDrafting] = useState(false)
   useEffect(() => {
     if (!stageReports) return
+    setStageReportsReady(false)
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout>
     async function refresh() {
@@ -134,9 +136,10 @@ export function LoungeRoom({
         const data = res.ok ? await res.json() : null
         if (controller.signal.aborted) return
         if (Array.isArray(data?.hidden)) setStageHidden(prev => new Set([...prev, ...data.hidden]))
+        setStageReportsReady(Array.isArray(data?.hidden))
         setStageReportQueue(Array.isArray(data?.pending) ? data.pending : [])
       } catch {
-        if (!controller.signal.aborted) setStageReportQueue([])
+        if (!controller.signal.aborted) { setStageReportQueue([]); setStageReportsReady(false) }
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(refresh, 3500)
       }
@@ -155,10 +158,11 @@ export function LoungeRoom({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Could not reach Stage moderation.')
-      const hidden = data.status === 'hidden_by_laviche' || (data.resolved && action === 'remove')
+      const hidden = ['hidden_by_laviche','hidden_by_staff'].includes(data.status) || (data.resolved && action === 'remove')
       if (hidden) setStageHidden(prev => new Set([...prev, messageId]))
       if (data.resolved) setStageReportQueue(prev => prev.filter(item => item.id !== messageId))
-      setStageReportStatus(data.resolved ? 'Report resolved.' : hidden ? 'Laviche hid the repeated link.' :
+      setStageReportStatus(data.resolved ? 'Report resolved.' : data.status === 'hidden_by_laviche' ? 'Laviche hid the repeated link.' :
+        data.status === 'hidden_by_staff' ? 'A moderator hid this message.' :
         data.status === 'dismissed' ? 'A moderator already reviewed this message.' : 'Report sent privately for review.')
     } catch (err) {
       setStageReportStatus(err instanceof Error ? err.message : 'Could not reach Stage moderation.')
@@ -615,7 +619,9 @@ export function LoungeRoom({
         onScroll={handleListScroll}
         className="flex-1 overflow-y-auto py-4 space-y-2 relative"
       >
-        {messages.length === 0 ? (
+        {stageReports && !stageReportsReady ? (
+          <p role="status" className="px-3 text-sm text-muted-foreground">Checking room moderation…</p>
+        ) : messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-sm text-muted-foreground font-body">
               Quiet in here. Say hi.

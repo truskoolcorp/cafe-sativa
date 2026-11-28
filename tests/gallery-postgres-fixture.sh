@@ -185,8 +185,9 @@ begin
 end $house$;
 SQL
 
-# Second isolated database: exercise the exact thin local developer schema against
-# Auth/Storage table stand-ins. Does not run Supabase Auth or Storage services.
+# Second isolated database: exercise the thin local developer schema, then add
+# verified production-shaped business constraints and run the full migration chain.
+# Auth/Storage are table stand-ins; no hosted services or provider calls.
 psql -c 'create database gallery_house_local_schema' >/dev/null
 psql_house() { "$bin/psql" -X -h "$tmp/socket" -p 55439 -U gallery_fixture -d gallery_house_local_schema -v ON_ERROR_STOP=1 "$@"; }
 psql_house -q <<'SQL'
@@ -204,12 +205,49 @@ if psql_house -f tests/fixtures/gallery-local-house-base.sql >/dev/null 2>&1; th
  exit 1
 fi
 psql_house -c "set gallery.local_sandbox='on'" -f tests/fixtures/gallery-local-house-base.sql >/dev/null
-for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations proposed-house-checkout; do
+# Read-only cafe-sativa-prod catalog verified these enums, mandatory columns,
+# identity uniqueness, FK delete behavior and numeric checks on Nov 28 UTC.
+# This is a schema-shaped fixture, not a production schema dump.
+psql_house -q <<'SQL'
+create type public.product_kind as enum ('physical','digital','nft');
+create type public.product_status as enum ('draft','published','archived');
+create type public.fulfillment_state as enum ('pending','processing','shipped','delivered','canceled','refunded');
+alter table public.artists
+ add column slug text not null unique,
+ add column onboarding_state text not null default 'none' check(onboarding_state in ('none','pending','active','rejected')),
+ add unique(user_id), add unique(stripe_account_id),
+ drop constraint artists_user_id_fkey,
+ add foreign key(user_id) references auth.users(id) on delete cascade;
+alter table public.products
+ alter column kind type public.product_kind using kind::public.product_kind,
+ alter column status type public.product_status using status::public.product_status,
+ alter column status set default 'draft',
+ drop constraint products_slug_key,
+ add unique(artist_id,slug),
+ drop constraint products_artist_id_fkey,
+ add foreign key(artist_id) references public.artists(id) on delete cascade,
+ add check(price_cents>=0);
+alter table public.orders
+ alter column fulfillment_state type public.fulfillment_state using fulfillment_state::public.fulfillment_state,
+ alter column fulfillment_state set default 'pending',
+ drop constraint orders_user_id_fkey,
+ add foreign key(user_id) references auth.users(id) on delete set null;
+alter table public.order_items
+ add column id uuid primary key default gen_random_uuid(),
+ add check(quantity>=1), add check(application_fee_cents>=0),
+ drop constraint order_items_order_id_fkey,
+ add foreign key(order_id) references public.orders(id) on delete cascade,
+ drop constraint order_items_product_id_fkey,
+ add foreign key(product_id) references public.products(id) on delete restrict,
+ drop constraint order_items_artist_id_fkey,
+ add foreign key(artist_id) references public.artists(id) on delete restrict;
+SQL
+for file in proposed-private-delivery-migration proposed-approved-artwork-assets proposed-fulfillment-authorization proposed-delivery-outbox proposed-inventory-reservations proposed-inventory-consumption proposed-refund-ledger proposed-settlement-observations proposed-house-checkout proposed-financial-review-views proposed-artwork-publication-guard proposed-consigned-private-checkout proposed-settlement-queue; do
  psql_house -f "docs/gallery/$file.sql" >/dev/null
 done
 psql_house -q <<'SQL'
-insert into auth.users(id) values ('00000000-0000-4000-8000-000000000001');
-insert into artists(id,user_id,display_name,is_approved) values('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','Synthetic Gallery Studio',true);
+insert into auth.users(id) values ('00000000-0000-4000-8000-000000000001'),('00000000-0000-4000-8000-000000000005'),('00000000-0000-4000-8000-000000000006');
+insert into artists(id,user_id,slug,display_name,is_approved) values('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','synthetic-studio','Synthetic Gallery Studio',true);
 insert into products(id,artist_id,slug,title,kind,status,price_cents,currency,stock_count)
  values('00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','local-fixture','Synthetic House Art','digital','published',1200,'usd',1);
 insert into storage.objects values('gallery-approved','00000000-0000-4000-8000-000000000003/synthetic.bin');
@@ -223,7 +261,60 @@ do $thin_shape$ begin
   raise exception 'Thin fixture permits public order read or write'; end if;
 end $thin_shape$;
 SQL
-echo 'Exact thin local house SQL and service-role readiness passed against synthetic Auth/Storage tables; real service integration not run.'
+psql_house -q <<'SQL'
+set role service_role;
+do $typed_payment$
+declare
+ p uuid:='00000000-0000-4000-8000-000000000003';
+ ar uuid:='00000000-0000-4000-8000-000000000002';
+ asset uuid:='00000000-0000-4000-8000-000000000004';
+ buyer uuid:='00000000-0000-4000-8000-000000000005';
+ other_buyer uuid:='00000000-0000-4000-8000-000000000006';
+ h uuid; receipt jsonb; r jsonb; o uuid;
+begin
+ h:=public.cs_hold_gallery_inventory(p,buyer,1);
+ if h is null or public.cs_hold_gallery_inventory(p,other_buyer,1) is not null then
+  raise exception 'Typed fixture competing hold not rejected';
+ end if;
+ update public.gallery_inventory_holds set stripe_session_id='cs_test_typed_house' where id=h;
+ receipt:=jsonb_build_object('session_id','cs_test_typed_house','payment_intent_id','pi_test_typed_house',
+  'payment_status','paid','user_id',buyer,'subtotal_cents',1200,'total_cents',1200,'currency','usd',
+  'application_fee_cents',0,'email','fixture@example.invalid');
+ r:=public.cs_record_gallery_payment_with_settlement(h,asset,p,ar,1,receipt,false,'house','evt_typed_house_paid');
+ o:=(r->>'id')::uuid;
+ if r->>'created' is distinct from 'true' or r->>'settlement_generation' is distinct from '1' then
+  raise exception 'Typed fixture paid transaction not recorded';
+ end if;
+ r:=public.cs_record_gallery_payment_with_settlement(h,asset,p,ar,1,receipt,false,'house','evt_typed_house_paid');
+ if r->>'created' is distinct from 'false' or r->>'settlement_generation' is distinct from '1'
+  or (r->>'id')::uuid is distinct from o or (select stock_count from public.products where id=p)<>0 then
+  raise exception 'Typed fixture replay changed order or stock';
+ end if;
+ if public.cs_authorize_gallery_delivery(o) then raise exception 'Delivery accepted without private object'; end if;
+end $typed_payment$;
+reset role;
+insert into storage.objects(bucket_id,name)
+ select 'gallery-private',object_path from public.gallery_private_deliveries;
+set role service_role;
+do $typed_refund$
+declare o uuid; p uuid; g bigint;
+begin
+ select id into strict o from public.orders where stripe_payment_intent_id='pi_test_typed_house';
+ select product_id into strict p from public.order_items where order_id=o;
+ if not public.cs_authorize_gallery_delivery(o) or
+   (select fulfillment_state from public.orders where id=o) is distinct from 'delivered'::public.fulfillment_state then
+  raise exception 'Typed fixture delivery state not recorded';
+ end if;
+ g:=public.cs_record_gallery_refund_event_with_settlement(o,false,'house','evt_typed_house_refund','pi_test_typed_house','usd',1200,1200,true);
+ if g<>2 or public.cs_authorize_gallery_delivery(o) or
+   (select fulfillment_state from public.orders where id=o) is distinct from 'refunded'::public.fulfillment_state
+   or (select stock_count from public.products where id=p)<>0
+   or not exists(select 1 from public.gallery_restock_reviews where order_id=o and state='pending') then
+  raise exception 'Typed fixture refund did not revoke and retain stock for review';
+ end if;
+end $typed_refund$;
+SQL
+echo 'Production-shaped enum/FK/constraint fixture and all 13 proposed migrations: synthetic house hold, paid/replay, private object gate, full refund and review passed; no actual Auth/Storage/Stripe service proof.'
 
 # Service-only financial reporting and restock-review read model.
 psql -f docs/gallery/proposed-financial-review-views.sql >/dev/null

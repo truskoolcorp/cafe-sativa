@@ -12,29 +12,38 @@ const compiled = ts.transpileModule(source, { compilerOptions: {
 
 function setup(event, options = {}) {
   const actions = []
+  const env = { VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_test_placeholder', STRIPE_WEBHOOK_SECRET:'whsec_placeholder', ...options.env }
+  const url = options.url || 'https://www.cafe-sativa.com/api/webhooks/stripe'
+  const calls = { admin: 0, signed: 0, secret: null, refundLists: 0, reads: [] }
   const sub = options.subscription || {
     id: 'sub_1', created:200, status: event.type==='customer.subscription.deleted'?'canceled':'active', metadata: { user_id: 'user_1', site: 'cafe-sativa', tier: 'regular' },
     customer: 'cus_1', items: { data: [{ price: { id: 'price_approved' }, current_period_end: 1800000000 }] }
   }
   const stripe = {
-    webhooks: { constructEvent: () => event },
+    webhooks: { constructEvent: (_body,_sig,secret) => { calls.signed++; calls.secret=secret; return event } },
     subscriptions: { retrieve: async () => sub },
-    checkout: { sessions: { listLineItems: async () => ({ data: [], has_more: false }) } },
-    paymentIntents: { retrieve: async () => ({ application_fee_amount: 0 }) }
+    checkout: { sessions: { listLineItems: async () => ({ data: options.lines ?? [], has_more: false }) } },
+    paymentIntents: { retrieve: async () => options.intent ?? ({ application_fee_amount: 0 }) },
+    accounts: { retrieveCurrent: async () => ({ id: options.accountId }) },
+    refunds: { list: async (params, requestOptions) => { calls.refundLists++; assert.equal(params.limit,11); assert.equal(requestOptions.timeout,3000); assert.equal(requestOptions.maxNetworkRetries,0); if(options.refundListError)throw Error('synthetic refund list outage'); return options.refundPage ?? {data:options.refunds || [],has_more:false} } }
   }
   const db = {
     rpc: async (name, input) => {
       actions.push({ op: 'rpc', name, input })
+      if(name==='cs_read_gallery_settlement')return {data:options.enrollment??null,error:options.enrollmentError??null}
       return { data: options.rpcResult || { id: 'order_1', created: true, state: 'paid' }, error: null }
     },
     from: table => ({
       upsert: async (data) => { actions.push({op: 'upsert', table, data}); return {error:null} },
       update: data => {
         actions.push({op:'update',table,data})
-        const q={eq:()=>q,is:()=>q,select:()=>q,maybeSingle:async()=>({data:{user_id:'user_1'},error:null}),then:resolve=>Promise.resolve({error:null}).then(resolve)};return q
+        const q={eq:()=>q,is:()=>q,select:()=>q,maybeSingle:async()=>({data:{user_id:'user_1'},error:null}),then:resolve=>Promise.resolve({error:table==='orders'&&options.orderUpdateError||table==='tickets'&&options.ticketUpdateError||null}).then(resolve)};return q
       },
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({data: table==='tickets' ? options.ticket || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:null}) })
+        eq: () => ({ maybeSingle: async () => {
+          calls.reads.push(table)
+          return {data: table==='products' ? options.product || null : table==='tickets' ? options.ticket || null : table==='orders' ? options.order || null : table==='order_items' ? options.item || null : table==='memberships'?{user_id:'user_1',stripe_customer_id:'cus_1',stripe_subscription_id:'sub_1',updated_at:'2026-10-31T00:00:00Z'}:null,error:table==='tickets'&&options.ticketLookupError||table==='orders'&&options.orderLookupError||null}
+        } })
       })
     })
   }
@@ -44,17 +53,26 @@ function setup(event, options = {}) {
     if (name === 'next/server') return { NextResponse: { json: (body, init={}) => ({status:init.status || 200,body}) } }
     if (name === '@/lib/sync-membership') {const mod={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/sync-membership.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports:mod.exports,require:requireMock,Date,Number,Error});return mod.exports}
     if (name === 'stripe') return { __esModule:true,default:StripeMock }
-    if (name === '@/lib/supabase/admin') return {createAdminClient:()=>db}
+    if (name === '@/lib/supabase/admin') return {createAdminClient:()=>{ calls.admin++; return db }}
+    if (name === '@/lib/gallery/house-checkout') {
+      const exports = {}
+      vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/house-checkout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,process:{env}})
+      return exports
+    }
+    if (name === '@/lib/gallery/environment') return require('./helpers/load-gallery-environment.cjs')(env)
+    if (name === '@/lib/gallery/reconcile-refunds') {
+      const exports = {}
+      vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/reconcile-refunds.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,require:requireMock,process:{env},Date,Error})
+      return exports
+    }
     if (name === '@/lib/membership-prices') return {cafeSubscriptionTier: s => {
       if(s.metadata?.site && s.metadata.site!=='cafe-sativa')return null
       return s.items?.data?.[0]?.price?.id === 'price_approved' ? 'regular' : null
     }}
     throw new Error('Unexpected import '+name)
   }
-  vm.runInNewContext(compiled,{exports,require:requireMock,process:{env:{
-    STRIPE_SECRET_KEY:'sk_test_placeholder',STRIPE_WEBHOOK_SECRET:'whsec_placeholder'
-  }}, console:{log(){},warn(){},error(){}},Date,Number,Error,Promise})
-  return {actions,post: () => exports.POST({
+  vm.runInNewContext(compiled,{exports,require:requireMock,process:{env},URL, console:{log(){},warn(){},error(){}},Date,Number,Error,Promise})
+  return {actions,calls,post: () => exports.POST({url,
     headers:{get:()=> 'signature'},
     text:async()=> '{}'
   })}
@@ -108,13 +126,329 @@ test('foreign subscription never grants membership',async()=>{
   assert.equal(h.actions.length,0)
 })
 
-test('refund updates the original order and ticket records, never creates new charges',async()=>{
-  const h=setup({type:'charge.refunded',data:{object:{
-    payment_intent:'pi_1',refunded:true
-  }}},{ticket:{id:'ticket_1',state:'paid'}})
+const refundEvent = (full=true) => ({type:'charge.refunded',livemode:false,data:{object:{id:'ch_1',payment_intent:'pi_1',currency:'usd',amount_captured:1200,amount_refunded:full?1200:100,refunded:full}}})
+const galleryRefundOrder={id:'order_1',currency:'usd',total_cents:1200}
+const refundReceipt=(overrides={})=>({id:'re_1',charge:'ch_1',payment_intent:'pi_1',currency:'usd',amount:100,status:'succeeded',...overrides})
+test('ticket refund is independent of Gallery DB and provider failures',async()=>{
+  const h=setup(refundEvent(),{ticket:{id:'ticket_1',state:'paid'},env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'missing orders',orderLookupError:'missing Gallery schema',refundListError:true})
   assert.equal((await h.post()).status,200)
-  assert.equal(h.actions.filter(a=>a.op==='update').length,2)
+  assert.deepEqual(h.actions.map(a=>a.table),['tickets'])
+  assert.equal(h.actions[0].data.state,'refunded')
+  assert.deepEqual(h.calls.reads,['tickets'])
+  assert.equal(h.calls.refundLists,0)
+})
+test('ticket refund replay and partial refund never enter Gallery ledger',async()=>{
+  for(const [full,state] of [[true,'refunded'],[false,'paid']]){
+    const h=setup(refundEvent(full),{ticket:{id:'ticket_1',state},env:{GALLERY_REFUND_LEDGER:'true'},orderLookupError:'missing Gallery schema'})
+    assert.equal((await h.post()).status,200)
+    assert.equal(h.actions.length,0)
+    assert.deepEqual(h.calls.reads,['tickets'])
+    assert.equal(h.calls.refundLists,0)
+  }
+})
+test('ticket lookup or update outage stays retryable without Gallery writes',async()=>{
+  for(const opts of [{ticketLookupError:'lookup unavailable'},{ticket:{id:'ticket_1',state:'paid'},ticketUpdateError:'update unavailable'}]){
+    const h=setup(refundEvent(),opts)
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.actions.some(a=>a.table==='orders'),false)
+  }
+})
+test('Gallery full refund revokes access even when ledger provider lookup fails and remains retryable',async()=>{
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundListError:true})
+  assert.equal((await h.post()).status,500)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders'])
   assert.equal(h.actions[0].data.fulfillment_state,'refunded')
-  assert.equal(h.actions[1].data.state,'refunded')
+  assert.equal(h.calls.refundLists,1)
+})
+test('Gallery partial refund records evidence without revoking fulfillment or restocking',async()=>{
+  const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt()]})
+  assert.equal((await h.post()).status,200)
+  assert.deepEqual(h.actions.map(a=>a.table),['gallery_refund_receipts'])
+  assert.equal(h.actions[0].data[0].amount_cents,100)
+})
+test('Gallery refund rejects foreign, duplicate or invalid receipts before any ledger write',async()=>{
+  for(const invalid of [refundReceipt({id:'re_2',charge:'ch_foreign'}),refundReceipt({id:'re_2',payment_intent:'pi_foreign'}),refundReceipt({id:'re_2',amount:0.5}),refundReceipt({id:'re_2',amount:1200}),refundReceipt()]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),invalid]})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.actions.length,0)
+  }
+})
+test('Gallery refund evidence is bounded and never writes an incomplete page',async()=>{
+  const eleven=Array.from({length:11},(_,i)=>refundReceipt({id:'re_'+i,amount:100}))
+  for(const refundPage of [{data:[refundReceipt()],has_more:true},{data:[refundReceipt()]},{data:eleven,has_more:false}]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundPage})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.calls.refundLists,1)
+    assert.equal(h.actions.length,0)
+  }
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refundPage:{data:[refundReceipt()],has_more:true}})
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.calls.refundLists,1)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders'])
+  assert.equal(h.actions[0].data.fulfillment_state,'refunded')
+})
+test('Gallery refund evidence below the signed amount remains retryable without ledger writes',async()=>{
+  for(const refunds of [[],[refundReceipt({amount:99})],[refundReceipt({status:'pending'})]]){
+    const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds})
+    assert.equal((await h.post()).status,500)
+    assert.equal(h.calls.refundLists,1)
+    assert.equal(h.actions.length,0)
+  }
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt()]})
+  assert.equal((await h.post()).status,500)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders'])
+  assert.equal(h.actions[0].data.fulfillment_state,'refunded')
+})
+test('Gallery full refund with matching successful evidence revokes access before recording receipts',async()=>{
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt({amount:1200})]})
+  assert.equal((await h.post()).status,200)
+  assert.deepEqual(h.actions.map(a=>a.table),['orders','gallery_refund_receipts'])
+  assert.equal(h.actions[0].data.fulfillment_state,'refunded')
+  assert.equal(h.actions[1].data[0].amount_cents,1200)
+})
+test('Gallery old partial refund event reads current receipts in one ledger batch',async()=>{
+  const h=setup(refundEvent(false),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},refunds:[refundReceipt(),refundReceipt({id:'re_2',amount:1100})]})
+  assert.equal((await h.post()).status,200)
+  assert.equal(h.actions.length,1)
+  assert.equal(h.actions[0].data.length,2)
+  assert.equal(h.actions[0].data.reduce((sum,r)=>sum+r.amount_cents,0),1200)
+})
+test('Gallery full refund records evidence only after order revocation succeeds',async()=>{
+  const h=setup(refundEvent(),{order:galleryRefundOrder,env:{GALLERY_REFUND_LEDGER:'true'},orderUpdateError:'order unavailable'})
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.calls.refundLists,0)
 })
 
+
+const testSite = 'https://gallery-preview.example'
+const dedicatedURL = testSite+'/api/gallery/webhook'
+const sandboxEnv = {
+  VERCEL_ENV:'preview', GALLERY_ISOLATED_TEST:'true',
+  STRIPE_SECRET_KEY:'sk_test_synthetic', STRIPE_WEBHOOK_SECRET:'whsec_shared_synthetic',
+  GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_dedicated_synthetic',
+  NEXT_PUBLIC_SITE_URL:testSite, NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co',
+  GALLERY_TEST_SUPABASE_URL:'https://syntheticgallery.supabase.co',
+  NEXT_PUBLIC_SUPABASE_ANON_KEY:'synthetic', SUPABASE_SERVICE_ROLE_KEY:'synthetic',
+  GALLERY_INVENTORY_HOLDS:'true', GALLERY_PRIVATE_DOWNLOADS:'true',
+}
+const galleryEvent = {type:'checkout.session.completed',livemode:false,data:{object:{payment_status:'paid',metadata:{kind:'gallery_order',site:'cafe-sativa'}}}}
+test('unconfigured preview rejects Gallery payment before admin initialization',async()=>{
+  const h=setup(galleryEvent,{env:{VERCEL_ENV:'preview'},url:testSite+'/api/webhooks/stripe'})
+  assert.equal((await h.post()).status,503); assert.equal(h.calls.admin,0);assert.equal(h.actions.length,0)
+})
+test('dedicated ingress rejects production and shared ingress rejects isolated test config before signature handling',async()=>{
+  for(const opts of [{url:'https://www.cafe-sativa.com/api/gallery/webhook'},{env:sandboxEnv,url:testSite+'/api/webhooks/stripe'}]){
+    const h=setup(galleryEvent,opts);assert.equal((await h.post()).status,503);assert.equal(h.calls.signed,0);assert.equal(h.calls.admin,0)
+  }
+})
+test('dedicated ingress rejects live events and ignores non-Gallery subscription events',async()=>{
+  const live=setup({...galleryEvent,livemode:true},{env:sandboxEnv,url:dedicatedURL})
+  assert.equal((await live.post()).status,400);assert.equal(live.calls.admin,0)
+  const sub=setup({type:'customer.subscription.deleted',livemode:false,data:{object:{}}},{env:sandboxEnv,url:dedicatedURL})
+  assert.equal((await sub.post()).status,200);assert.equal(sub.calls.secret,sandboxEnv.GALLERY_TEST_STRIPE_WEBHOOK_SECRET);assert.equal(sub.calls.admin,0)
+})
+test('dedicated test refund never updates ticket records; blocked shared refund retains ticket path only',async()=>{
+  const event={type:'charge.refunded',livemode:false,data:{object:{payment_intent:'pi_test',refunded:true}}}
+  const h=setup(event,{env:sandboxEnv,url:dedicatedURL,ticket:{id:'ticket_1',state:'paid'}})
+  assert.equal((await h.post()).status,200);assert.deepEqual(h.actions.map(a=>a.table),['orders'])
+  const blocked=setup(event,{env:{VERCEL_ENV:'preview'},url:testSite+'/api/webhooks/stripe',ticket:{id:'ticket_1',state:'paid'}})
+  assert.equal((await blocked.post()).status,200);assert.deepEqual(blocked.actions.map(a=>a.table),['tickets'])
+})
+
+function houseEvent() {
+ const product='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', artist='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+ const ids={kind:'gallery_order',site:'cafe-sativa',user_id:'user_1',product_id:product,artist_id:artist,
+   gallery_sale_kind:'house',gallery_platform_account_id:'acct_house'}
+ const session={id:'cs_house',mode:'payment',currency:'usd',payment_status:'paid',amount_total:1200,
+   livemode:true,payment_intent:'pi_house',metadata:{...ids,quantity:'1',
+     inventory_hold_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',approved_asset_id:'approved_edition'}}
+ return [{type:'checkout.session.completed',livemode:true,data:{object:session}},{
+   env:{GALLERY_HOUSE_PRODUCT_ID:product,GALLERY_HOUSE_ARTIST_ID:artist,GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+        GALLERY_HOUSE_CHECKOUT_ENABLED:'false'}, // existing paid events must finish with new sales off
+   product:{id:product,kind:'digital'},accountId:'acct_house',
+   lines:[{quantity:1,amount_subtotal:1200,currency:'usd'}],
+   intent:{id:'pi_house',status:'succeeded',currency:'usd',livemode:true,amount:1200,amount_received:1200,
+     metadata:{...ids},application_fee_amount:null,transfer_data:null,on_behalf_of:null},
+   rpcResult:{id:'order_house',created:false}
+ }]
+}
+test('house paid receipt is persisted without fee or separate entitlement write while new sales disabled',async()=>{
+ const h=setup(...houseEvent())
+ assert.equal((await h.post()).status,200)
+ assert.equal(h.actions.length,1)
+ const a=h.actions[0]
+ assert.equal(a.name,'cs_record_house_gallery_payment')
+ assert.equal(a.input.receipt.application_fee_cents,0)
+ assert.equal(a.input.p_asset,'approved_edition')
+})
+test('house event with wrong key account, Connect destination, or inconsistent classification makes no writes',async()=>{
+ for(const modify of [
+  (e,o)=>o.accountId='acct_wrong',
+  (e,o)=>o.intent.transfer_data={destination:'acct_wrong'},
+  (e,o)=>o.intent.application_fee_amount=120,
+  (e,o)=>delete e.data.object.metadata.gallery_sale_kind,
+  (e,o)=>delete e.data.object.metadata.approved_asset_id,
+  (e,o)=>o.intent.amount_received=1000,
+  (e,o)=>o.intent.livemode=false
+ ]){
+  const [e,o]=houseEvent();modify(e,o)
+  const h=setup(e,o)
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.actions.length,0)
+ }
+})
+
+test('temporary sandbox webhook processes only the exact house flow and refunds',async()=>{
+ const url='http://127.0.0.1:4116/api/gallery/webhook',app='http://127.0.0.1:4116',db='http://127.0.0.1:54321'
+ for(const kind of ['house','consigned','account.updated','charge.refunded']){
+  const [event,opts]=houseEvent()
+  event.livemode=false;event.data.object.livemode=false;opts.intent.livemode=false
+  opts.url=url
+  Object.assign(opts.env,{VERCEL_ENV:undefined,GALLERY_LOCAL_STRIPE_CLI:'true',GALLERY_ISOLATED_TEST:'true',
+   STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_house',
+   GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_synthetic_anonymous',NEXT_PUBLIC_SITE_URL:app,
+   NEXT_PUBLIC_SUPABASE_URL:db,GALLERY_TEST_SUPABASE_URL:db,NEXT_PUBLIC_SUPABASE_ANON_KEY:'anon',
+   SUPABASE_SERVICE_ROLE_KEY:'service',GALLERY_INVENTORY_HOLDS:'true',GALLERY_PRIVATE_DOWNLOADS:'true'})
+  if(kind==='consigned') delete event.data.object.metadata.gallery_sale_kind
+  if(kind==='account.updated') event.type=kind
+  if(kind==='charge.refunded'){event.type=kind;event.data.object={id:'ch_synthetic',payment_intent:'pi_house',refunded:true}}
+  const h=setup(event,opts)
+  assert.equal((await h.post()).status,200)
+  assert.equal(h.actions.length,['house','charge.refunded'].includes(kind)?1:0)
+  if(kind==='house') assert.equal(h.actions[0].name,'cs_record_house_gallery_payment')
+  if(kind==='charge.refunded'){assert.equal(h.actions[0].table,'orders');assert.equal(h.actions[0].data.fulfillment_state,'refunded')}
+ }
+})
+
+function consignedPrivateEvent() {
+ const ids={kind:'gallery_order',site:'cafe-sativa',user_id:'user_1',
+   product_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',artist_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+   gallery_private_schema:'consigned-v1',gallery_transfer_destination:'acct_FixtureArtist',
+   inventory_hold_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',approved_asset_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd'}
+ const session={id:'cs_private',mode:'payment',currency:'usd',payment_status:'paid',amount_total:1249,
+   livemode:true,payment_intent:'pi_private',metadata:{...ids,quantity:'1'}}
+ return [{type:'checkout.session.completed',livemode:true,data:{object:session}},{
+   product:{id:ids.product_id,kind:'digital',digital_delivery_url:null},
+   lines:[{quantity:1,amount_subtotal:1249,currency:'usd'}],
+   intent:{id:'pi_private',status:'succeeded',currency:'usd',livemode:true,amount:1249,amount_received:1249,
+     metadata:{...ids},application_fee_amount:124,transfer_data:{destination:'acct_FixtureArtist'},on_behalf_of:null},
+   rpcResult:{id:'order_private',created:false}
+ }]
+}
+test('private consigned paid receipt goes directly to atomic order and edition without legacy URL',async()=>{
+ const h=setup(...consignedPrivateEvent())
+ assert.equal((await h.post()).status,200)
+ assert.equal(h.actions.length,1)
+ const a=h.actions[0]
+ assert.equal(a.name,'cs_record_consigned_private_gallery_payment')
+ assert.equal(a.input.receipt.application_fee_cents,124)
+ assert.equal(a.input.receipt.transfer_destination,'acct_FixtureArtist')
+ assert.equal(a.input.p_asset,'dddddddd-dddd-4ddd-8ddd-dddddddddddd')
+})
+test('private consigned marker, account, asset, fee and amount mismatches do not write',async()=>{
+ for(const modify of [
+  (e,o)=>delete e.data.object.metadata.gallery_private_schema,
+  (e,o)=>delete o.intent.metadata.gallery_private_schema,
+  (e,o)=>o.intent.transfer_data.destination='acct_Wrong',
+  (e,o)=>o.intent.metadata.approved_asset_id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  (e,o)=>o.intent.application_fee_amount=125,
+  (e,o)=>o.intent.amount_received=1000,
+  (e,o)=>o.intent.livemode=false,
+  (e,o)=>o.product.kind='physical'
+ ]){
+  const [e,o]=consignedPrivateEvent();modify(e,o)
+  const h=setup(e,o)
+  assert.equal((await h.post()).status,500)
+  assert.equal(h.actions.length,0)
+ }
+})
+
+
+function queuedHouseEvent(){
+ const [e,o]=houseEvent();e.id='evt_queued_house';e.livemode=false;e.data.object.livemode=false;
+ e.data.object.id='cs_test_queued_house';o.intent.livemode=false;
+ o.env={...o.env,...sandboxEnv,GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',GALLERY_SETTLEMENT_OBSERVATIONS:'true',
+   GALLERY_REFUND_LEDGER:'true',GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house'};o.url=dedicatedURL;
+ return [e,o]
+}
+test('dedicated queued payment invokes atomic receipt and enqueue RPC, including replay',async()=>{
+ const [e,o]=queuedHouseEvent();const h=setup(e,o);
+ assert.equal((await h.post()).status,200);assert.equal(h.actions.length,1);
+ const a=h.actions[0];assert.equal(a.name,'cs_record_gallery_payment_with_settlement');
+ assert.equal(a.input.p_kind,'house');assert.equal(a.input.p_live,false);assert.equal(a.input.p_event,e.id);
+ assert.equal(a.input.p_receipt.application_fee_cents,0);assert.equal(a.input.p_receipt.session_id,'cs_test_queued_house');
+ assert.equal((await h.post()).status,200);assert.equal(h.actions.length,2);assert.equal(h.actions[1].input.p_event,e.id)
+})
+test('dedicated queued payment refuses absent evidence flag, wrong account or event identity',async()=>{
+ for(const change of [(e,o)=>o.env.GALLERY_SETTLEMENT_OBSERVATIONS='false',(e,o)=>o.env.GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID='acct_other',(e,o)=>delete e.id,(e,o)=>e.account='acct_other']){
+  const [e,o]=queuedHouseEvent();change(e,o);const h=setup(e,o);
+  assert.equal((await h.post()).status,500);assert.equal(h.actions.length,0)
+ }
+})
+test('dedicated queued full refund records signed floor and revocation before ledger read',async()=>{
+ const [e,o]=queuedHouseEvent();e.type='charge.refunded';e.id='evt_queued_refund';e.data.object={id:'ch_1',payment_intent:'pi_house',livemode:false,currency:'usd',amount_captured:1200,amount_refunded:1200,refunded:true};
+ o.order={id:'order_house',stripe_checkout_session_id:'cs_test_queued_house',currency:'usd',total_cents:1200};
+ o.item={gallery_sale_kind:'house',product_id:o.env.GALLERY_HOUSE_PRODUCT_ID,artist_id:o.env.GALLERY_HOUSE_ARTIST_ID,transfer_destination:null};
+ o.refunds=[refundReceipt({payment_intent:'pi_house',amount:1200})];o.rpcResult=2;
+ const h=setup(e,o);assert.equal((await h.post()).status,200);
+ assert.equal(h.actions[0].name,'cs_record_gallery_refund_event_with_settlement');assert.equal(h.actions[0].input.p_refunded,1200);assert.equal(h.actions[0].input.p_full,true);
+ assert.equal(h.actions[1].table,'gallery_refund_receipts');assert.equal(h.actions.filter(a=>a.op==='update').length,0);
+ const failed=setup(e,{...o,refundListError:true});assert.equal((await failed.post()).status,500);assert.equal(failed.actions.length,1);
+ const unknown=setup(e,{...o,order:null});assert.equal((await unknown.post()).status,200);assert.equal(unknown.actions.length,0)
+})
+
+function queuedProductionHouseEvent(){
+ const [e,o]=houseEvent();e.id='evt_live_queued_house';e.data.object.id='cs_live_queued_house';
+ e.data.object.metadata.gallery_settlement_schema='queue-v1';o.intent.metadata.gallery_settlement_schema='queue-v1';
+ Object.assign(o.env,{STRIPE_SECRET_KEY:'sk_live_synthetic',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
+   GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_REFUND_LEDGER:'true',
+   GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false',GALLERY_SALES_ENABLED:'false',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'false'});
+ return [e,o]
+}
+test('marked production Gallery payment uses atomic live receipt and queue even with sales and worker off',async()=>{
+ const [e,o]=queuedProductionHouseEvent();const h=setup(e,o);
+ assert.equal((await h.post()).status,200);assert.equal(h.actions.length,1);
+ assert.equal(h.actions[0].name,'cs_record_gallery_payment_with_settlement');
+ assert.equal(h.actions[0].input.p_live,true);assert.equal(h.actions[0].input.p_event,e.id)
+})
+test('marked production payment cannot fall back if settlement configuration or marker is wrong',async()=>{
+ for(const change of [(e,o)=>o.env.GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK='false',
+ (e,o)=>o.env.GALLERY_REFUND_LEDGER='false',(e,o)=>o.env.NEXT_PUBLIC_SUPABASE_URL='https://other.supabase.co',
+ (e,o)=>delete o.intent.metadata.gallery_settlement_schema,(e,o)=>o.env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID='acct_other',
+ (e,o)=>e.data.object.id='cs_test_wrong',(e,o)=>o.url='https://preview.example/api/webhooks/stripe']){
+  const [e,o]=queuedProductionHouseEvent();change(e,o);const h=setup(e,o);
+  assert.equal((await h.post()).status,500);assert.equal(h.actions.length,0)
+ }
+})
+function queuedProductionRefund(){
+ const [e,o]=queuedProductionHouseEvent();e.type='charge.refunded';e.id='evt_live_refund';
+ e.data.object={id:'ch_1',payment_intent:'pi_house',livemode:true,currency:'usd',amount_captured:1200,
+ amount_refunded:1200,refunded:true,metadata:{kind:'gallery_order',site:'cafe-sativa',gallery_settlement_schema:'queue-v1'}};
+ o.order={id:'order_house',stripe_checkout_session_id:'cs_live_queued_house',currency:'usd',total_cents:1200};
+ o.item={gallery_sale_kind:'house',product_id:o.env.GALLERY_HOUSE_PRODUCT_ID,artist_id:o.env.GALLERY_HOUSE_ARTIST_ID,transfer_destination:null};
+ o.enrollment={state:'observed',generation:1};o.refunds=[refundReceipt({payment_intent:'pi_house',amount:1200})];o.rpcResult=2;
+ return [e,o]
+}
+test('production Gallery refund updates accepted queue generation and revokes before provider ledger read',async()=>{
+ const [e,o]=queuedProductionRefund();const h=setup(e,o);
+ assert.equal((await h.post()).status,200);assert.equal(h.actions[0].name,'cs_read_gallery_settlement');
+ assert.equal(h.actions[1].name,'cs_record_gallery_refund_event_with_settlement');
+ assert.equal(h.actions[1].input.p_live,true);assert.equal(h.actions[1].input.p_refunded,1200);
+ assert.equal(h.actions[2].table,'gallery_refund_receipts');
+ const failed=setup(e,{...o,refundListError:true});assert.equal((await failed.post()).status,500);
+ assert.equal(failed.actions[1].name,'cs_record_gallery_refund_event_with_settlement')
+})
+test('production refund admission preserves ticket precedence, legacy fallback and early marked retry',async()=>{
+ const [e,o]=queuedProductionRefund();
+ const ticket=setup(e,{...o,ticket:{id:'ticket_1',state:'paid'}});assert.equal((await ticket.post()).status,200);
+ assert.equal(ticket.actions.length,1);assert.equal(ticket.actions[0].table,'tickets');assert.deepEqual(ticket.calls.reads,['tickets']);
+ for(const change of [{order:null},{enrollment:null},{enrollmentError:'outage'},{env:{...o.env,GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'false'}}]){
+  const h=setup(e,{...o,...change});assert.equal((await h.post()).status,500);
+  assert.equal(h.actions.some(a=>a.op==='update'||a.name==='cs_record_gallery_refund_event_with_settlement'),false)
+ }
+ const old={...e,data:{object:{...e.data.object,metadata:{}}}};
+ const h=setup(old,{...o,enrollment:null});assert.equal((await h.post()).status,200);
+ assert.equal(h.actions[0].name,'cs_read_gallery_settlement');assert.equal(h.actions[1].table,'orders');
+ const foreign=setup(old,{...o,order:null});assert.equal((await foreign.post()).status,200);assert.equal(foreign.actions.length,0)
+})

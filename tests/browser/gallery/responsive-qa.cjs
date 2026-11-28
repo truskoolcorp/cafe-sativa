@@ -43,7 +43,46 @@ const Image = ({ fill, priority, alt, className, ...props }) =>
 const Badge = ({ variant, ...props }) => React.createElement('span', props)
 const Icon = props => React.createElement('svg', { width: 24, height: 24, 'aria-hidden': true, ...props })
 
-function fixturePage(file, rows) {
+// Execute actual server-side offer policy with a synthetic configuration and no provider access.
+function loadFixtureModule(file, dependencies, env) {
+  const mod = {exports:{}}
+  const js = ts.transpileModule(fs.readFileSync(path.join(source,file),'utf8'), {
+    compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+  }).outputText
+  new Function('require','exports','module','process',js)(key => {
+    assert.ok(Object.hasOwn(dependencies,key),'Unmocked offer dependency: '+key)
+    return dependencies[key]
+  },mod.exports,mod,{env})
+  return mod.exports
+}
+const offEnv = Object.freeze({})
+const prodFixture = {
+  VERCEL_ENV:'production', NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',
+  NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',
+  STRIPE_SECRET_KEY:'sk_live_synthetic_never_used', GALLERY_SALES_ENABLED:'true',
+  GALLERY_INVENTORY_HOLDS:'true', GALLERY_PRIVATE_DOWNLOADS:'true', GALLERY_DIGITAL_WORKER:'true',
+  GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true', GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
+  GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true', GALLERY_REFUND_LEDGER:'true',
+  GALLERY_PRODUCTION_FINANCIAL_REVIEW:'true', GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'00000000-0000-0000-0000-000000000003',
+  GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true', GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'synthetic-fixture-worker-secret-0000',
+  GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET:'synthetic-fixture-delivery-secret-0000',
+  GALLERY_HOUSE_CHECKOUT_ENABLED:'true', GALLERY_HOUSE_PRODUCT_ID:'00000000-0000-0000-0000-000000000001',
+  GALLERY_HOUSE_ARTIST_ID:'00000000-0000-0000-0000-000000000002',
+  GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_fixtureOnly', GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_fixtureOnly',
+}
+const exactOffer = {...product,id:prodFixture.GALLERY_HOUSE_PRODUCT_ID,artist_id:prodFixture.GALLERY_HOUSE_ARTIST_ID,stock_count:2}
+function offerModule(env, rows) {
+  const environment=loadFixtureModule('lib/gallery/environment.ts',{},env)
+  const house=loadFixtureModule('lib/gallery/house-checkout.ts',{},env)
+  return loadFixtureModule('app/gallery/debut-offer.ts',{
+    '@/lib/gallery/environment':environment,'@/lib/gallery/house-checkout':house,'./debut-work':{debutWork},
+    'next/headers':{cookies:()=>({get:()=>undefined})},
+    '@supabase/ssr':{createServerClient:()=>({from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({
+      data:rows.length===1?rows[0]:null,error:rows.length>1?new Error('duplicate'):null
+    })})})})})},
+  },env)
+}
+function fixturePage(file, rows, env=offEnv) {
   const modules = {
     'react/jsx-runtime': require('react/jsx-runtime'),
     'next/link': Link, 'next/image': Image,
@@ -69,6 +108,8 @@ function fixturePage(file, rows) {
     '@/lib/content/venue-covers': { approvedVenueCovers: async () => ({ gallery: still }) },
     '@/components/ui/badge': { Badge },
     './debut-work': { debutWork }, '../debut-work': { debutWork },
+    './debut-offer':offerModule(env,rows.filter(row=>row.slug===debutWork.slug)), '../debut-offer':offerModule(env,rows.filter(row=>row.slug===debutWork.slug)),
+    './BuyButton':{BuyButton:({productId})=>React.createElement('button',{'data-product-id':productId},'Buy now')},
     './ZariaPortrait': { ZariaPortrait: () => React.createElement('span', {'data-fixture-zaria-portrait': 'offline'}) },
   }
   const mod = { exports: {} }
@@ -116,6 +157,27 @@ async function main() {
   assert.doesNotMatch(detail, /Synthetic catalogue fixture|\$12\.00|Download/)
   assert.match(filtered, /No published work in this category/)
   assert.match(gallery, /Sold out/)
+  const offer=offerModule(prodFixture,[exactOffer])
+  const off=offerModule(offEnv,[exactOffer])
+  let called=0
+  assert.deepEqual(await off.loadDebutDisplay(async()=>{called++;return {data:exactOffer}}),debutWork)
+  assert.equal(called,0)
+  assert.deepEqual(await offer.loadDebutDisplay(async()=>({data:exactOffer})),{...debutWork,id:exactOffer.id,price_cents:1200,currency:'usd',stock_count:2})
+  for (const bad of [null,[],[exactOffer],{...exactOffer,id:'wrong'},{...exactOffer,artist_id:'wrong'},{...exactOffer,slug:'wrong'},{...exactOffer,kind:'physical'},{...exactOffer,price_cents:1201},{...exactOffer,currency:'eur'},{...exactOffer,stock_count:0},{...exactOffer,stock_count:null},{...exactOffer,stock_count:1.5}]) {
+    assert.deepEqual(await offer.loadDebutDisplay(async()=>({data:bad})),debutWork)
+  }
+  assert.deepEqual(await offer.loadDebutDisplay(async()=>({data:exactOffer,error:Error('ambiguous')})),debutWork)
+  assert.deepEqual(await offer.loadDebutDisplay(async()=>{throw Error('failed read')}),debutWork)
+  const paidGallery=renderToStaticMarkup(await fixturePage(indexFile,[exactOffer],prodFixture)({searchParams:{}}))
+  const paidDetail=renderToStaticMarkup(await fixturePage(detailFile,[exactOffer],prodFixture)({params:{slug:debutWork.slug}}))
+  assert.match(paidGallery,/\$12\.00/)
+  assert.equal((paidGallery.match(/href="\/gallery\/where-the-brass-meets-the-tide"/g)||[]).length,1)
+  assert.match(paidDetail,/Buy now/)
+  assert.match(paidDetail,new RegExp('data-product-id="'+exactOffer.id+'"'))
+  assert.doesNotMatch(paidDetail,/Synthetic catalogue fixture/)
+  const duplicateDetail=renderToStaticMarkup(await fixturePage(detailFile,[exactOffer,exactOffer],prodFixture)({params:{slug:debutWork.slug}}))
+  assert.doesNotMatch(duplicateDetail,/Buy now|\$12\.00/)
+  console.log('PASS isolated source offer gate: exact tuple, canonical display, duplicate/error/stock denial, default off, buyer CTA.')
   if (process.argv.includes('--static')) {
     console.log('Gallery exact-source static fixture checks passed; Chromium not run.')
     return

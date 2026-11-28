@@ -6,14 +6,17 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { Badge } from '@/components/ui/badge'
 import { debutWork } from '../debut-work'
+import { loadDebutDisplay } from '../debut-offer'
+import { BuyButton } from './BuyButton'
 
-/** Read-only detail for published, approved physical and digital artwork. */
+/** Approved editorial detail with exact house-only offer; other listings remain browse-only. */
 
 export const dynamic = 'force-dynamic'
 
 type Params = { params: { slug: string } }
 
 type DisplayProduct = {
+  id?: string
   title: string
   artist_name: string
   description: string | null
@@ -25,7 +28,7 @@ type DisplayProduct = {
 }
 
 async function loadProduct(slug: string): Promise<DisplayProduct | null> {
-  if (slug === debutWork.slug) return debutWork
+  if (slug === debutWork.slug) return loadDebutDisplay()
   const cookieStore = cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -171,7 +174,9 @@ export default async function ProductDetailPage({ params }: Params) {
 
               </>}
               <div className={priceDisplay !== null ? "mt-4" : undefined}>
-                <p role="status" className="text-sm text-muted-foreground">Available to browse. Purchases are not open yet.</p>
+                {params.slug === debutWork.slug && product.id && product.id !== debutWork.id && priceDisplay !== null && !soldOut ? (
+                  <BuyButton productId={product.id} soldOut={false} />
+                ) : <p role="status" className="text-sm text-muted-foreground">Available to browse. Purchases are not open yet.</p>}
               </div>
             </div>
 

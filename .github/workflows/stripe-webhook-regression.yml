@@ -11,6 +11,7 @@ on:
       - 'app/api/gallery/**'
       - 'lib/gallery/**'
       - 'app/gallery/thanks/**'
+      - 'app/gallery/financial-review/**'
       - 'app/account/artwork/**'
       - 'tests/gallery-*'
       - 'tests/fixtures/gallery-local-house-base.sql'
@@ -29,6 +30,7 @@ on:
       - 'app/api/gallery/**'
       - 'lib/gallery/**'
       - 'app/gallery/thanks/**'
+      - 'app/gallery/financial-review/**'
       - 'app/account/artwork/**'
       - 'tests/gallery-*'
       - 'tests/fixtures/gallery-local-house-base.sql'
@@ -50,6 +52,6 @@ jobs:
       - run: node --test tests/stripe-webhook-regression.test.cjs tests/membership-sync.test.cjs
       - run: node tests/stripe-entitlements.cjs
       - run: node tests/membership-refresh.cjs
-      - run: node --test tests/gallery-checkout.cjs tests/gallery-download.test.cjs
+      - run: node --test tests/gallery-checkout.cjs tests/gallery-download.test.cjs tests/gallery-environment.test.mjs tests/gallery-settlement.test.cjs tests/gallery-financial-review.test.cjs
       - name: Disposable Gallery PostgreSQL checkout and settlement queue fixture
         run: bash tests/gallery-settlement-queue-postgres.sh

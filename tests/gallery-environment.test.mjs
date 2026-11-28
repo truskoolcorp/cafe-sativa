@@ -1,0 +1,111 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+import ts from 'typescript'
+
+const source = readFileSync(new URL('../lib/gallery/environment.ts', import.meta.url), 'utf8')
+const { outputText } = ts.transpileModule(source, { compilerOptions: {
+  target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022,
+} })
+const { galleryEnvironment, gallerySalesEnabled, galleryFinancialReviewMode } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
+const site = 'https://gallery-preview.example'
+const database = 'https://syntheticgallery.supabase.co'
+const sandbox = {
+  VERCEL_ENV: 'preview',
+  GALLERY_ISOLATED_TEST: 'true',
+  STRIPE_SECRET_KEY: 'sk_test_synthetic',
+  STRIPE_WEBHOOK_SECRET: 'whsec_shared_synthetic',
+  GALLERY_TEST_STRIPE_WEBHOOK_SECRET: 'whsec_separate_synthetic',
+  GALLERY_TEST_SUPABASE_URL: database,
+  NEXT_PUBLIC_SUPABASE_URL: database,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: 'synthetic-public-key',
+  SUPABASE_SERVICE_ROLE_KEY: 'synthetic-server-key',
+  NEXT_PUBLIC_SITE_URL: site,
+  GALLERY_INVENTORY_HOLDS: 'true',
+  GALLERY_PRIVATE_DOWNLOADS: 'true',
+}
+test('an explicitly isolated preview can run Gallery test operations', () => {
+  assert.equal(galleryEnvironment(site + '/api/gallery/checkout', sandbox), 'isolated-test')
+})
+test('an unconfigured deployment or local process cannot mutate Gallery test state', () => {
+  for (const VERCEL_ENV of [undefined, 'development', 'preview']) {
+    assert.equal(galleryEnvironment(site, { VERCEL_ENV }), 'blocked')
+  }
+})
+test('misconfigured previews fail closed', () => {
+  const unsafe = [
+    { STRIPE_SECRET_KEY: 'sk_live_synthetic' },
+    { GALLERY_TEST_STRIPE_WEBHOOK_SECRET: sandbox.STRIPE_WEBHOOK_SECRET },
+    { GALLERY_TEST_STRIPE_WEBHOOK_SECRET: undefined },
+    { SUPABASE_SERVICE_ROLE_KEY: undefined },
+    { GALLERY_PRIVATE_DOWNLOADS: 'false' },
+    { GALLERY_DELIVERY_NOTICES: 'true' },
+    { NEXT_PUBLIC_SUPABASE_URL: 'not a URL' },
+    { GALLERY_TEST_SUPABASE_URL: 'https://someotherpreview.supabase.co' },
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://nwfxvhqbjtfvoopcadff.supabase.co',
+      GALLERY_TEST_SUPABASE_URL: 'https://nwfxvhqbjtfvoopcadff.supabase.co' },
+    { NEXT_PUBLIC_SUPABASE_URL: 'https://anrprovgdpwqcalkolsz.supabase.co',
+      GALLERY_TEST_SUPABASE_URL: 'https://anrprovgdpwqcalkolsz.supabase.co' },
+    { NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+      GALLERY_TEST_SUPABASE_URL: 'http://127.0.0.1:54321' },
+  ]
+  for (const change of unsafe) assert.equal(galleryEnvironment(site, { ...sandbox, ...change }), 'blocked')
+  assert.equal(galleryEnvironment('https://wrong-preview.example', sandbox), 'blocked')
+})
+test('production continues using its existing path', () => {
+  assert.equal(galleryEnvironment(site, { VERCEL_ENV: 'production' }), 'production')
+})
+
+test('new sales default off and cannot use a test key in production', () => {
+ const ready = {...sandbox, VERCEL_ENV:'production', STRIPE_SECRET_KEY:'sk_live_synthetic', GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
+   GALLERY_PRODUCTION_FINANCIAL_REVIEW:'true',GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'10000000-0000-4000-8000-000000000003',GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'p'.repeat(48),GALLERY_REFUND_LEDGER:'true',
+   GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
+   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'}
+ assert.equal(gallerySalesEnabled('production',ready),true)
+ assert.equal(gallerySalesEnabled('isolated-test',{...ready,STRIPE_SECRET_KEY:'sk_test_synthetic'}),true)
+ assert.equal(gallerySalesEnabled('blocked',ready),false)
+ for (const change of [{GALLERY_SALES_ENABLED:undefined},{GALLERY_SALES_ENABLED:'false'},{GALLERY_PRIVATE_DOWNLOADS:'false'},{GALLERY_INVENTORY_HOLDS:'false'},{GALLERY_DIGITAL_WORKER:undefined},{STRIPE_SECRET_KEY:'sk_test_synthetic'},{GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:undefined},
+   {GALLERY_SETTLEMENT_QUEUE_ENABLED:'false'},{GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'false'},
+   {GALLERY_PRODUCTION_FINANCIAL_REVIEW:'false'},{GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'invalid'},{GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:undefined},{GALLERY_PRODUCTION_SETTLEMENT_WORKER:'false'},{GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:undefined},
+   {GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'short'},{CRON_SECRET:'p'.repeat(48)},
+   {GALLERY_SETTLEMENT_QA_SECRET:'p'.repeat(48)},{STRIPE_WEBHOOK_SECRET:'p'.repeat(48)},
+   {GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'p'.repeat(48)},{SUPABASE_SERVICE_ROLE_KEY:'p'.repeat(48)},
+   {NEXT_PUBLIC_SUPABASE_ANON_KEY:'p'.repeat(48)},{GALLERY_REFUND_LEDGER:'false'},
+   {GALLERY_ISOLATED_TEST:'true'},{GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_other'},
+   {NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co'}])
+  assert.equal(gallerySalesEnabled('production',{...ready,...change}),false)
+ assert.equal(galleryFinancialReviewMode('https://www.cafe-sativa.com/api/gallery/financial-review',{...ready,GALLERY_SALES_ENABLED:'false'}),'production')
+ assert.equal(galleryFinancialReviewMode('https://wrong.example/api/gallery/financial-review',ready),'blocked')
+ assert.equal(galleryFinancialReviewMode('https://www.cafe-sativa.com/api/gallery/financial-review',{...ready,GALLERY_PRODUCTION_FINANCIAL_REVIEW:'false'}),'blocked')
+ // Existing paid/refunded webhook environment classification is unchanged by the sales switch.
+ assert.equal(galleryEnvironment(site,{...ready,GALLERY_SALES_ENABLED:'false'}),'production')
+})
+
+test('temporary restricted Stripe CLI key works only for explicit non-Vercel local isolation', () => {
+ const app = 'http://127.0.0.1:4116'
+ const db = 'http://127.0.0.1:54321'
+ const local = {...sandbox, VERCEL_ENV:undefined, GALLERY_LOCAL_STRIPE_CLI:'true',
+  STRIPE_SECRET_KEY:'rkcs_test_SYNTHETIC_NOT_A_KEY',
+  GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_synthetic',
+  GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_synthetic',
+  NEXT_PUBLIC_SITE_URL:app, NEXT_PUBLIC_SUPABASE_URL:db, GALLERY_TEST_SUPABASE_URL:db,
+  GALLERY_DIGITAL_WORKER:'true', GALLERY_SALES_ENABLED:'true'}
+ assert.equal(galleryEnvironment(app+'/api/gallery/checkout',local),'isolated-test')
+ assert.equal(gallerySalesEnabled('isolated-test',local),true)
+ assert.equal(gallerySalesEnabled('production',{...local,VERCEL_ENV:'production'}),false)
+ const hosted = {...local, VERCEL_ENV:'preview', NEXT_PUBLIC_SITE_URL:site,
+  NEXT_PUBLIC_SUPABASE_URL:database, GALLERY_TEST_SUPABASE_URL:database}
+ assert.equal(galleryEnvironment(site,hosted),'blocked')
+ assert.equal(galleryEnvironment(site,{...hosted,STRIPE_SECRET_KEY:'sk_test_synthetic'}),'isolated-test')
+ for(const change of [{VERCEL_ENV:'development'},{VERCEL:'1'},{VERCEL_URL:'preview.invalid'},{VERCEL_DEPLOYMENT_ID:'test'},
+   {GALLERY_LOCAL_STRIPE_CLI:'false'},{GALLERY_EPHEMERAL_STRIPE_ACCOUNT_ID:'acct_unexpected'},
+   {GALLERY_HOUSE_STRIPE_ACCOUNT_ID:undefined},{NEXT_PUBLIC_SITE_URL:'http://localhost:4116'},
+   {NEXT_PUBLIC_SITE_URL:'https://127.0.0.1:4116'},{NEXT_PUBLIC_SITE_URL:db},
+   {NEXT_PUBLIC_SUPABASE_URL:'https://syntheticgallery.supabase.co',GALLERY_TEST_SUPABASE_URL:'https://syntheticgallery.supabase.co'},
+   {GALLERY_DELIVERY_NOTICES:'true'}]){
+  const candidate={...local,...change}
+  assert.equal(galleryEnvironment(app,candidate),'blocked')
+  assert.equal(gallerySalesEnabled('isolated-test',candidate),false)
+ }
+ assert.equal(galleryEnvironment('http://127.0.0.1:9999/api/gallery/checkout',local),'blocked')
+})

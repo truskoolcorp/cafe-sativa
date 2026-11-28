@@ -287,3 +287,40 @@ test('draft production settlement worker requires separate bearer and empty body
  const h=productionSettlementWorker(),r=await h.post();assert.equal(r.status,200);assert.deepEqual(r.body,{status:'recorded'});assert.equal(r.cache,'private, no-store');assert.equal(h.calls(),1)
  const bad=productionSettlementWorker({workerError:true}),failure=await bad.post();assert.equal(failure.status,503);assert.equal(bad.calls(),1);assert.equal(failure.body.error,'Gallery settlement worker unavailable')
 })
+
+const fulfillmentWorkerSource=ts.transpileModule(fs.readFileSync('app/api/gallery/worker/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+function fulfillmentWorker({overrides={},url='https://www.cafe-sativa.com/api/gallery/worker',authorization='Bearer '+('f'.repeat(48)),body=null,accountMatches=true}={}){
+ const env={VERCEL_ENV:'production',GALLERY_DIGITAL_WORKER:'true',GALLERY_PRIVATE_DOWNLOADS:'true',GALLERY_INVENTORY_HOLDS:'true',GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET:'f'.repeat(48),GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'p'.repeat(48),GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_fixture',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_fixture',STRIPE_SECRET_KEY:'sk_live_synthetic',NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_SALES_ENABLED:'false',...overrides}
+ const calls=[]
+ const ctx={exports:{},URL,Response,Buffer,process:{env},require(id){
+  if(id==='node:crypto')return require(id)
+  if(id==='stripe')return {default:class {}}
+  if(id.endsWith('/environment'))return require('./helpers/load-gallery-environment.cjs')(env)
+  if(id.endsWith('/house-checkout'))return {verifiedGalleryHouseAccount:async()=>{calls.push('account');return accountMatches}}
+  if(id.endsWith('/fulfill-digital'))return {authorizeStagedDigitalOrders:async()=>{calls.push('fulfillment');return {authorized:1}}}
+  if(id.endsWith('/send-delivery-notices'))return {sendGalleryDeliveryNotices:async()=>{calls.push('notices');return {sent:0}}}
+  if(id.endsWith('/reconcile-inventory'))return {reconcileGalleryInventory:async()=>{calls.push('inventory');return {released:0}}}
+  throw Error(id)
+ }}
+ vm.runInNewContext(fulfillmentWorkerSource,ctx)
+ return {calls,exports:ctx.exports,post:async()=>{const r=await ctx.exports.POST(new Request(url,{method:'POST',headers:authorization?{authorization}:{},body}));return {status:r.status,body:await r.json(),cache:r.headers.get('cache-control')}}}
+}
+test('Gallery fulfillment worker is POST-only, separately credentialed, and independent of new sales',async()=>{
+ for(const o of [{overrides:{GALLERY_DIGITAL_WORKER:undefined}},{overrides:{GALLERY_PRIVATE_DOWNLOADS:'false'}},{overrides:{GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET:undefined}},{overrides:{GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET:'p'.repeat(48)}},{overrides:{CRON_SECRET:'f'.repeat(48)}},{overrides:{STRIPE_SECRET_KEY:'sk_test_synthetic'}},{overrides:{NEXT_PUBLIC_SUPABASE_URL:'https://anrprovgdpwqcalkolsz.supabase.co'}},{overrides:{GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_other'}},{overrides:{GALLERY_ISOLATED_TEST:'true'}},{url:'https://preview.example.com/api/gallery/worker'},{url:'https://www.cafe-sativa.com/api/gallery/worker?order=other'}]){
+  const h=fulfillmentWorker(o);assert.equal((await h.post()).status,404);assert.deepEqual(h.calls,[])
+ }
+ for(const [o,s] of [[{authorization:''},401],[{authorization:'Bearer '+('p'.repeat(48))},401],[{body:'{"order":"other"}'},400]]){
+  const h=fulfillmentWorker(o);assert.equal((await h.post()).status,s);assert.deepEqual(h.calls,[])
+ }
+ const wrong=fulfillmentWorker({accountMatches:false});assert.equal((await wrong.post()).status,503);assert.deepEqual(wrong.calls,['account'])
+ const h=fulfillmentWorker();assert.equal(h.exports.GET,undefined);const r=await h.post();assert.equal(r.status,200);assert.equal(r.cache,'private, no-store');assert.deepEqual(h.calls,['account','fulfillment','notices','inventory'])
+})
+test('Gallery fulfillment test route accepts only isolated literal-loopback runtime and never invokes notices',async()=>{
+ const site='http://127.0.0.1:4116',db='http://127.0.0.1:54321'
+ const overrides={VERCEL_ENV:undefined,GALLERY_ISOLATED_TEST:'true',GALLERY_TEST_FULFILLMENT_WORKER_SECRET:'t'.repeat(48),STRIPE_SECRET_KEY:'sk_test_synthetic',GALLERY_TEST_STRIPE_WEBHOOK_SECRET:'whsec_fixture',GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID:'acct_fixture',NEXT_PUBLIC_SITE_URL:site,NEXT_PUBLIC_SUPABASE_URL:db,GALLERY_TEST_SUPABASE_URL:db,NEXT_PUBLIC_SUPABASE_ANON_KEY:'anon_fixture',SUPABASE_SERVICE_ROLE_KEY:'service_fixture'}
+ const options={overrides,url:site+'/api/gallery/worker',authorization:'Bearer '+('t'.repeat(48))}
+ const h=fulfillmentWorker(options),r=await h.post();assert.equal(r.status,200);assert.equal(r.body.notifications.enabled,false);assert.deepEqual(h.calls,['account','fulfillment','inventory'])
+ for(const change of [{GALLERY_DELIVERY_NOTICES:'true'},{VERCEL_ENV:'preview'},{GALLERY_TEST_FULFILLMENT_WORKER_SECRET:'p'.repeat(48)},{GALLERY_TEST_STRIPE_PLATFORM_ACCOUNT_ID:undefined}]){
+  const bad=fulfillmentWorker({...options,overrides:{...overrides,...change}});assert.equal((await bad.post()).status,404);assert.deepEqual(bad.calls,[])
+ }
+})

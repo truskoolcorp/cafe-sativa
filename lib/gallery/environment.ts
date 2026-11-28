@@ -94,9 +94,21 @@ export function galleryFinancialReviewMode(requestUrl:string,env:Env=process.env
 export function galleryProductionSettlementWorkerCredentialConfigured(env: Env = process.env): boolean {
   const secret = env.GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET
   return !!secret && /^[A-Za-z0-9_-]{32,128}$/.test(secret) &&
-    ![env.CRON_SECRET,env.GALLERY_SETTLEMENT_QA_SECRET,env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET,
+    ![env.CRON_SECRET,env.GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET,env.GALLERY_TEST_FULFILLMENT_WORKER_SECRET,env.GALLERY_SETTLEMENT_QA_SECRET,env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET,
       env.STRIPE_WEBHOOK_SECRET,env.STRIPE_SECRET_KEY,env.SUPABASE_SERVICE_ROLE_KEY,
       env.NEXT_PUBLIC_SUPABASE_ANON_KEY].includes(secret)
+}
+
+/** Delivery/inventory authority is separate from settlement-only authority. */
+export function galleryFulfillmentWorkerCredentialConfigured(mode: GalleryEnvironment, env: Env = process.env): boolean {
+  if (mode === 'blocked') return false
+  const live = mode === 'production'
+  const secret = live ? env.GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET : env.GALLERY_TEST_FULFILLMENT_WORKER_SECRET
+  return !!secret && /^[A-Za-z0-9_-]{32,128}$/.test(secret) &&
+    ![env.CRON_SECRET,env.GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET,env.GALLERY_SETTLEMENT_QA_SECRET,
+      live ? env.GALLERY_TEST_FULFILLMENT_WORKER_SECRET : env.GALLERY_PRODUCTION_FULFILLMENT_WORKER_SECRET,
+      env.GALLERY_TEST_STRIPE_WEBHOOK_SECRET,env.STRIPE_WEBHOOK_SECRET,env.STRIPE_SECRET_KEY,
+      env.SUPABASE_SERVICE_ROLE_KEY,env.NEXT_PUBLIC_SUPABASE_ANON_KEY].includes(secret)
 }
 
 /** New checkout only. Never use this switch to gate paid/refunded events,
@@ -107,7 +119,7 @@ export function gallerySalesEnabled(mode: GalleryEnvironment, env: Env = process
       env.GALLERY_DIGITAL_WORKER !== 'true') return false
   return mode === 'production' ? galleryProductionFinancialReviewConfigured(env) &&
     env.GALLERY_PRODUCTION_SETTLEMENT_WORKER === 'true' &&
-    galleryProductionSettlementWorkerCredentialConfigured(env) &&
+    galleryProductionSettlementWorkerCredentialConfigured(env) && galleryFulfillmentWorkerCredentialConfigured(mode,env) &&
     env.GALLERY_STRIPE_PLATFORM_ACCOUNT_ID === env.GALLERY_HOUSE_STRIPE_ACCOUNT_ID :
     env.STRIPE_SECRET_KEY?.startsWith('sk_test_') === true || acceptsEphemeralStripe(env)
 }

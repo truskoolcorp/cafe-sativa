@@ -41,7 +41,8 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
    NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'});
  Object.assign(env,{GALLERY_HOUSE_PRODUCT_ID:product.id,GALLERY_HOUSE_ARTIST_ID:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house'});
  product={...product,artist_id:env.GALLERY_HOUSE_ARTIST_ID,kind:'digital',slug:'where-the-brass-meets-the-tide',currency:'usd',stock_count:1,artist:{id:env.GALLERY_HOUSE_ARTIST_ID,is_approved:true}};
- assets=[{id:'approved_edition'}];
+ const debutSha='33483b370c172774d73b2a7445322e9973422e90e3cefdbcf0fa6ed01ec06f93';
+ assets=[{id:'approved_edition',sha256:debutSha}];
  const post=()=>send({product_id:product.id,gallery_sale_kind:'house',payout_destination:'acct_client_override'});
  assert.equal((await post()).status,409);assert.equal(accountCheck,0);assert.equal(calls,1);
  env.GALLERY_HOUSE_CHECKOUT_ENABLED='true';
@@ -55,6 +56,12 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
    assert.equal((await post()).status,409);product=prior;
  }
  assert.equal(holds,holdsBeforeOffer);assert.equal(calls,1);
+ for (const rejectedAssets of [[],[{id:'different_edition',sha256:'a'.repeat(64)}],
+   [{id:'approved_edition',sha256:debutSha},{id:'duplicate',sha256:debutSha}]]) {
+   const prior=assets; assets=rejectedAssets;
+   assert.equal((await post()).status,409); assets=prior;
+ }
+ assert.equal(holds,holdsBeforeOffer);assert.equal(calls,1);assert.equal(accountCheck,0);
  houseReady=false;
  assert.equal((await post()).status,503);assert.equal(accountCheck,0);assert.equal(calls,1);
  houseReady=true;

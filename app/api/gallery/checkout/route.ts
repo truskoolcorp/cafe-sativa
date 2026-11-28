@@ -38,6 +38,8 @@ import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environme
  */
 
 const PLATFORM_FEE_BPS = 1000 // 10.00%
+// The launch authorizes this original only, not any later edition or the public display copy.
+const DEBUT_MASTER_SHA256 = '33483b370c172774d73b2a7445322e9973422e90e3cefdbcf0fa6ed01ec06f93'
 
 type Body = {
   product_id: string
@@ -164,10 +166,14 @@ export async function POST(req: Request) {
   // Private delivery preview pins the reviewed edition before payment.
   let approvedAssetId: string | undefined
   if (product.kind === 'digital' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true') {
-    const {data:assets,error:assetError}=await admin.from('gallery_approved_assets')
-      .select('id').eq('product_id',product.id).is('revoked_at',null)
-      .order('approved_at',{ascending:false}).order('id',{ascending:false}).limit(1)
-    if(assetError || !assets?.[0])return NextResponse.json({error:'No approved digital edition is available.'},{status:409})
+    let assetQuery=admin.from('gallery_approved_assets')
+      .select('id,sha256').eq('product_id',product.id).is('revoked_at',null)
+    if(mode==='production') assetQuery=assetQuery.eq('sha256',DEBUT_MASTER_SHA256)
+    const {data:assets,error:assetError}=await assetQuery
+      .order('approved_at',{ascending:false}).order('id',{ascending:false}).limit(mode==='production'?2:1)
+    if(assetError || !assets?.[0] || (mode==='production' &&
+       (assets.length!==1 || assets[0].sha256!==DEBUT_MASTER_SHA256)))
+      return NextResponse.json({error:'No approved digital edition is available.'},{status:409})
     approvedAssetId=assets[0].id
   }
 

@@ -5,7 +5,6 @@ import { AHNIKA_AUDIENCE_SCHEDULE, AHNIKA_PREMIERE_SLUG, ahnikaAudiencePhase } f
 
 export const dynamic = 'force-dynamic'
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
-const reports = 'stage_premiere_message_reports'
 const reply = (value: object, status = 200) => NextResponse.json(value, { status, headers: { 'Cache-Control': 'private, no-store' } })
 const closed = () => reply({ error: 'Stage reports are not open.' }, 404)
 const unavailable = () => reply({ error: 'Could not reach Stage moderation. Try again shortly.' }, 503)
@@ -42,7 +41,7 @@ export async function POST(request: Request) {
     })
     if (error) return unavailable()
     if (data === 'rate_limited') return reply({ error: 'Please wait a minute before reporting again.' }, 429)
-    if (!['needs_review','hidden_by_laviche','dismissed'].includes(data)) return closed()
+    if (!['needs_review','hidden_by_laviche','hidden_by_staff','dismissed'].includes(data)) return closed()
     return reply({ status: data })
   } catch { return unavailable() }
 }
@@ -52,20 +51,11 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams
     const viewer = await access(params.get('roomId'))
     if (!viewer) return closed()
-    const db = createAdminClient()
-    const read = await db.from(reports).select('message_id').eq('room_id', viewer.roomId)
-      .in('status', ['hidden_by_laviche','hidden_by_staff']).order('resolved_at', { ascending: false }).limit(250)
-    if (read.error) return unavailable()
-    const hidden = [...new Set((read.data ?? []).map(row => row.message_id))]
-    if (!viewer.staff) return reply({ hidden })
-    const pending = await db.from(reports).select('message_id').eq('room_id', viewer.roomId)
-      .eq('status', 'needs_review').order('created_at').limit(40)
-    if (pending.error) return unavailable()
-    const ids = [...new Set((pending.data ?? []).map(row => row.message_id))]
-    if (!ids.length) return reply({ hidden, pending: [] })
-    const queued = await db.from('lounge_messages').select('id,content').eq('room_id', viewer.roomId)
-      .is('deleted_at', null).in('id', ids)
-    return queued.error ? unavailable() : reply({ hidden, pending: queued.data ?? [] })
+    const { data, error } = await createAdminClient().rpc('stage_premiere_report_state', { p_room: viewer.roomId, p_viewer: viewer.userId })
+    if (error) return unavailable()
+    if (!data) return closed()
+    if (!Array.isArray(data.hidden)) return unavailable()
+    return reply(viewer.staff && Array.isArray(data.pending) ? { hidden: data.hidden, pending: data.pending } : { hidden: data.hidden })
   } catch { return unavailable() }
 }
 

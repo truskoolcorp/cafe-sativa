@@ -1,6 +1,6 @@
 # Stage premiere staff acceptance
 
-Laviche is the floor moderator, not a human account. The automated report lane suppresses only an exact standalone link posted at least three times by the same guest in a short window. Other reports, sensitive questions, and questions without a verified safe answer remain private for the scoped human fallback. The message row and audit record are retained. No AI has ban, account, access, or cross-room powers.
+Laviche is the floor moderator, not a human account. The automated report lane suppresses only an exact standalone link posted at least three times by the same guest in a short window. Other reports, sensitive questions, and questions without a verified safe answer remain private for the scoped human fallback. Suppression applies to the Stage room display, not the underlying Lounge record or global visibility rights. The message row, its original write guard, and the report audit record are retained. No AI has ban, account, access, or cross-room powers.
 
 Ahnika can answer in the signed-in guest's private Stage text thread before and after her performance. The performance window blocks new Ahnika questions and suppresses an in-flight reply that crosses kickoff. Laviche remains available in text. Neither host volunteers AI or provider details; direct identity questions receive a truthful short answer, and direct production questions may explain the AI-assisted launch while live guests and dates are finalized.
 

@@ -76,6 +76,7 @@ type Props = {
   rehearsalDraftModerator?: boolean
   premiereDraftModerator?: boolean
   stageHostInbox?: boolean
+  stageReports?: boolean
   ahnikaOnStage?: boolean
   soloStageHostTest?: boolean
   applauseFor?: string
@@ -94,6 +95,7 @@ export function LoungeRoom({
   rehearsalDraftModerator = false,
   premiereDraftModerator = false,
   stageHostInbox = false,
+  stageReports = false,
   ahnikaOnStage = false,
   soloStageHostTest = false,
   applauseFor,
@@ -115,9 +117,53 @@ export function LoungeRoom({
   const [reviewId, setReviewId] = useState<string | null>(null)
   const [reviewText, setReviewText] = useState('')
   const [reviewing, setReviewing] = useState(false)
+  const [stageHidden, setStageHidden] = useState<Set<string>>(() => new Set())
+  const [stageReportQueue, setStageReportQueue] = useState<{ id: string; content: string }[]>([])
+  const [stageReportStatus, setStageReportStatus] = useState('')
+  const [stageReporting, setStageReporting] = useState(false)
   const questionRef = useRef<{ id: string; question: string; host: string } | null>(null)
   const inboxRevision = useRef(0)
   const [drafting, setDrafting] = useState(false)
+  useEffect(() => {
+    if (!stageReports) return
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout>
+    async function refresh() {
+      try {
+        const res = await fetch('/api/lounge/stage-reports?' + new URLSearchParams({ roomId }), { signal: controller.signal })
+        const data = res.ok ? await res.json() : null
+        if (controller.signal.aborted) return
+        if (Array.isArray(data?.hidden)) setStageHidden(prev => new Set([...prev, ...data.hidden]))
+        setStageReportQueue(Array.isArray(data?.pending) ? data.pending : [])
+      } catch {
+        if (!controller.signal.aborted) setStageReportQueue([])
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(refresh, 3500)
+      }
+    }
+    void refresh()
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [roomId, stageReports])
+
+  async function sendStageReport(messageId: string, action?: 'remove' | 'dismiss') {
+    if (!stageReports || stageReporting) return
+    setStageReporting(true)
+    try {
+      const res = await fetch('/api/lounge/stage-reports', {
+        method: action ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, messageId, action }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not reach Stage moderation.')
+      const hidden = data.status === 'hidden_by_laviche' || (data.resolved && action === 'remove')
+      if (hidden) setStageHidden(prev => new Set([...prev, messageId]))
+      if (data.resolved) setStageReportQueue(prev => prev.filter(item => item.id !== messageId))
+      setStageReportStatus(data.resolved ? 'Report resolved.' : hidden ? 'Laviche hid the repeated link.' :
+        data.status === 'dismissed' ? 'A moderator already reviewed this message.' : 'Report sent privately for review.')
+    } catch (err) {
+      setStageReportStatus(err instanceof Error ? err.message : 'Could not reach Stage moderation.')
+    } finally { setStageReporting(false) }
+  }
   const [dryRunPaused, setDryRunPaused] = useState(true)
   const [dryRunResult, setDryRunResult] = useState('')
   const [selectedHost, setDraftHost] = useState('ahnika')
@@ -546,6 +592,17 @@ export function LoungeRoom({
       </div>}
 
       {/* Message list */}
+      {stageReports && stageReportStatus && <p role="status" className="px-3 text-xs text-muted-foreground">{stageReportStatus}</p>}
+      {stageReports && stageReportQueue.length > 0 && (
+        <details className="space-y-2 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-semibold">Private moderation queue</summary>
+          {stageReportQueue.map(item => <div key={item.id} className="space-y-1 text-sm">
+            <p className="whitespace-pre-wrap break-words">{item.content}</p>
+            <button type="button" className="mr-3 underline" disabled={stageReporting} onClick={() => sendStageReport(item.id, 'remove')}>Hide message</button>
+            <button type="button" className="underline" disabled={stageReporting} onClick={() => sendStageReport(item.id, 'dismiss')}>Dismiss report</button>
+          </div>)}
+        </details>
+      )}
       {privateRoom && canDraft && (
         <div className="space-y-1 py-2 text-xs text-muted-foreground">
           <label><input type="checkbox" checked={dryRunPaused}
@@ -565,7 +622,7 @@ export function LoungeRoom({
             </p>
           </div>
         ) : (
-          messages.map((m) => (
+          messages.filter(m => !stageReports || !stageHidden.has(m.id)).map((m) => (
             <MessageRow
               key={m.id}
               message={m}
@@ -579,6 +636,9 @@ export function LoungeRoom({
               formatHostQuestion={conciergeDrafts}
               canDelete={isStaff || m.user_id === userId}
               onDelete={() => handleDelete(m.id)}
+              onReport={stageReports && m.user_id !== userId && !m.is_staff
+                ? () => sendStageReport(m.id) : undefined}
+              reportDisabled={stageReporting}
               onDraft={!stageHostInbox && canDraft && m.user_id !== userId && /^\[Ask (ahnika|laviche)\] /.test(m.content)
                 ? () => draftConciergeReply(m) : undefined}
               draftDisabled={drafting || Boolean(input.trim())}
@@ -754,6 +814,8 @@ function MessageRow({
   formatHostQuestion,
   canDelete,
   onDelete,
+  onReport,
+  reportDisabled,
   onDraft,
   draftDisabled,
   onDryRun,
@@ -769,6 +831,8 @@ function MessageRow({
   formatHostQuestion: boolean
   canDelete: boolean
   onDelete: () => void
+  onReport?: () => void
+  reportDisabled?: boolean
   onDraft?: () => void
   draftDisabled?: boolean
   onDryRun?: () => void
@@ -806,6 +870,8 @@ function MessageRow({
         {onDraft && <button type="button" onClick={onDraft} disabled={draftDisabled}
           className="text-xs text-primary underline disabled:opacity-50">Draft host reply</button>}
         {onDryRun && <button type="button" onClick={onDryRun} className="text-xs text-primary underline">Dry run</button>}
+        {onReport && <button type="button" onClick={onReport} disabled={reportDisabled}
+          className="text-xs text-muted-foreground underline disabled:opacity-50">Report</button>}
         {canDelete && (
           <button
             onClick={onDelete}

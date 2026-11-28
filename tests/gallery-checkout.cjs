@@ -1,10 +1,10 @@
 const fs=require('fs'),ts=require('typescript'),vm=require('vm'),assert=require('node:assert/strict');
 let providerFailure=false,linkFailure=false;const errorLogs=[];
-let authenticated=true,holds=0,calls=0,dbCalls=0,accountCheck=0,checkoutInput,platformAccount='acct_house',assets=[],houseReady=true;let product={id:'12345678-1234-1234-1234-123456789abc',status:'published',price_cents:1200,kind:'physical',stock_count:2,artist:{id:'artist',is_approved:true,charges_enabled:true,payouts_enabled:true,stripe_account_id:'acct_test'}};
+let authenticated=true,holds=0,calls=0,dbCalls=0,accountCheck=0,checkoutInput,platformAccount='acct_house',assets=[],houseReady=true,storageReady=true,storageChecks=0;let product={id:'12345678-1234-1234-1234-123456789abc',status:'published',price_cents:1200,kind:'physical',stock_count:2,artist:{id:'artist',is_approved:true,charges_enabled:true,payouts_enabled:true,stripe_account_id:'acct_test'}};
 const context={exports:{},URL,process:{env:{VERCEL_ENV:'production',STRIPE_SECRET_KEY:'sk_live_mock',GALLERY_SALES_ENABLED:'true',GALLERY_INVENTORY_HOLDS:'true',GALLERY_PRIVATE_DOWNLOADS:'true',GALLERY_DIGITAL_WORKER:'true',GALLERY_PRODUCTION_SETTLEMENT_WEBHOOK:'true',GALLERY_SETTLEMENT_QUEUE_ENABLED:'true',
    GALLERY_PRODUCTION_FINANCIAL_REVIEW:'true',GALLERY_PRODUCTION_FINANCIAL_OWNER_IDS:'10000000-0000-4000-8000-000000000003',GALLERY_PRODUCTION_SETTLEMENT_OBSERVATIONS:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER:'true',GALLERY_PRODUCTION_SETTLEMENT_WORKER_SECRET:'p'.repeat(48),GALLERY_REFUND_LEDGER:'true',
    GALLERY_STRIPE_PLATFORM_ACCOUNT_ID:'acct_house',GALLERY_HOUSE_STRIPE_ACCOUNT_ID:'acct_house',
-   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'}},console:{log:console.log,error:(...args)=>errorLogs.push(args)},require(name){if(name==='@/lib/gallery/environment')return require('./helpers/load-gallery-environment.cjs')(context.process.env);if(name==='@/lib/gallery/house-checkout'){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/house-checkout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:context.process});return exports}if(name==='next/server')return {NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})}};if(name==='stripe')return {default:class {accounts={retrieveCurrent:async()=>{accountCheck++;return {id:platformAccount,charges_enabled:true,payouts_enabled:true}}};checkout={sessions:{create:async input=>{calls++;checkoutInput=input;if(providerFailure)throw Error('synthetic private provider detail');assert.equal(input.line_items[0].quantity,1);return {id:'cs_mock',url:'https://checkout.stripe.com/test'}}}}}};if(name==='@supabase/ssr')return {createServerClient:()=>({auth:{getUser:async()=>({data:{user:authenticated?{id:'user'}:null}})}})};if(name==='next/headers')return {cookies:()=>({get:()=>null})};if(name.endsWith('/admin'))return {createAdminClient:()=>({rpc:async name=>{if(name==='cs_hold_gallery_inventory')holds++;return {data:name==='cs_gallery_house_ready'?houseReady:'hold'}},from(table){dbCalls++;return {select(){return this},eq(){return this},update(){return this},is(){return this},order(){return this},limit:async()=>({data:assets}),maybeSingle:async()=>({data:table==='gallery_inventory_holds'?(linkFailure?null:{id:'hold'}):product})}}})};throw Error(name)}};
+   NEXT_PUBLIC_SITE_URL:'https://www.cafe-sativa.com',NEXT_PUBLIC_SUPABASE_URL:'https://nwfxvhqbjtfvoopcadff.supabase.co',GALLERY_ISOLATED_TEST:'false'}},console:{log:console.log,error:(...args)=>errorLogs.push(args)},require(name){if(name==='@/lib/gallery/verify-house-artwork-storage')return {verifyHouseArtworkStorage:async(_db,id,asset,expected)=>{storageChecks++;assert.equal(id,product.id);assert.equal(asset.id,assets[0].id);assert.equal(expected,context.process.env.VERCEL_ENV==='production'?2856592:undefined);return storageReady}};if(name==='@/lib/gallery/environment')return require('./helpers/load-gallery-environment.cjs')(context.process.env);if(name==='@/lib/gallery/house-checkout'){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/house-checkout.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:context.process});return exports}if(name==='next/server')return {NextResponse:{json:(body,opts={})=>({body,status:opts.status||200})}};if(name==='stripe')return {default:class {accounts={retrieveCurrent:async()=>{accountCheck++;return {id:platformAccount,charges_enabled:true,payouts_enabled:true}}};checkout={sessions:{create:async input=>{calls++;checkoutInput=input;if(providerFailure)throw Error('synthetic private provider detail');assert.equal(input.line_items[0].quantity,1);return {id:'cs_mock',url:'https://checkout.stripe.com/test'}}}}}};if(name==='@supabase/ssr')return {createServerClient:()=>({auth:{getUser:async()=>({data:{user:authenticated?{id:'user'}:null}})}})};if(name==='next/headers')return {cookies:()=>({get:()=>null})};if(name.endsWith('/admin'))return {createAdminClient:()=>({rpc:async name=>{if(name==='cs_hold_gallery_inventory')holds++;return {data:name==='cs_gallery_house_ready'?houseReady:'hold'}},from(table){dbCalls++;return {select(){return this},eq(){return this},update(){return this},is(){return this},order(){return this},limit:async()=>({data:assets}),maybeSingle:async()=>({data:table==='gallery_inventory_holds'?(linkFailure?null:{id:'hold'}):product})}}})};throw Error(name)}};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/gallery/checkout/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({url:(context.process.env.NEXT_PUBLIC_SITE_URL||'https://www.cafe-sativa.com')+'/api/gallery/checkout',headers:{get:()=>origin},json:async()=>body});
 (async()=>{
@@ -65,6 +65,9 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  houseReady=false;
  assert.equal((await post()).status,503);assert.equal(accountCheck,0);assert.equal(calls,1);
  houseReady=true;
+ storageReady=false;
+ assert.equal((await post()).status,503);assert.equal(storageChecks,1);assert.equal(accountCheck,0);assert.equal(holds,holdsBeforeOffer);assert.equal(calls,1);
+ storageReady=true;
  platformAccount='acct_wrong';
  assert.equal((await post()).status,503);assert.equal(accountCheck,1);assert.equal(calls,1);
  platformAccount='acct_house';
@@ -119,3 +122,29 @@ const send=(body,origin='https://www.cafe-sativa.com')=>context.exports.POST({ur
  console.log('PASS: cross-origin/malformed/invalid quantity rejected before provider; missing digital asset and stock blocked; valid mocked checkout succeeds');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
+
+const {createHash}=require('node:crypto')
+const storageExports={}
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/gallery/verify-house-artwork-storage.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:storageExports,Buffer,require})
+require('node:test').test('house storage requires both private buckets, readable intact bytes and pinned length',async()=>{
+ const bytes=Buffer.from('synthetic artwork bytes')
+ const asset={object_path:'product/master.png',sha256:createHash('sha256').update(bytes).digest('hex')}
+ const fixture=({publicBucket,missingBucket,wrongId,downloadError,corrupt,throwRead,oversize}={})=>{
+  let downloads=0
+  return {count:()=>downloads,storage:{
+   getBucket:async id=>({data:missingBucket===id?null:{id:wrongId===id?'other':id,public:publicBucket===id},error:null}),
+   from:id=>{assert.equal(id,'gallery-approved');return {download:async path=>{
+    downloads++;assert.equal(path,asset.object_path);if(throwRead)throw Error('private error')
+    return {error:downloadError?Error('unavailable'):null,data:oversize?{size:51*1024*1024,arrayBuffer:async()=>{throw Error('must not read')}}:new Blob([corrupt?Buffer.alloc(bytes.length):bytes])}
+   }}}
+  }}
+ }
+ const verify=storageExports.verifyHouseArtworkStorage
+ const good=fixture();assert.equal(await verify(good,'product',asset,bytes.length),true);assert.equal(good.count(),1)
+ for(const options of [{publicBucket:'gallery-approved'},{publicBucket:'gallery-private'},{missingBucket:'gallery-private'},{wrongId:'gallery-approved'}]){
+  const db=fixture(options);assert.equal(await verify(db,'product',asset,bytes.length),false);assert.equal(db.count(),0)
+ }
+ for(const options of [{downloadError:true},{corrupt:true},{throwRead:true},{oversize:true}])assert.equal(await verify(fixture(options),'product',asset,bytes.length),false)
+ assert.equal(await verify(fixture(),'product',asset,bytes.length+1),false)
+ const wrongPath=fixture();assert.equal(await verify(wrongPath,'product',{...asset,object_path:'other/master.png'}),false);assert.equal(wrongPath.count(),0)
+})

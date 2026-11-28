@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { galleryDebutOffer, galleryHouseConfig, gallerySellerKind, verifiedGalleryHouseAccount } from '@/lib/gallery/house-checkout'
 import { galleryEnvironment, gallerySalesEnabled } from '@/lib/gallery/environment'
+import { verifyHouseArtworkStorage } from '@/lib/gallery/verify-house-artwork-storage'
 
 /**
  * POST /api/gallery/checkout
@@ -165,15 +166,17 @@ export async function POST(req: Request) {
 
   // Private delivery preview pins the reviewed edition before payment.
   let approvedAssetId: string | undefined
+  let approvedAsset: {id:string;sha256:string;object_path:string} | undefined
   if (product.kind === 'digital' && process.env.GALLERY_PRIVATE_DOWNLOADS === 'true') {
     let assetQuery=admin.from('gallery_approved_assets')
-      .select('id,sha256').eq('product_id',product.id).is('revoked_at',null)
+      .select('id,sha256,object_path').eq('product_id',product.id).is('revoked_at',null)
     if(mode==='production') assetQuery=assetQuery.eq('sha256',DEBUT_MASTER_SHA256)
     const {data:assets,error:assetError}=await assetQuery
       .order('approved_at',{ascending:false}).order('id',{ascending:false}).limit(mode==='production'?2:1)
     if(assetError || !assets?.[0] || (mode==='production' &&
        (assets.length!==1 || assets[0].sha256!==DEBUT_MASTER_SHA256)))
       return NextResponse.json({error:'No approved digital edition is available.'},{status:409})
+    approvedAsset=assets[0]
     approvedAssetId=assets[0].id
   }
 
@@ -245,6 +248,11 @@ export async function POST(req: Request) {
     })
     if (readyError || ready !== true) {
       return NextResponse.json({ error: 'House checkout is not ready.' }, { status: 503 })
+    }
+    // Verify actual readable bytes and both private buckets before reserving stock or creating a session.
+    // The exact production master length is pinned in addition to its previously approved SHA-256.
+    if (!approvedAsset || !await verifyHouseArtworkStorage(admin,product.id,approvedAsset,mode==='production'?2856592:undefined)) {
+      return NextResponse.json({ error: 'House artwork delivery is temporarily unavailable.' }, { status: 503 })
     }
     try {
       if (!await verifiedGalleryHouseAccount(stripe, house.accountId, true)) {

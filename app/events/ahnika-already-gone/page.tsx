@@ -124,6 +124,7 @@ export default async function AhnikaPremierePage() {
               minPostTier="explorer" initialMessages={(messages.data || []).reverse()}
               conciergeDrafts={hostChatOpen || conciergeOpen} premiereDraftModerator={Boolean(premiereGrant)}
               stageHostInbox={hostChatOpen} ahnikaOnStage={ahnikaPlaybackOpen(serverNow)}
+              stageReports={process.env.STAGE_PREMIERE_REPORTS_ENABLED === 'true' && !user.is_anonymous}
               applauseFor={finished ? 'Ahnika Merlot' : undefined} />
           </div>
         ) : user ? (

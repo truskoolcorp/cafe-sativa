@@ -25,6 +25,13 @@ export async function GET(req: Request) {
   if(assetError || !asset?.approved_asset_id || typeof asset.object_path!=='string' || !asset.object_path.startsWith(orderId+'/') || asset.object_path.includes('..')) return deny()
   const {data:approved,error:approvalError} = await admin.from('gallery_approved_assets').select('id,revoked_at').eq('id',asset.approved_asset_id).eq('product_id',items[0].product_id).maybeSingle()
   if(approvalError || !approved || approved.revoked_at) return deny()
+  const privateDestination=async()=>{
+    try{
+      const bucket=await admin.storage.getBucket('gallery-private')
+      return !bucket.error&&bucket.data?.id==='gallery-private'&&bucket.data.public===false
+    }catch{return false}
+  }
+  if(!await privateDestination())return deny(503)
   const {data:signed,error:signError} = await admin.storage.from('gallery-private').createSignedUrl(asset.object_path,60,{download:true})
   if(signError || !signed?.signedUrl) return deny(503)
   // Do not disclose a just-signed link if the order or asset changed during signing.
@@ -33,5 +40,6 @@ export async function GET(req: Request) {
     admin.from('gallery_approved_assets').select('id').eq('id',asset.approved_asset_id).eq('product_id',items[0].product_id).is('revoked_at',null).maybeSingle(),
   ])
   if(current.error || !current.data || edition.error || !edition.data)return deny()
+  if(!await privateDestination())return deny(503)
   return NextResponse.json({url:signed.signedUrl,expires_in:60},{headers})
 }

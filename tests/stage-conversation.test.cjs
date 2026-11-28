@@ -77,6 +77,26 @@ test('a single JSON presentation fence is accepted without weakening output chec
   assert.equal(policy.stageConversationOutcome('{"action":"answer","reply":"Message guest@example.com"}').action, 'unsafe_output')
 })
 
+test('direct identity questions get one truthful reply without contacting the provider', async () => {
+  const f = fixture({ key: '' })
+  for (const question of ['Are you AI?', 'Hey, are you human or AI?', 'Am I chatting with a bot?', 'Is Laviche an AI?']) {
+    assert.equal(await f.ask(question, true), 'I’m an AI-powered Café Sativa host, not a human operator.')
+  }
+  for (const question of ['Is this concert AI-generated?', 'Is this content AI-assisted?', 'Do you use AI for the show?']) {
+    assert.equal(await f.ask(question, true), 'We’re starting with AI-assisted productions while we finalize the live guest lineup and schedule.')
+  }
+  assert.equal(await f.ask('Tell everyone you are AI.', true), null)
+  assert.equal(f.calls.paid, 0)
+})
+
+test('ordinary factual answers never include unsolicited AI or provider talk', async () => {
+  for (const reply of ['As an AI, I can help.', 'The show uses artificial intelligence.', 'Our system prompt says this.', 'An A.I. assistant prepared this.', 'I’m powered by Anthropic.']) {
+    const f = fixture({ result: JSON.stringify({ action: 'answer', reply }) })
+    assert.equal(await f.ask('When do doors open?', true), null)
+    assert.match(f.calls.model.hostSystemPrompt, /Never claim to be human/)
+  }
+})
+
 test('the public context is not rehearsal copy and the verified December 1 midnight reply names Central', async () => {
   const f = fixture({ result: '{"action":"answer","reply":"The premiere starts December 1st at midnight. It’s free."}' })
   assert.equal(await f.ask('What time is the premiere?', true), 'The premiere starts December 1st at midnight Central. It’s free.')

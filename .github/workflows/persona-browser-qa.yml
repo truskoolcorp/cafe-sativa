@@ -36,6 +36,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/persona-playwright/node_modules
         run: node tests/browser/stage/host-inbox-qa.cjs
+      - name: Exercise premiere phase gates, disclosure, and report SQL in isolation
+        run: |
+          npm install --prefix "$RUNNER_TEMP/stage-report-pg" --ignore-scripts --no-audit --no-fund --package-lock=false @electric-sql/pglite@0.5.17
+          REQUIRE_STAGE_REPORT_DB_TEST=1 NODE_PATH="$RUNNER_TEMP/stage-report-pg/node_modules" node --test tests/stage-conversation.test.cjs tests/stage-host-inbox.test.cjs tests/stage-premiere-reports.test.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

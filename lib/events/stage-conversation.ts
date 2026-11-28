@@ -3,7 +3,7 @@ import { generateConciergeResponse, type ConciergeMessage } from '@/lib/concierg
 import { canonicalConciergeHost } from '@/lib/content/concierge-canon'
 import { getUpcomingEvents } from '@/lib/events'
 import { voiceProgrammingContext } from '@/lib/concierge/programming'
-import { safeStageConversationText, stageConversationOutcome, STAGE_CONVERSATION_RULES, qualifyAhnikaPremiereTime } from './stage-conversation-policy'
+import { containsStageTechnologyAside, safeStageConversationText, stageConversationOutcome, stageDisclosureAnswer, STAGE_CONVERSATION_RULES, qualifyAhnikaPremiereTime } from './stage-conversation-policy'
 import { AHNIKA_PREMIERE_SLUG, isCanonicalAhnikaPremiere } from './ahnika-premiere-window'
 
 const stageReplySchema = {
@@ -23,12 +23,14 @@ export async function answerStageQuestion(input: {
   history: ConciergeMessage[]
   publicPremiere?: true
 }) {
+  if (!safeStageConversationText(input.question)) return null
+  const disclosure = stageDisclosureAnswer(input.question)
+  if (disclosure) return disclosure
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     console.info('[stage-conversation] missing_provider_configuration')
     return null
   }
-  if (!safeStageConversationText(input.question)) return null
   const [canonical, events] = await Promise.all([
     canonicalConciergeHost(input.host, AbortSignal.timeout(2500)).catch(() => null),
     getUpcomingEvents({ futureOnly: true, limit: 6 }).catch(() => []),
@@ -55,7 +57,7 @@ export async function answerStageQuestion(input: {
     const answer = stageConversationOutcome(result)
     if (answer.action === 'answer') {
       const reply = knownPremiere ? qualifyAhnikaPremiereTime(answer.reply) : answer.reply
-      return safeStageConversationText(reply) ? reply : null
+      return safeStageConversationText(reply) && !containsStageTechnologyAside(reply) ? reply : null
     }
     console.info('[stage-conversation] completion_held', answer.action)
     return null

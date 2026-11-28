@@ -241,3 +241,21 @@ test('premiere review: an ordinary guest cannot see or resolve another guest’s
   assert.equal((await f.call('GET',{roomId})).body.mine[0].answer_source,'moderator')
 })
 }
+
+test('premiere: Ahnika answers before and after, drops an answer crossing kickoff, and Laviche stays available', async () => {
+  const f=fixture(), roomId=premiereRoom
+  f.env.STAGE_PREMIERE_HOST_CHAT_ENABLED='true'
+  f.session.premierePhase='mingling'
+  const ask=(suffix, host='ahnika')=>f.call('POST',{roomId,host,id:'5cafe000-0000-4000-8000-0000000000'+suffix,question:'Tell me about tonight’s show.'})
+  f.setAnswer(()=> 'Welcome to The Stage.')
+  assert.equal((await ask('31')).body.item.answer,'Welcome to The Stage.')
+  f.setAnswer(()=>{f.session.premierePhase='hosted';f.session.performing=true;return 'This reply crossed kickoff.'})
+  assert.equal((await ask('32')).body.item.answer,null)
+  assert.equal((await ask('33')).status,409)
+  f.setAnswer(()=> 'I’m here if you need anything.')
+  assert.equal((await ask('34','laviche')).body.item.answer,'I’m here if you need anything.')
+  f.session.performing=false
+  f.setAnswer(()=> 'Thanks for listening to the set.')
+  assert.equal((await ask('35')).body.item.answer,'Thanks for listening to the set.')
+  assert.equal(f.observed.conversations.length,4)
+})

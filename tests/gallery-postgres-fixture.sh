@@ -301,9 +301,16 @@ declare o uuid; p uuid; g bigint;
 begin
  select id into strict o from public.orders where stripe_payment_intent_id='pi_test_typed_house';
  select product_id into strict p from public.order_items where order_id=o;
- if not public.cs_authorize_gallery_delivery(o) or
-   (select fulfillment_state from public.orders where id=o) is distinct from 'delivered'::public.fulfillment_state then
+ -- Keep the state-changing RPC and subsequent observation in separate SQL
+ -- statements; a subquery in the same boolean expression may read the pre-call snapshot.
+ if not public.cs_authorize_gallery_delivery(o) then
+  raise exception 'Typed fixture delivery authorization denied after private object exists';
+ end if;
+ if (select fulfillment_state from public.orders where id=o) is distinct from 'delivered'::public.fulfillment_state then
   raise exception 'Typed fixture delivery state not recorded';
+ end if;
+ if not public.cs_authorize_gallery_delivery(o) then
+  raise exception 'Typed fixture delivery authorization not idempotent';
  end if;
  g:=public.cs_record_gallery_refund_event_with_settlement(o,false,'house','evt_typed_house_refund','pi_test_typed_house','usd',1200,1200,true);
  if g<>2 or public.cs_authorize_gallery_delivery(o) or

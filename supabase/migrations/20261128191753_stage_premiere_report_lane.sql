@@ -87,3 +87,24 @@ end;
 $$;
 revoke all on function public.stage_premiere_review_report(uuid,uuid,uuid,text) from public, anon, authenticated;
 grant execute on function public.stage_premiere_review_report(uuid,uuid,uuid,text) to service_role;
+
+-- Close the gap between the API's last phase check and the database write.
+-- A held question stays pending. A human fallback reply remains attributed to staff.
+create function public.stage_premiere_performer_write_gate()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+declare
+  t timestamptz := pg_catalog.clock_timestamp();
+begin
+  if t >= '2026-12-01T06:00:00Z'::timestamptz and t < '2026-12-01T06:01:39.700Z'::timestamptz
+    and exists (select 1 from public.lounge_rooms where id = new.room_id and slug = 'ahnika-already-gone') then
+    return null;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.stage_premiere_performer_write_gate() from public, anon, authenticated;
+grant execute on function public.stage_premiere_performer_write_gate() to service_role;
+create trigger stage_premiere_performer_write_gate
+  before insert or update of answer, answer_source, host, room_id on public.stage_host_questions
+  for each row when (new.host = 'ahnika' and new.answer_source = 'verified_host' and new.answer is not null)
+  execute function public.stage_premiere_performer_write_gate();
